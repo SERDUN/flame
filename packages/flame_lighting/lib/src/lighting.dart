@@ -38,6 +38,7 @@ class Lighting extends Component {
     this.darkness = 0.65,
     this.glow = 0.35,
     this.haze = 0.4,
+    this.floor,
     super.priority = 1000,
   });
 
@@ -54,6 +55,13 @@ class Lighting extends Component {
   /// light into a wide soft halo round its source, as a lamp in a wet night
   /// glows far beyond its bulb.
   double haze;
+
+  /// The ground, seen from the side: a band of the view, its top edge the
+  /// line things stand on, going away from the viewer up to it. Where a
+  /// light's cone reaches the ground it lays a pool of light on it - a lamp
+  /// a wide one under itself, a torch a long one ahead of the walker.
+  /// `null`: no ground to light.
+  Rect? floor;
 
   /// The lighting drawing now, for the [Emissive] parts it draws.
   static Lighting? get current => _current;
@@ -135,12 +143,14 @@ class Lighting extends Component {
       _drawLight(canvas, light, _cut, 1, light.strength.clamp(0.0, 1.0));
       // The air glowing round a source lets its halo through the night.
       _cutHalo(canvas, light);
+      _drawPool(canvas, light, _cut, 1);
     }
     canvas.restore();
 
     if (glow > 0) {
       for (final light in lights) {
         _drawLight(canvas, light, _add, glow, light.strength);
+        _drawPool(canvas, light, _add, glow);
       }
     }
 
@@ -188,6 +198,80 @@ class Lighting extends Component {
       const [0, 0.25, 1],
     );
     canvas.drawCircle(center, radius, _cut);
+  }
+
+  /// The pool of light [light] lays on the [floor]: where its cone meets
+  /// the ground. From the light's height and the angles of its cone's edges
+  /// it works out the stretch of ground lit - ahead of a torch tilted down,
+  /// round the foot of a lamp shining straight down - and lays an oval of
+  /// light over it on the floor band, fading with the way the light went.
+  void _drawPool(Canvas canvas, LightSource light, Paint paint, double amount) {
+    final floor = this.floor;
+    final cone = light.coneAngle;
+    if (floor == null || cone == null) {
+      return;
+    }
+    final at = light.absolutePosition;
+    final height = floor.top - at.y;
+    final axis = light.coneDirection;
+    if (height <= 0 || math.sin(axis) <= 0.05) {
+      return;
+    }
+    // How far along the beam the ground is, at its axis.
+    final along = height / math.sin(axis);
+    if (along >= light.radius) {
+      return;
+    }
+    // Where each edge of the cone meets the ground - or, if it points up or
+    // runs out first, how far the light reaches along it.
+    double meet(double angle) {
+      final down = math.sin(angle);
+      final reach = light.radius * math.cos(angle);
+      if (down <= 0.02) {
+        return at.x + reach;
+      }
+      final x = at.x + height * math.cos(angle) / down;
+      return (reach >= 0
+          ? math.min(x, at.x + reach)
+          : math.max(x, at.x + reach));
+    }
+
+    final a = meet(axis - cone / 2);
+    final b = meet(axis + cone / 2);
+    final left = math.min(a, b);
+    final right = math.max(a, b);
+    final width = right - left;
+    if (width < 1) {
+      return;
+    }
+    final falloff = math.pow(1 - along / light.radius, 2).toDouble();
+    final alpha = (amount * light.strength * falloff * 1.6).clamp(0.0, 1.0);
+    if (alpha <= 0.01) {
+      return;
+    }
+    final center = Offset(
+      (left + right) / 2,
+      floor.top + floor.height * 0.35,
+    );
+    final halfHeight = floor.height * 0.4;
+    canvas
+      ..save()
+      ..clipRect(floor)
+      ..translate(center.dx, center.dy)
+      ..scale(width / 2, halfHeight);
+    paint.shader = Gradient.radial(
+      Offset.zero,
+      1,
+      [
+        light.color.withValues(alpha: alpha),
+        light.color.withValues(alpha: alpha * 0.4),
+        light.color.withValues(alpha: 0),
+      ],
+      const [0, 0.45, 1],
+    );
+    canvas
+      ..drawCircle(Offset.zero, 1, paint)
+      ..restore();
   }
 
   double _time = 0;

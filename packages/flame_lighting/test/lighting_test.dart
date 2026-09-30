@@ -57,6 +57,7 @@ Future<void> _setUp(
   List<Component> extra, {
   double haze = 0,
   double glow = 0,
+  Rect? floor,
   Color wall = const Color(0xFFFFFFFF),
 }) async {
   game.camera.viewfinder.anchor = Anchor.topLeft;
@@ -67,6 +68,7 @@ Future<void> _setUp(
       darkness: 1,
       glow: glow,
       haze: haze,
+      floor: floor,
     ),
     ...extra,
   ]);
@@ -177,6 +179,29 @@ void main() {
       // The beam at (450, 300), mirrored about 400 to (450, 500), far from the
       // torch; behind the torch there is no beam to mirror.
       expect(at(450, 500), greaterThan(at(150, 500) + 10));
+    },
+  );
+
+  testWithFlameGame(
+    'a torch tilted down lays a pool of light ahead on the ground',
+    (
+      game,
+    ) async {
+      await _setUp(game, [
+        // Held 40 over the ground, shining right and a little down.
+        LightSource(
+          position: Vector2(300, 360),
+          radius: 300,
+          coneAngle: 0.6,
+          coneDirection: 0.3,
+          sourceRadius: 0,
+        ),
+      ], floor: const Rect.fromLTWH(0, 400, 800, 150));
+      final at = await _render(game);
+      // Down in the ground band, where the beam itself never reaches on
+      // screen: lit ahead of the torch, dark behind it.
+      expect(at(460, 480), greaterThan(40));
+      expect(at(150, 480), lessThan(5));
     },
   );
 }
