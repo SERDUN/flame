@@ -144,6 +144,8 @@ List<Component> street() => [
 ];
 
 /// A film of water over the whole road: a faint, squeezed mirror.
+/// Drops on the road make small, short rings in its film of water, bending
+/// its faint mirror as a puddle's rings bend its clear one.
 WaterSurface wetRoad({double reflectivity = 0.14}) => WaterSurface(
   position: Vector2(0, groundLine),
   size: Vector2(800, 120),
@@ -154,6 +156,9 @@ WaterSurface wetRoad({double reflectivity = 0.14}) => WaterSurface(
   squash: 0.6,
   fade: 0.9,
   tint: const Color(0x2219202A),
+  ripples: RippleRings(capacity: 64, lifeSec: 0.45, maxRadius: 10),
+  rippleColor: const Color(0x22FFFFFF),
+  waveAmplitude: 2.5,
 );
 
 /// A puddle lying on the road in front of the walker: its water line is the
@@ -178,4 +183,23 @@ WaterSurface puddle({
   squash: squash,
   fade: fade,
   tint: const Color(0x2230405A),
+  rippleColor: const Color(0x55FFFFFF),
+  waveAmplitude: 5,
 );
+
+/// Where a drop lands: in the first puddle that covers the spot, else on the
+/// wet [road], where it makes a weaker ring.
+void landOn(
+  List<WaterSurface> puddles,
+  WaterSurface? road,
+  Vector2 at,
+  double strength,
+) {
+  for (final p in puddles) {
+    if (p.covers(at)) {
+      p.splash(at, strength: strength);
+      return;
+    }
+  }
+  road?.splash(at, strength: strength * 0.7);
+}

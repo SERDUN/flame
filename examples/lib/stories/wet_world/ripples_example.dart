@@ -12,36 +12,34 @@ class RipplesExample extends FlameGame with TapCallbacks {
       );
 
   static const String description = '''
-    Rain on the street: every drop lands somewhere on the road, and one that
-    lands in a puddle starts a ring there - a heavy drop a bigger, brighter
-    one. Tap a puddle to splash it yourself.
+    Rain on the street: every drop lands somewhere on the road, and where it
+    lands the water ripples - a ring in a puddle, a small quick one in the film
+    on the road - and the ring bends the reflection around it, through the
+    water shader. Tap a puddle to splash it yourself.
   ''';
 
   final double dropsPerSec;
-  final List<WaterSurface> _water = [];
+  final List<WaterSurface> _puddles = [];
+  final WaterSurface _road = wetRoad();
 
   @override
   Future<void> onLoad() async {
+    await WaterShader.load();
     camera.viewfinder.anchor = Anchor.topLeft;
-    _water.addAll([
+    _puddles.addAll([
       puddle(left: 260, width: 320),
       puddle(left: 90, width: 110, top: 395, height: 26),
     ]);
     await world.addAll([
       ...street(),
-      wetRoad(),
-      ..._water,
+      _road,
+      ..._puddles,
       Rain(dropsPerSec: dropsPerSec, onLand: _land),
     ]);
   }
 
-  void _land(Vector2 at, double strength) {
-    for (final water in _water) {
-      if (water.covers(at)) {
-        water.splash(at, strength: strength);
-      }
-    }
-  }
+  void _land(Vector2 at, double strength) =>
+      landOn(_puddles, _road, at, strength);
 
   @override
   void onTapDown(TapDownEvent event) {
