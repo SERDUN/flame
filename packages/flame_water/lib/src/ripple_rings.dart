@@ -80,6 +80,24 @@ class RippleRings {
     return (maxRadius * grow * (0.5 + 0.5 * strength), (1 - t) * strength);
   }
 
+  /// Calls [each] with the live rings, newest first, at most [limit] of them:
+  /// centre, radius and opacity.
+  void forEachNewest(
+    int limit,
+    void Function(double x, double y, double radius, double opacity) each,
+  ) {
+    var seen = 0;
+    for (var k = 1; k <= capacity && seen < limit; k++) {
+      final i = (_next - k) % capacity;
+      final r = ring(i);
+      if (r == null) {
+        continue;
+      }
+      each(_x[i], _y[i], r.$1, r.$2);
+      seen++;
+    }
+  }
+
   /// Draws every live ring with [paint] (a stroke), its opacity scaled by each
   /// ring's.
   void render(Canvas canvas, Paint paint) {

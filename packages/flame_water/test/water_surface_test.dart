@@ -19,7 +19,7 @@ Future<Color Function(int x, int y)> _draw(WaterSurface surface) async {
   surface.renderTree(Canvas(recorder));
   final image = await recorder.endRecording().toImage(100, 140);
   final bytes = (await image.toByteData())!;
-  return (x, y) {
+  return (int x, int y) {
     final i = (y * 100 + x) * 4;
     return Color.fromARGB(
       bytes.getUint8(i + 3),
@@ -90,7 +90,7 @@ void main() {
     final seen = <bool>[];
     final surface = _surface();
     await game.world.addAll([
-      _Probe(position: Vector2(40, 80), onRender: seen.add),
+      _Probe(seen: seen, position: Vector2(40, 80)),
       surface,
     ]);
     await game.ready();
@@ -111,11 +111,11 @@ void main() {
 }
 
 class _Probe extends PositionComponent with Reflectable {
-  _Probe({super.position, required this.onRender})
-    : super(size: Vector2.all(10));
+  _Probe({required this.seen, super.position}) : super(size: Vector2.all(10));
 
-  final void Function(bool) onRender;
+  /// Whether each render was a reflection.
+  final List<bool> seen;
 
   @override
-  void render(Canvas canvas) => onRender(ReflectionPass.isActive);
+  void render(Canvas canvas) => seen.add(ReflectionPass.isActive);
 }

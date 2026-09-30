@@ -4,6 +4,19 @@ import 'package:flame/components.dart';
 import 'package:flame/extensions.dart';
 import 'package:flame_water/src/reflection_pass.dart';
 import 'package:flame_water/src/ripple_rings.dart';
+import 'package:flame_water/src/water_shader.dart';
+
+/// How a surface draws its reflection.
+enum WaterQuality {
+  /// The mirrored components drawn straight through the canvas: no offscreen
+  /// render, rings drawn over a still reflection. Works everywhere.
+  mirror,
+
+  /// The mirror rendered into an image once a frame and drawn through the
+  /// water shader, which bends it around every ring. Needs
+  /// [WaterShader.load]; falls back to [mirror] until then.
+  rippled,
+}
 
 /// The outline of a stretch of water inside its component's rectangle.
 enum WaterShape {
@@ -18,10 +31,15 @@ enum WaterShape {
 ///
 /// Everything [Reflectable] is drawn again upside down about [waterLine],
 /// clipped to the water's [shape], squeezed by [squash] and faded with depth,
-/// over the water's own [color] and under its [tint]. No image of the scene
-/// is made: the reflected components are drawn a second time through the
-/// canvas, so this costs draw calls, not an offscreen render, and works on
-/// every renderer (the web included).
+/// over the water's own [color] and under its [tint].
+///
+/// At [WaterQuality.mirror] no image of the scene is made: the reflected
+/// components are drawn a second time through the canvas, so this costs draw
+/// calls, not an offscreen render, and works on every renderer (the web
+/// included). At [WaterQuality.rippled] the mirror is rendered into an image
+/// of [resolution] pixels per unit and the water shader bends it around each
+/// ring, [waveAmplitude] units at most, so drops visibly disturb what the
+/// water shows.
 ///
 /// Rain hitting it is [splash]ed into [ripples].
 ///
@@ -43,7 +61,12 @@ class WaterSurface extends PositionComponent {
     RippleRings? ripples,
     this.rippleColor = const Color(0x99FFFFFF),
     this.reflects = _isReflectable,
-  }) : ripples = ripples ?? RippleRings();
+    this.quality = WaterQuality.rippled,
+    this.resolution = 1,
+    this.waveAmplitude = 3,
+    double? wavelength,
+  }) : ripples = ripples ?? RippleRings(),
+       wavelength = wavelength ?? (ripples?.maxRadius ?? 24) * 0.4;
 
   static bool _isReflectable(Component c) => c is Reflectable;
 
@@ -80,6 +103,22 @@ class WaterSurface extends PositionComponent {
   /// Which components the water mirrors, and with them everything under
   /// them. By default the [Reflectable] ones.
   bool Function(Component) reflects;
+
+  WaterQuality quality;
+
+  /// Pixels of the reflection image per local unit at
+  /// [WaterQuality.rippled]: lower is cheaper and softer.
+  double resolution;
+
+  /// How far a ring shifts the reflection at its crest, local units.
+  double waveAmplitude;
+
+  /// Length of a ring's wave, local units.
+  double wavelength;
+
+  Image? _image;
+  FragmentShader? _shader;
+  final Paint _shaderPaint = Paint();
 
   final Paint _water = Paint();
   final Paint _layer = Paint();
@@ -138,15 +177,14 @@ class WaterSurface extends PositionComponent {
         rect,
         _layer..color = Color.fromRGBO(0, 0, 0, reflectivity.clamp(0.0, 1.0)),
       );
-      canvas
-        ..save()
-        // Mirror about the water line, squeezed, then back to world
-        // coordinates, where the reflected components draw themselves.
-        ..translate(0, line)
-        ..scale(1, -squash)
-        ..translate(-origin.x, -origin.y - line);
-      ReflectionPass.run(this, () => _renderReflected(_root(), canvas));
-      canvas.restore();
+      final program = WaterShader.program;
+      if (quality == WaterQuality.rippled && program != null) {
+        _drawRippled(canvas, rect, line, origin, program);
+      } else {
+        canvas.save();
+        _mirror(canvas, line, origin);
+        canvas.restore();
+      }
       if (fade > 0) {
         _fadePaint.shader = Gradient.linear(
           Offset(0, line),
@@ -166,6 +204,67 @@ class WaterSurface extends PositionComponent {
     }
     ripples.render(canvas, _ripplePaint..color = rippleColor);
     canvas.restore();
+  }
+
+  /// Draws the reflection into [canvas], which is in the surface's own
+  /// coordinates: mirrored about the water line, squeezed, then back to world
+  /// coordinates, where the reflected components draw themselves.
+  void _mirror(Canvas canvas, double line, Vector2 origin) {
+    canvas
+      ..translate(0, line)
+      ..scale(1, -squash)
+      ..translate(-origin.x, -origin.y - line);
+    ReflectionPass.run(this, () => _renderReflected(_root(), canvas));
+  }
+
+  /// The mirror rendered into an image and drawn through the water shader,
+  /// bent around the newest rings.
+  void _drawRippled(
+    Canvas canvas,
+    Rect rect,
+    double line,
+    Vector2 origin,
+    FragmentProgram program,
+  ) {
+    final width = (size.x * resolution).ceil();
+    final height = (size.y * resolution).ceil();
+    if (width <= 0 || height <= 0) {
+      return;
+    }
+    final recorder = PictureRecorder();
+    _mirror(Canvas(recorder)..scale(resolution), line, origin);
+    final picture = recorder.endRecording();
+    _image?.dispose();
+    final image = _image = picture.toImageSync(width, height);
+    picture.dispose();
+
+    final shader = _shader ??= program.fragmentShader();
+    var count = 0;
+    shader.setFloatUniforms((u) {
+      u
+        ..setVector(size)
+        ..setFloat(0) // the ring count, set below
+        ..setFloat(ripples.flatten)
+        ..setFloat(wavelength);
+      ripples.forEachNewest(WaterShader.maxRings, (x, y, radius, opacity) {
+        u.setFloats([x, y, radius, waveAmplitude * opacity]);
+        count++;
+      });
+      for (var i = count; i < WaterShader.maxRings; i++) {
+        u.setFloats(const [0, 0, 0, 0]);
+      }
+    });
+    shader
+      ..setFloat(2, count.toDouble())
+      ..setImageSampler(0, image);
+    canvas.drawRect(rect, _shaderPaint..shader = shader);
+  }
+
+  @override
+  void onRemove() {
+    _image?.dispose();
+    _image = null;
+    super.onRemove();
   }
 
   Component _root() {
