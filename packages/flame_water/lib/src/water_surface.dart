@@ -3,9 +3,12 @@ import 'dart:ui';
 import 'package:flame/components.dart';
 import 'package:flame/extensions.dart';
 import 'package:flame_lighting/flame_lighting.dart';
+import 'package:flame_water/src/rain.dart';
+import 'package:flame_water/src/rain_catcher.dart';
 import 'package:flame_water/src/reflection_pass.dart';
 import 'package:flame_water/src/ripple_rings.dart';
 import 'package:flame_water/src/water_shader.dart';
+import 'package:flame_water/src/wettable.dart';
 
 /// How a surface draws its reflection.
 enum WaterQuality {
@@ -51,7 +54,8 @@ enum WaterShape {
 ///
 /// The surface must not be rotated or scaled, nor its parents: it maps world
 /// coordinates to its own by its absolute top-left corner.
-class WaterSurface extends PositionComponent with LightMirror {
+class WaterSurface extends PositionComponent
+    with LightMirror, RainCatcher, Wettable {
   WaterSurface({
     super.position,
     super.size,
@@ -74,13 +78,18 @@ class WaterSurface extends PositionComponent with LightMirror {
     double? waveAmplitude,
     double? wavelength,
     this.streak = 0,
-    this.chop = 0,
+    this.chopPerRain = 0,
+    this.film = false,
     this.glowGain = 4,
+    double wetness = 1,
   }) : ripples = ripples ?? RippleRings.forDepth(depth),
        waveAmplitude = waveAmplitude ?? 1.5 + 3.5 * depth.clamp(0.0, 1.0),
        wavelength =
            wavelength ??
-           (ripples ?? RippleRings.forDepth(depth)).maxRadius * 0.4;
+           (ripples ?? RippleRings.forDepth(depth)).maxRadius * 0.4 {
+    // A film starts as wet as the scene says; standing water is water.
+    this.wetness = wetness;
+  }
 
   static bool _isReflectable(Component c) => c is Reflectable;
 
@@ -150,11 +159,49 @@ class WaterSurface extends PositionComponent with LightMirror {
   /// mirrors as much as a puddle does; only how rough it lies differs.
   double streak;
 
-  /// How far the restless chop rain keeps on the whole surface shifts what
-  /// it mirrors, local units: 0 still water; on a road in the rain it breaks
-  /// every reflection into wavering bands. Drawn by the water shader, so
-  /// only at [WaterQuality.rippled].
-  double chop;
+  /// How far the restless chop the world's [Rain] keeps on the surface
+  /// shifts what it mirrors, local units per unit of rain intensity: 0
+  /// still water; on a road in the rain it breaks every reflection into
+  /// wavering bands, stronger the harder it rains. Drawn by the water
+  /// shader, so only at [WaterQuality.rippled].
+  double chopPerRain;
+
+  /// The chop now, from the rain over the world.
+  double get chop => chopPerRain * (Rain.of(this)?.intensity ?? 0);
+
+  /// A film of water on the ground rather than standing water: it comes as
+  /// the ground gets wet ([wetness]) and goes as it dries, mirroring only as
+  /// much as it is wet. A puddle is not a film: it is water all the time.
+  bool film;
+
+  /// How much it mirrors now: [reflectivity], times its wetness for a film.
+  double get _shown => film ? reflectivity * wetness : reflectivity;
+
+  // Rain lands on it: at its depth on the ground, if the water covers that
+  // spot; a deeper water takes a drop from a shallower one under it.
+
+  @override
+  double? catchDrop(double x, double fromY, double toY, double depth) {
+    if (depth < 0) {
+      // Rain behind the street line never reaches water on the ground.
+      return null;
+    }
+    final origin = absoluteTopLeftPosition;
+    final band =
+        Ground.of(this)?.groundBand() ??
+        Rect.fromLTWH(origin.x, origin.y, size.x, size.y);
+    final y = band.top + 4 + depth * (band.height - 8);
+    if (y <= fromY || y > toY || !covers(Vector2(x, y))) {
+      return null;
+    }
+    return y;
+  }
+
+  @override
+  int get catchOrder => (depth * 100).round();
+
+  @override
+  void onDrop(Vector2 at, double strength) => splash(at, strength: strength);
 
   double _time = 0;
 
@@ -173,7 +220,7 @@ class WaterSurface extends PositionComponent with LightMirror {
 
   @override
   void renderMirroredGlow(Canvas canvas, void Function(Canvas canvas) glow) {
-    final strength = (reflectivity * grazing).clamp(0.0, 1.0);
+    final strength = (_shown * grazing).clamp(0.0, 1.0);
     if (strength <= 0) {
       return;
     }
@@ -319,10 +366,10 @@ class WaterSurface extends PositionComponent with LightMirror {
     _openArea(canvas, rect, _area);
     canvas.drawPath(outline, _water..color = color);
 
-    if (reflectivity > 0) {
+    if (_shown > 0) {
       canvas.saveLayer(
         rect,
-        _layer..color = Color.fromRGBO(0, 0, 0, reflectivity.clamp(0.0, 1.0)),
+        _layer..color = Color.fromRGBO(0, 0, 0, _shown.clamp(0.0, 1.0)),
       );
       final program = WaterShader.program;
       void scene(Canvas c) => _mirror(
