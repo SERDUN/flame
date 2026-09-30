@@ -32,8 +32,10 @@ class Houses extends PositionComponent
     with Reflectable, Glossy, Wettable, RainCatcher {
   Houses({bool lit = false})
     : super(position: Vector2(0, 170), size: Vector2(800, 160)) {
-    // The scene opens in the rain: the houses are wet already.
+    // The scene opens in the rain: the houses are wet already. Upright,
+    // they shed their water fast once the rain stops.
     wetness = 1;
+    dryRate = 0.05;
     if (!lit) {
       return;
     }
@@ -310,4 +312,5 @@ WaterSurface puddle({
   // Still water: nearly a clear mirror.
   streak: 6,
   chopPerRain: 1.2,
-);
+  // Standing water: it is the last to go when the street dries.
+)..dryRate = 0.006;
