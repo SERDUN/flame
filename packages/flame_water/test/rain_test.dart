@@ -123,5 +123,8 @@ void main() {
     final small = puddle.outline().getBounds().width;
     puddle.wetness = 1;
     expect(puddle.outline().getBounds().width, greaterThan(small * 2));
+    puddle.wetness = 0;
+    expect(puddle.outline().getBounds().isEmpty, isTrue, reason: 'dry: gone');
+    expect(puddle.covers(Vector2(100, 20)), isFalse);
   });
 }

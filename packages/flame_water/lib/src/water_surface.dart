@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'dart:ui';
 
 import 'package:flame/components.dart';
@@ -225,7 +226,7 @@ class WaterSurface extends PositionComponent
     void Function(Canvas canvas, double headroom) glow,
   ) {
     final strength = (_shown * grazing).clamp(0.0, 1.0);
-    if (strength <= 0) {
+    if (strength <= 0 || _dry) {
       return;
     }
     final rect = size.toRect();
@@ -331,10 +332,15 @@ class WaterSurface extends PositionComponent
     ..style = PaintingStyle.stroke
     ..strokeWidth = 1.2;
 
-  /// How much of its shape a pool fills now: standing water shrinks as the
-  /// ground dries - a puddle on barely wet ground is a small dark patch.
-  /// A film always covers its ground; its wetness shows in its mirror.
-  double get _fill => film ? 1 : 0.3 + 0.7 * wetness.clamp(0.0, 1.0);
+  /// How much of its shape a pool fills now, across: standing water
+  /// shrinks as the ground dries - its area goes with the water in it, so
+  /// on barely wet ground a puddle is a small patch, and on dry ground there
+  /// is none. A film always covers its ground; its wetness shows in its
+  /// mirror.
+  double get _fill => film ? 1 : math.sqrt(wetness.clamp(0.0, 1.0));
+
+  /// Whether there is any water to draw.
+  bool get _dry => film ? _shown <= 0 : _fill <= 0;
 
   /// The water's outline in its own coordinates.
   Path outline() {
@@ -377,6 +383,9 @@ class WaterSurface extends PositionComponent
 
   @override
   void render(Canvas canvas) {
+    if (!film && _dry) {
+      return;
+    }
     final rect = size.toRect();
     final origin = absoluteTopLeftPosition;
     final line = (waterLine ?? origin.y) - origin.y;
