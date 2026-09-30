@@ -10,6 +10,7 @@ class RainyNightExample extends FlameGame {
     this.glow = 0.35,
     this.haze = 0.5,
     this.rain = 1,
+    this.wetness = 1,
   }) : super(
          camera: CameraComponent.withFixedResolution(width: 800, height: 450),
        );
@@ -28,6 +29,10 @@ class RainyNightExample extends FlameGame {
   final double haze;
   final double rain;
 
+  /// How wet the street can get, from barely damp to soaked: everything
+  /// that gets wet is capped there and starts there.
+  final double wetness;
+
   @override
   Future<void> onLoad() async {
     await WaterShader.load();
@@ -40,5 +45,10 @@ class RainyNightExample extends FlameGame {
       Lighting(darkness: darkness, glow: glow, haze: haze),
       Rain(intensity: rain),
     ]);
+    for (final wet in world.descendants().whereType<Wettable>()) {
+      wet
+        ..wetnessCap = wetness
+        ..wetness = wetness;
+    }
   }
 }

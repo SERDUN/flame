@@ -12,7 +12,10 @@ void main() {
   // at WET_WORLD_SECONDS.
   testWithGame<RainyNightExample>(
     'the rainy night renders',
-    RainyNightExample.new,
+    () => RainyNightExample(
+      wetness:
+          double.tryParse(Platform.environment['WET_WORLD_WETNESS'] ?? '') ?? 1,
+    ),
     (game) async {
       game.onGameResize(Vector2(800, 450));
       // WET_WORLD_SECONDS picks the moment to look at (3 s by default).

@@ -18,6 +18,7 @@ void addWetWorldStories(Dashbook dashbook) {
           glow: context.numberProperty('glow', 0.35),
           haze: context.numberProperty('haze', 0.5),
           rain: context.numberProperty('rain', 1),
+          wetness: context.numberProperty('ground wetness', 1),
         ),
       ),
       codeLink: _forkLink('rainy_night_example.dart'),
