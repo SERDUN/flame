@@ -17,7 +17,7 @@ void addWetWorldStories(Dashbook dashbook) {
           darkness: context.numberProperty('darkness', 0.7),
           glow: context.numberProperty('glow', 0.35),
           haze: context.numberProperty('haze', 0.5),
-          dropsPerSec: context.numberProperty('drops per second', 250),
+          rain: context.numberProperty('rain', 1),
         ),
       ),
       codeLink: _forkLink('rainy_night_example.dart'),
@@ -40,7 +40,7 @@ void addWetWorldStories(Dashbook dashbook) {
       'Ripples',
       (context) => GameWidget(
         game: RipplesExample(
-          dropsPerSec: context.numberProperty('drops per second', 250),
+          rain: context.numberProperty('rain', 1),
         ),
       ),
       codeLink: _forkLink('ripples_example.dart'),

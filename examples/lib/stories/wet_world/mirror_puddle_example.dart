@@ -1,4 +1,3 @@
-import 'package:examples/stories/wet_world/rain.dart';
 import 'package:examples/stories/wet_world/street.dart';
 import 'package:flame/components.dart';
 import 'package:flame/game.dart';
@@ -31,8 +30,9 @@ class MirrorPuddleExample extends FlameGame {
   Future<void> onLoad() async {
     await WaterShader.load();
     camera.viewfinder.anchor = Anchor.topLeft;
-    final road = wetRoadOn ? wetRoad() : null;
-    final puddles = [
+    await world.addAll([
+      ...street(),
+      if (wetRoadOn) wetRoad(),
       puddle(
         left: 260,
         width: 320,
@@ -41,15 +41,7 @@ class MirrorPuddleExample extends FlameGame {
         fade: fade,
       ),
       puddle(left: 500, width: 130, top: 398, height: 44),
-    ];
-    await world.addAll([
-      ...street(),
-      ?road,
-      ...puddles,
-      Rain(
-        dropsPerSec: 250,
-        onLand: (at, strength) => landOn(puddles, road, at, strength),
-      ),
+      Rain(),
     ]);
   }
 }

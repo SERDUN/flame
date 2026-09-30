@@ -25,11 +25,15 @@ class Sky extends PositionComponent with Reflectable {
 /// A row of house fronts against the sky, with a few lit windows. With
 /// `lit` each lit window gives a little warm light, one of them flickering.
 ///
-/// Their fronts are wet ([Glossy]): the lamps glint off them and water
-/// runs down them. Rain breaks on their roofs and window sills ([ledges]).
-class Houses extends PositionComponent with Reflectable, Glossy {
+/// What the rain does to them is theirs: they get wet ([Wettable]) and, as
+/// wet as they are, the lamps glint off their fronts ([Glossy]); rain
+/// breaks on their roofs and window sills ([RainCatcher]).
+class Houses extends PositionComponent
+    with Reflectable, Glossy, Wettable, RainCatcher {
   Houses({bool lit = false})
     : super(position: Vector2(0, 170), size: Vector2(800, 160)) {
+    // The scene opens in the rain: the houses are wet already.
+    wetness = 1;
     if (!lit) {
       return;
     }
@@ -57,7 +61,7 @@ class Houses extends PositionComponent with Reflectable, Glossy {
   static const double _w = 800 / 7;
 
   @override
-  double get gloss => 0.55;
+  double get gloss => 0.6 * wetness;
 
   @override
   Path glossArea() {
@@ -73,25 +77,34 @@ class Houses extends PositionComponent with Reflectable, Glossy {
   }
 
   /// Where rain breaks on the houses, world coordinates: every roof, and the
-  /// sill under every lit window.
-  List<Ledge> ledges() {
+  /// sill under every lit window - as (left, right, y).
+  Iterable<(double, double, double)> _ledges() sync* {
     final origin = absoluteTopLeftPosition;
-    return [
-      for (var i = 0; i < _heights.length; i++) ...[
-        Ledge(
-          origin.x + i * _w + 4,
-          origin.x + (i + 1) * _w - 4,
-          origin.y + size.y - _heights[i],
-        ),
-        for (var j = 0; j < 3; j++)
-          if ((i + j).isEven)
-            Ledge(
-              origin.x + i * _w + 16 + j * 28,
-              origin.x + i * _w + 34 + j * 28,
-              origin.y + size.y - _heights[i] + 41,
-            ),
-      ],
-    ];
+    for (var i = 0; i < _heights.length; i++) {
+      final top = origin.y + size.y - _heights[i];
+      yield (origin.x + i * _w + 4, origin.x + (i + 1) * _w - 4, top);
+      for (var j = 0; j < 3; j++) {
+        if ((i + j).isEven) {
+          final left = origin.x + i * _w + 16 + j * 28;
+          yield (left, left + 18, top + 41);
+        }
+      }
+    }
+  }
+
+  @override
+  double? catchDrop(double x, double fromY, double toY, double depth) {
+    // Only rain behind the street line reaches the roofs; the rest falls in
+    // front of the houses, onto the road.
+    if (depth >= 0) {
+      return null;
+    }
+    for (final (left, right, y) in _ledges()) {
+      if (x >= left && x <= right && fromY < y && toY >= y) {
+        return y;
+      }
+    }
+    return null;
   }
 
   final Paint _wall = Paint()..color = const Color(0xFF1C2230);
@@ -113,8 +126,6 @@ class Houses extends PositionComponent with Reflectable, Glossy {
         }
       }
     }
-    // The fronts are wet: the sheen lies on them, behind anyone in front.
-    renderSheen(canvas);
   }
 }
 
@@ -170,7 +181,7 @@ class Lamp extends PositionComponent with Reflectable {
 ///
 /// With `lit` the walker carries a torch: a narrow cool beam from the hand,
 /// forward and a little down onto the road, turning round with the walker.
-class Walker extends PositionComponent with Reflectable {
+class Walker extends PositionComponent with Reflectable, Facing {
   Walker({this.speed = 60, bool lit = false})
     : super(
         position: Vector2(120, groundLine),
@@ -178,24 +189,13 @@ class Walker extends PositionComponent with Reflectable {
         size: Vector2(40, 90),
       ) {
     if (lit) {
-      add(_torch);
-      _aimTorch();
+      // By the hip, in the leading hand; it turns with the walker itself.
+      add(Torch(hold: Vector2(28, 50)));
     }
   }
 
-  /// Where the torch is held, on the walker's drawing: by the hip.
-  static const double _handHeight = 50;
-
-  /// How far below level the beam points, radians.
-  static const double _tilt = 0.28;
-
-  final LightSource _torch = LightSource(
-    color: const Color(0xFFE6EEFF),
-    radius: 380,
-    coneAngle: 0.62,
-    intensity: 0.9,
-    sourceRadius: 1.6,
-  );
+  @override
+  double get facing => _direction;
 
   final double speed;
   double _direction = 1;
@@ -213,14 +213,6 @@ class Walker extends PositionComponent with Reflectable {
       _direction = -_direction;
       position.x = position.x.clamp(100, 700);
     }
-    _aimTorch();
-  }
-
-  /// The torch in the leading hand, its beam the way the walker goes.
-  void _aimTorch() {
-    _torch
-      ..position = Vector2(20 + 8 * _direction, _handHeight)
-      ..coneDirection = _direction > 0 ? _tilt : math.pi - _tilt;
   }
 
   @override
@@ -242,11 +234,15 @@ class Walker extends PositionComponent with Reflectable {
   }
 }
 
-/// The road from the ground line down: dark asphalt, not a mirror itself.
-class Road extends PositionComponent {
+/// The road from the ground line down: dark asphalt, not a mirror itself -
+/// the ground ([Ground]) lights lay pools on and rain lands on.
+class Road extends PositionComponent with Ground {
   Road() : super(position: Vector2(0, groundLine), size: Vector2(800, 120));
 
   final Paint _paint = Paint()..color = const Color(0xFF191C22);
+
+  @override
+  Rect groundBand() => toAbsoluteRect();
 
   @override
   void render(Canvas canvas) => canvas.drawRect(size.toRect(), _paint);
@@ -267,25 +263,25 @@ List<Component> street({bool lit = false}) => [
 /// much, only lying rough on the asphalt - so everything it mirrors, the
 /// street and the lamps alike, runs down it into a smear, and the rain keeps
 /// it astir.
-WaterSurface wetRoad({double reflectivity = 0.6, double chop = 4}) =>
-    WaterSurface(
-      position: Vector2(0, groundLine),
-      size: Vector2(800, 120),
-      shape: WaterShape.rect,
-      waterLine: groundLine,
-      color: const Color(0x00000000),
-      reflectivity: reflectivity,
-      squash: 0.6,
-      fade: 0.9,
-      tint: const Color(0x2219202A),
-      // A film of water: drops break on it into small quick rings.
-      depth: 0.1,
-      rippleColor: const Color(0xCCFFFFFF),
-      // Rough asphalt under the water: everything it mirrors runs down it.
-      streak: 45,
-      // The rain keeps the whole film astir, breaking every streak into bands.
-      chop: chop,
-    );
+WaterSurface wetRoad({double reflectivity = 0.6}) => WaterSurface(
+  position: Vector2(0, groundLine),
+  size: Vector2(800, 120),
+  shape: WaterShape.rect,
+  waterLine: groundLine,
+  color: const Color(0x00000000),
+  reflectivity: reflectivity,
+  squash: 0.6,
+  fade: 0.9,
+  tint: const Color(0x2219202A),
+  // A film of water: drops break on it into small quick rings.
+  depth: 0.1,
+  rippleColor: const Color(0xCCFFFFFF),
+  // Rough asphalt under the water: everything it mirrors runs down it.
+  streak: 45,
+  // A film: it comes and goes with the rain; the rain keeps it astir.
+  film: true,
+  chopPerRain: 4,
+);
 
 /// A puddle lying on the road in front of the walker: its water line is the
 /// line the street stands on, so feet meet their reflection. It shows the same
@@ -300,7 +296,6 @@ WaterSurface puddle({
   double reflectivity = 0.75,
   double squash = 0.6,
   double fade = 0.7,
-  double chop = 1.2,
 }) => WaterSurface(
   position: Vector2(left, top),
   size: Vector2(width, height),
@@ -314,31 +309,5 @@ WaterSurface puddle({
   rippleColor: const Color(0x66FFFFFF),
   // Still water: nearly a clear mirror.
   streak: 6,
-  chop: chop,
+  chopPerRain: 1.2,
 );
-
-/// Where a drop lands: in the first puddle that covers the spot, else on the
-/// wet [road], where it makes a weaker ring.
-void landOn(
-  List<WaterSurface> puddles,
-  WaterSurface? road,
-  Vector2 at,
-  double strength,
-) {
-  for (final p in puddles) {
-    if (p.covers(at)) {
-      p.splash(at, strength: strength);
-      return;
-    }
-  }
-  road?.splash(at, strength: strength * 0.7);
-}
-
-/// A level edge rain breaks on: a roof, a window sill. World coordinates.
-class Ledge {
-  const Ledge(this.left, this.right, this.y);
-
-  final double left;
-  final double right;
-  final double y;
-}
