@@ -2,6 +2,7 @@ import 'dart:ui';
 
 import 'package:flame/components.dart';
 import 'package:flame/extensions.dart';
+import 'package:flame_lighting/flame_lighting.dart';
 import 'package:flame_water/src/reflection_pass.dart';
 import 'package:flame_water/src/ripple_rings.dart';
 import 'package:flame_water/src/water_shader.dart';
@@ -43,9 +44,12 @@ enum WaterShape {
 ///
 /// Rain hitting it is [splash]ed into [ripples].
 ///
+/// Under a `Lighting` it is a [LightMirror]: the lights above it show in it
+/// as spots, drawn out [lightStretch] times down the water.
+///
 /// The surface must not be rotated or scaled, nor its parents: it maps world
 /// coordinates to its own by its absolute top-left corner.
-class WaterSurface extends PositionComponent {
+class WaterSurface extends PositionComponent with LightMirror {
   WaterSurface({
     super.position,
     super.size,
@@ -65,6 +69,7 @@ class WaterSurface extends PositionComponent {
     this.resolution = 1,
     this.waveAmplitude = 3,
     double? wavelength,
+    this.lightStretch = 1.5,
   }) : ripples = ripples ?? RippleRings(),
        wavelength = wavelength ?? (ripples?.maxRadius ?? 24) * 0.4;
 
@@ -115,6 +120,28 @@ class WaterSurface extends PositionComponent {
 
   /// Length of a ring's wave, local units.
   double wavelength;
+
+  /// How long the lights above it are drawn down the water against their
+  /// width: a still puddle shows a round spot, a wet road a long streak.
+  double lightStretch;
+
+  @override
+  double get mirrorLine => waterLine ?? absoluteTopLeftPosition.y;
+
+  @override
+  double get mirrorSquash => squash;
+
+  @override
+  double get mirrorStrength => reflectivity;
+
+  @override
+  double get mirrorStretch => lightStretch;
+
+  @override
+  Path mirrorClip() {
+    final origin = absoluteTopLeftPosition;
+    return outline().shift(Offset(origin.x, origin.y));
+  }
 
   Image? _image;
   FragmentShader? _shader;

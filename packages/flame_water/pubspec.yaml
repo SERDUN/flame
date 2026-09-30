@@ -14,6 +14,7 @@ environment:
 
 dependencies:
   flame: ^1.38.0
+  flame_lighting: ^0.1.0
   flutter:
     sdk: flutter
 
