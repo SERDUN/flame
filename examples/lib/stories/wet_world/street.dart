@@ -203,9 +203,9 @@ WaterSurface wetRoad({double reflectivity = 0.6, double chop = 4}) =>
       squash: 0.6,
       fade: 0.9,
       tint: const Color(0x2219202A),
-      ripples: RippleRings(capacity: 96, lifeSec: 0.6, maxRadius: 16),
-      rippleColor: const Color(0x22FFFFFF),
-      waveAmplitude: 6,
+      // A film of water: drops break on it into small quick rings.
+      depth: 0.1,
+      rippleColor: const Color(0x88FFFFFF),
       // Rough asphalt under the water: everything it mirrors runs down it.
       streak: 45,
       // The rain keeps the whole film astir, breaking every streak into bands.
@@ -235,8 +235,8 @@ WaterSurface puddle({
   squash: squash,
   fade: fade,
   tint: const Color(0x2230405A),
-  rippleColor: const Color(0x55FFFFFF),
-  waveAmplitude: 5,
+  // Water to spare (depth 1, the default): drops set off wide slow rings.
+  rippleColor: const Color(0x66FFFFFF),
   // Still water: nearly a clear mirror.
   streak: 6,
   chop: chop,
