@@ -27,6 +27,27 @@ mixin Wettable on Component {
   /// fast, a puddle holds its water long.
   double dryRate = 0.02;
 
+  /// How porous it is, `0..1`: 0 metal or glass, which water only lies on;
+  /// about 0.4 asphalt, 0.6 brick or plaster, which soak it up.
+  double porosity = 0.5;
+
+  /// How much of its colour the water in it takes away now, `0..1`. Water
+  /// filling the pores keeps light bouncing inside until much of it is
+  /// absorbed, so a porous thing goes darker as it wets - soaked, down to
+  /// a fifth of its colour at full porosity (Lagarde); metal not at all.
+  /// It darkens first, while the pores fill.
+  double get wetDarkening => 0.8 * porosity * _smooth(0, 0.5, wetness);
+
+  /// How much it shines now, `0..1`: a film of water forms on it only once
+  /// the pores are full, and goes first as it dries - a drying street is
+  /// dull and dark before it pales.
+  double get wetGloss => _smooth(0.4, 0.9, wetness);
+
+  static double _smooth(double from, double to, double x) {
+    final t = ((x - from) / (to - from)).clamp(0.0, 1.0);
+    return t * t * (3 - 2 * t);
+  }
+
   /// Whether it is out of the rain: under an awning, indoors.
   bool get sheltered => false;
 

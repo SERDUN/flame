@@ -6,7 +6,10 @@ import 'package:flame_water/flame_water.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 class _Block extends RectangleComponent with Reflectable {
-  _Block({super.position, super.size, super.paint});
+  _Block({super.position, super.size, super.paint, this.reflectionBase});
+
+  @override
+  final double? reflectionBase;
 }
 
 const _red = Color(0xFFFF0000);
@@ -35,7 +38,6 @@ WaterSurface _surface({double squash = 1}) => WaterSurface(
   size: Vector2(100, 40),
   shape: WaterShape.rect,
   color: _water,
-  reflectivity: 1,
   squash: squash,
   fade: 0,
 );
@@ -65,6 +67,29 @@ void main() {
       expect(pixel(50, 130), _water, reason: 'nothing reflected past 20');
       expect(pixel(10, 110), _water, reason: 'not reflectable');
       expect(pixel(80, 110), _water);
+    },
+  );
+
+  testWithFlameGame(
+    'something standing nearer is mirrored about where it stands',
+    (game) async {
+      final surface = _surface();
+      await game.world.addAll([
+        // 10 tall, standing on y 105 - below the water line at 100, as
+        // something nearer the eye stands lower in the view.
+        _Block(
+          position: Vector2(40, 85),
+          size: Vector2(20, 10),
+          paint: Paint()..color = _red,
+          reflectionBase: 105,
+        ),
+        surface,
+      ]);
+      await game.ready();
+      final pixel = await _draw(surface);
+      // Its bottom 10 above its base mirrors to 10 below it: 115..125.
+      expect(pixel(50, 120), _red, reason: 'mirrored about its own base');
+      expect(pixel(50, 108), _water, reason: 'not about the water line');
     },
   );
 
@@ -116,7 +141,6 @@ void main() {
       position: Vector2(0, 100),
       size: Vector2(100, 40),
       color: _water,
-      reflectivity: 1,
       fade: 0,
       edgeSoftness: 0.5,
     );

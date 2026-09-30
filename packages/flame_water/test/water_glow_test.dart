@@ -25,7 +25,6 @@ Future<WaterSurface> _scene(FlameGame game, {double streak = 0}) async {
     size: Vector2(800, 200),
     shape: WaterShape.rect,
     color: const Color(0xFF000000),
-    reflectivity: 1,
     fade: 0,
     streak: streak,
     waveAmplitude: 6,

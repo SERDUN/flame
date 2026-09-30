@@ -144,6 +144,7 @@ class Rain extends Component with Reflectable {
       perspective: perspective,
       response: RainDrops.responseSec(terminal),
       fall: fall,
+      diameter: diameter,
       strength: ((diameter - RainDrops.minMm) / 2.5).clamp(0.25, 1.0),
     );
   }
@@ -239,11 +240,34 @@ class Rain extends Component with Reflectable {
     return top;
   }
 
-  /// A drop bursting where it lands: a few droplets thrown up and out,
-  /// higher for a near, heavy drop.
+  /// How hard a drop of [diameterMm] hits at [speed] m/s, as the number
+  /// that tells whether it splashes: K = We^0.5 * Re^0.25, from its inertia
+  /// against the water's surface tension and viscosity.
+  static double impactNumber(double diameterMm, double speed) {
+    final d = diameterMm / 1000;
+    final weber = 1000 * speed * speed * d / 0.072;
+    final reynolds = 1000 * speed * d / 0.001;
+    return math.sqrt(weber) * math.pow(reynolds, 0.25);
+  }
+
+  /// Above this [impactNumber] a drop splashes on a rough solid surface; below
+  /// it the drop only spreads and wets.
+  static const double splashThreshold = 57.7;
+
+  /// A drop bursting where it lands, if it hits hard enough to splash: a
+  /// few droplets thrown up and out, more the harder it hits, higher for a
+  /// near, heavy drop. A fine drop only wets.
   void _burst(Vector2 at, _Drop d) {
+    final speed = d.velocity.length / (metre * d.perspective);
+    final k = impactNumber(d.diameter, speed);
+    if (k <= splashThreshold) {
+      return;
+    }
     final size = (0.5 + 0.5 * d.depth) * d.strength;
-    final count = 2 + (size * 3).round();
+    final count = (1 + 2 * (k / splashThreshold - 1) + size * 2).round().clamp(
+      1,
+      7,
+    );
     for (var i = 0; i < count; i++) {
       final side = _random.nextBool() ? 1 : -1;
       _droplets.add(
@@ -261,33 +285,54 @@ class Rain extends Component with Reflectable {
     }
   }
 
-  /// The rain's colour at [at], [alpha] times as bright as the light there.
+  /// The rain's colour at [at], [alpha] opaque: tinted by the lights
+  /// there.
   Color _lit(Lighting? lighting, Vector2 at, double alpha) {
-    if (lighting == null || ReflectionPass.isActive) {
-      return _water.withValues(alpha: alpha);
+    final a = alpha.clamp(0.0, 1.0);
+    if (lighting == null) {
+      return _water.withValues(alpha: a);
     }
     final (:light, :color) = lighting.lightAt(at);
     return Color.lerp(
       _water,
       color,
       (light - (1 - lighting.darkness)) * 0.8,
-    )!.withValues(alpha: (alpha * light * 1.3).clamp(0.0, 1.0));
+    )!.withValues(alpha: a);
   }
+
+  /// How bright a drop seen side-on in full light shows: the one scale the
+  /// streaks are drawn at; everything else about how bright a drop is
+  /// follows from the light on it and how it moves.
+  static const double visibility = 0.7;
+
+  /// A 2 mm drop's diameter over its terminal speed: what a streak's
+  /// exposure is measured against.
+  static final double _referenceExposure = 2 / RainDrops.terminalSpeed(2);
 
   @override
   void render(Canvas canvas) {
     final lighting = Lighting.of(this);
+    final span = Ground.of(this)?.depthSpan ?? 0;
+    final mirror = ReflectionPass.current;
     for (final d in _drops) {
       final speed = d.velocity.length;
       final length = RainDrops.streakLength(speed / metre) * metre;
+      // A drop is seen by the light it throws to the eye - from the lamps
+      // round it, far more from one it is in front of - and a streak is
+      // that light spread over the way it falls in an exposure: each point
+      // of it lit for its diameter over its speed. A fine slow drop and a
+      // heavy fast one come out alike; a fast small one is a faint line.
+      final trueSpeed = math.max(speed / (metre * d.perspective), 0.5);
+      final exposure = d.diameter / trueSpeed / _referenceExposure;
+      final light = lighting == null
+          ? 1.0
+          : lighting.scatteredLightAt(d.at, d.depth * span);
       _streak
-        ..color = _lit(
-          lighting,
-          d.at,
-          (0.3 + 0.6 * d.depth) * (0.6 + 0.4 * d.strength),
-        )
+        ..color = _lit(lighting, d.at, visibility * light * exposure)
         ..strokeWidth = 0.8 + 1.4 * d.depth * (0.6 + 0.4 * d.strength);
-      final head = Offset(d.at.x, math.min(d.at.y, d.land));
+      // In water a drop is mirrored about the spot it falls to.
+      final shift = mirror?.mirrorShift(d.land) ?? 0;
+      final head = Offset(d.at.x, math.min(d.at.y, d.land) + shift);
       final back = speed < 1e-6
           ? Offset.zero
           : Offset(d.velocity.x, d.velocity.y) / speed * length;
@@ -296,8 +341,17 @@ class Rain extends Component with Reflectable {
     for (final p in _droplets) {
       _splash
         ..strokeWidth = p.width
-        ..color = _lit(lighting, p.at, 0.9);
-      canvas.drawPoints(PointMode.points, [p.at.toOffset()], _splash);
+        ..color = _lit(
+          lighting,
+          p.at,
+          0.9 * (lighting?.lightAt(p.at).light ?? 1),
+        );
+      final shift = mirror?.mirrorShift(p.floor) ?? 0;
+      canvas.drawPoints(
+        PointMode.points,
+        [Offset(p.at.x, p.at.y + shift)],
+        _splash,
+      );
     }
   }
 }
@@ -311,6 +365,7 @@ class _Drop {
     required this.perspective,
     required this.response,
     required this.fall,
+    required this.diameter,
     required this.strength,
   });
 
@@ -332,6 +387,9 @@ class _Drop {
 
   /// Its fall speed on the screen, world units a second.
   final double fall;
+
+  /// mm.
+  final double diameter;
 
   /// 0..1: a heavy drop against a fine one.
   final double strength;

@@ -65,7 +65,7 @@ class WaterSurface extends PositionComponent
     this.shape = WaterShape.ellipse,
     this.waterLine,
     this.color = const Color(0xFF2B3440),
-    this.reflectivity = 0.6,
+    this.reflectivity = 1,
     this.squash = 1,
     this.fade = 0.8,
     this.tint = const Color(0x00000000),
@@ -81,7 +81,7 @@ class WaterSurface extends PositionComponent
     this.streak = 0,
     this.chopPerRain = 0,
     this.film = false,
-    this.glowGain = 4,
+    this.glowGain = 10,
     double wetness = 1,
   }) : ripples = ripples ?? RippleRings.forDepth(depth),
        waveAmplitude = waveAmplitude ?? 1.5 + 3.5 * depth.clamp(0.0, 1.0),
@@ -104,8 +104,11 @@ class WaterSurface extends PositionComponent
   /// The water under its reflection.
   Color color;
 
-  /// How much of the world shows in it, `0..1`: a puddle on dark asphalt
-  /// reflects a lot, a thin film on a road a little.
+  /// How much of it is clear water, `0..1`: 1 still water, less a film
+  /// broken by the asphalt poking through. How much clear water mirrors is
+  /// water's own - most of the light seen low across it, little seen from
+  /// above (Fresnel) - and follows from the world's [Ground], the angle each
+  /// row of it is seen at.
   double reflectivity;
 
   /// How tall a reflection is against what it reflects: 1 is a true mirror;
@@ -185,8 +188,9 @@ class WaterSurface extends PositionComponent
   /// much as it is wet. A puddle is not a film: it is water all the time.
   bool film;
 
-  /// How much it mirrors now: [reflectivity], times its wetness for a film.
-  double get _shown => film ? reflectivity * wetness : reflectivity;
+  /// How much it mirrors now: [reflectivity]; a film only once it has
+  /// formed ([wetGloss]) - wet asphalt is dark before it is a mirror.
+  double get _shown => film ? reflectivity * wetGloss : reflectivity;
 
   // Rain lands on it: at its depth on the ground, if the water covers that
   // spot; a deeper water takes a drop from a shallower one under it.
@@ -225,17 +229,32 @@ class WaterSurface extends PositionComponent
   /// them comes back as bright as it is.
   double glowGain;
 
-  /// How much more water gives back of a light seen low across it than its
-  /// [reflectivity] says: at a grazing angle it mirrors most of what falls
-  /// on it (Fresnel), so a puddle shows a lamp nearly as bright as the lamp.
-  static const double grazing = 1.6;
+  /// How the eye sees this water, from the world's [Ground]: the sine of
+  /// the angle it looks down at its top and bottom rows. `null` without a
+  /// ground: then it mirrors evenly, as much as [reflectivity] says.
+  ({double top, double bottom})? _view() {
+    final ground = Ground.of(this);
+    if (ground == null) {
+      return null;
+    }
+    final origin = absoluteTopLeftPosition;
+    return (
+      top: ground.sinElevation(ground.depthAt(origin.y)),
+      bottom: ground.sinElevation(ground.depthAt(origin.y + size.y)),
+    );
+  }
+
+  /// Water's reflectance where it is seen at its middle: what a surface
+  /// drawn without the shader mirrors all over.
+  double _meanReflectance(({double top, double bottom})? view) =>
+      view == null ? 1 : Ground.fresnel((view.top + view.bottom) / 2);
 
   @override
   void renderMirroredGlow(
     Canvas canvas,
     void Function(Canvas canvas, double headroom) glow,
   ) {
-    final strength = (_shown * grazing).clamp(0.0, 1.0);
+    final strength = _shown.clamp(0.0, 1.0);
     if (strength <= 0 || _dry) {
       return;
     }
@@ -264,7 +283,13 @@ class WaterSurface extends PositionComponent
     } else {
       canvas.saveLayer(
         rect,
-        _glowLayer..color = Color.fromRGBO(0, 0, 0, strength),
+        _glowLayer
+          ..color = Color.fromRGBO(
+            0,
+            0,
+            0,
+            strength * _meanReflectance(_view()),
+          ),
       );
       _smeared(
         canvas,
@@ -402,20 +427,37 @@ class WaterSurface extends PositionComponent
     final outline = this.outline();
     _openArea(canvas, rect, _area);
     canvas.drawPath(outline, _water..color = color);
+    if (film && wetDarkening > 0) {
+      // The ground under a film, darker as it soaks it up.
+      canvas.drawPath(
+        outline,
+        _water..color = Color.fromRGBO(0, 0, 0, wetDarkening),
+      );
+    }
 
     if (_shown > 0) {
+      final program = WaterShader.program;
+      final shaded = quality == WaterQuality.rippled && program != null;
+      // Through the shader water mirrors as much as its angle of view lets
+      // it, row by row; drawn plainly, as much as it does at its middle.
+      final reflectance = shaded ? 1.0 : _meanReflectance(_view());
       canvas.saveLayer(
         rect,
-        _layer..color = Color.fromRGBO(0, 0, 0, _shown.clamp(0.0, 1.0)),
+        _layer
+          ..color = Color.fromRGBO(
+            0,
+            0,
+            0,
+            (_shown * reflectance).clamp(0.0, 1.0),
+          ),
       );
-      final program = WaterShader.program;
       void scene(Canvas c) => _mirror(
         c,
         line,
         origin,
         () => ReflectionPass.run(this, () => _renderReflected(_root(), c)),
       );
-      if (quality == WaterQuality.rippled && program != null) {
+      if (shaded) {
         _throughShader(
           canvas,
           _sceneSlot,
@@ -504,6 +546,14 @@ class WaterSurface extends PositionComponent
     canvas.restore();
   }
 
+  /// How far to move something (world units, down) for the mirror about
+  /// the water line to show it mirrored about [base] instead - the line it
+  /// stands on, or a drop the spot it falls to.
+  double mirrorShift(double base) {
+    final line = waterLine ?? absoluteTopLeftPosition.y;
+    return -(base - line) * (1 + squash) / squash;
+  }
+
   /// Sets [canvas] (in the surface's own coordinates) to mirror the world
   /// about the water line, squeezed, and runs [draw] there, in world
   /// coordinates.
@@ -545,6 +595,7 @@ class WaterSurface extends PositionComponent
     picture.dispose();
 
     final shader = slot.shader ??= program.fragmentShader();
+    final view = _view();
     var count = 0;
     shader.setFloatUniforms((u) {
       u
@@ -554,7 +605,13 @@ class WaterSurface extends PositionComponent
         ..setFloat(wavelength)
         ..setFloat(gain)
         ..setFloat(_time)
-        ..setFloat(chop);
+        ..setFloat(chop)
+        ..setFloat(view?.top ?? 0)
+        ..setFloat(view?.bottom ?? 0)
+        ..setFloat(view == null ? 0 : 1)
+        // The image is blurred down by streak / 3 (a sigma); across, the
+        // shader smears it that times the sine of the angle of view.
+        ..setFloat(streak / 3);
       ripples.forEachNewest(WaterShader.maxRings, (x, y, radius, opacity) {
         u.setFloats([x, y, radius, waveAmplitude * opacity]);
         count++;
@@ -597,7 +654,16 @@ class WaterSurface extends PositionComponent
       }
       if (reflects(child)) {
         if (_beside(child)) {
-          child.renderTree(canvas);
+          final base = child is Reflectable ? child.reflectionBase : null;
+          if (base == null) {
+            child.renderTree(canvas);
+          } else {
+            canvas
+              ..save()
+              ..translate(0, mirrorShift(base));
+            child.renderTree(canvas);
+            canvas.restore();
+          }
         }
         continue;
       }

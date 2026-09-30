@@ -27,6 +27,10 @@ uniform float uWavelength;    // length of a ring's wave, local units
 uniform float uGain;          // how bright the result comes out
 uniform float uTime;          // seconds, for the chop
 uniform float uChop;          // how far the chop shifts the mirror, local units
+uniform float uElevTop;       // sine of the angle the eye looks down, top row
+uniform float uElevBottom;    // ... and bottom row
+uniform float uFresnel;       // 1: mirror as much as water does at that angle
+uniform float uSpread;        // how long a rough surface smears a point, units
 uniform vec4 uRings[kMaxRings]; // centre x, centre y, radius, amplitude
 uniform sampler2D uReflection;
 
@@ -84,8 +88,44 @@ vec2 ripple(vec2 p) {
     return shift;
 }
 
+// Water's reflectance seen at an angle whose sine above it is s (Schlick).
+float fresnel(float s) {
+    float c = 1.0 - clamp(s, 0.0, 1.0);
+    return 0.02 + 0.98 * c * c * c * c * c;
+}
+
+// The mirror at uv, nothing outside it: the sampler clamps, and a clamped
+// edge would run on as a line.
+vec4 mirrored(vec2 uv) {
+    if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) {
+        return vec4(0.0);
+    }
+    return texture(uReflection, uv);
+}
+
 void main() {
     vec2 p = FlutterFragCoord().xy;
-    vec2 uv = clamp((p + ripple(p) + chop(p)) / uSize, vec2(0.0), vec2(1.0));
-    fragColor = texture(uReflection, uv) * uGain;
+    vec2 at = p + ripple(p) + chop(p);
+    float s = mix(uElevTop, uElevBottom, clamp(p.y / uSize.y, 0.0, 1.0));
+    // A rough surface smears a point into a column as long as its slopes
+    // allow (the image is already blurred that long) and as wide as that
+    // times the sine of the angle it is seen at: a thin streak far off,
+    // where the eye looks along the water, rounder near.
+    float across = uSpread * s;
+    vec4 color;
+    if (across < 0.75) {
+        color = mirrored(at / uSize);
+    } else {
+        vec4 sum = vec4(0.0);
+        float total = 0.0;
+        for (int k = -4; k <= 4; k++) {
+            float x = float(k) * 0.5;
+            float w = exp(-0.5 * x * x);
+            sum += mirrored((at + vec2(x * across, 0.0)) / uSize) * w;
+            total += w;
+        }
+        color = sum / total;
+    }
+    float reflectance = uFresnel > 0.5 ? fresnel(s) : 1.0;
+    fragColor = color * uGain * reflectance;
 }

@@ -40,7 +40,6 @@ void main() {
       position: Vector2(0, 100),
       size: Vector2(100, 40),
       shape: WaterShape.rect,
-      reflectivity: 1,
       fade: 0,
       color: const Color(0xFF000000),
     );

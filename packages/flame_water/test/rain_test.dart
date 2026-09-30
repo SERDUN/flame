@@ -160,6 +160,13 @@ void main() {
     expect(puddle.dryRate, 0.05, reason: 'set outright');
   });
 
+  test('a drop splashes only if it hits hard enough', () {
+    // A 1 mm drop at its terminal ~4 m/s splashes; a 0.5 mm drizzle drop at
+    // ~2 m/s only wets.
+    expect(Rain.impactNumber(1, 4), greaterThan(Rain.splashThreshold));
+    expect(Rain.impactNumber(0.5, 2), lessThan(Rain.splashThreshold));
+  });
+
   testWithFlameGame('a puddle shrinks on drier ground', (game) async {
     final puddle = WaterSurface(size: Vector2(200, 40), wetness: 0.1);
     await game.world.add(puddle);
