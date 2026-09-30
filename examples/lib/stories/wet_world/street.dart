@@ -188,28 +188,29 @@ List<Component> street({bool lit = false}) => [
   Walker(),
 ];
 
-/// A film of water over the whole road: a faint, squeezed mirror.
-/// Drops on the road make small, short rings in its film of water, bending
-/// its faint mirror as a puddle's rings bend its clear one.
-WaterSurface wetRoad({double reflectivity = 0.14}) => WaterSurface(
-  position: Vector2(0, groundLine),
-  size: Vector2(800, 120),
-  shape: WaterShape.rect,
-  waterLine: groundLine,
-  color: const Color(0x00000000),
-  reflectivity: reflectivity,
-  squash: 0.6,
-  fade: 0.9,
-  tint: const Color(0x2219202A),
-  ripples: RippleRings(capacity: 64, lifeSec: 0.45, maxRadius: 10),
-  rippleColor: const Color(0x22FFFFFF),
-  waveAmplitude: 3.5,
-  // Rough asphalt under a film of water: a lamp runs down it into a streak,
-  // still bright - a lamp is far brighter than the screen's white, so its
-  // light smeared thin still shines.
-  streak: 45,
-  glowGain: 5,
-);
+/// A film of water over the whole road: water like a puddle's, mirroring as
+/// much, only lying rough on the asphalt - so everything it mirrors, the
+/// street and the lamps alike, runs down it into a smear, and the rain keeps
+/// it astir.
+WaterSurface wetRoad({double reflectivity = 0.6, double chop = 4}) =>
+    WaterSurface(
+      position: Vector2(0, groundLine),
+      size: Vector2(800, 120),
+      shape: WaterShape.rect,
+      waterLine: groundLine,
+      color: const Color(0x00000000),
+      reflectivity: reflectivity,
+      squash: 0.6,
+      fade: 0.9,
+      tint: const Color(0x2219202A),
+      ripples: RippleRings(capacity: 96, lifeSec: 0.6, maxRadius: 16),
+      rippleColor: const Color(0x22FFFFFF),
+      waveAmplitude: 6,
+      // Rough asphalt under the water: everything it mirrors runs down it.
+      streak: 45,
+      // The rain keeps the whole film astir, breaking every streak into bands.
+      chop: chop,
+    );
 
 /// A puddle lying on the road in front of the walker: its water line is the
 /// line the street stands on, so feet meet their reflection. It shows the same
@@ -224,6 +225,7 @@ WaterSurface puddle({
   double reflectivity = 0.75,
   double squash = 0.6,
   double fade = 0.7,
+  double chop = 1.2,
 }) => WaterSurface(
   position: Vector2(left, top),
   size: Vector2(width, height),
@@ -237,6 +239,7 @@ WaterSurface puddle({
   waveAmplitude: 5,
   // Still water: nearly a clear mirror.
   streak: 6,
+  chop: chop,
 );
 
 /// Where a drop lands: in the first puddle that covers the spot, else on the

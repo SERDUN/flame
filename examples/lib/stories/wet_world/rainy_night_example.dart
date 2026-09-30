@@ -33,10 +33,12 @@ class RainyNightExample extends FlameGame {
   Future<void> onLoad() async {
     await WaterShader.load();
     camera.viewfinder.anchor = Anchor.topLeft;
-    final road = wetRoad();
+    // The harder it rains, the more the drops keep the water astir.
+    final rain = (dropsPerSec / 250).clamp(0.0, 2.0);
+    final road = wetRoad(chop: 4 * rain);
     final puddles = [
-      puddle(left: 260, width: 320),
-      puddle(left: 500, width: 130, top: 398, height: 44),
+      puddle(left: 260, width: 320, chop: 1.2 * rain),
+      puddle(left: 500, width: 130, top: 398, height: 44, chop: 1.2 * rain),
     ];
     final lighting = Lighting(darkness: darkness, glow: glow, haze: haze);
     await world.addAll([
