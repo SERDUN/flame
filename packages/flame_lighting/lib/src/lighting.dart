@@ -16,7 +16,9 @@ import 'package:flame_lighting/src/light_source.dart';
 /// - the glow: every [Emissive] part of the world (bulbs, lit windows, the
 ///   halo [haze] makes round them) drawn over the night undimmed, and then
 ///   given to every [LightMirror] (water, a wet road) to show mirrored as it
-///   shows anything - ripples bend it, a rough wet road smears it long.
+///   shows anything - ripples bend it, a rough wet road smears it long;
+///   and every [Glossy] surface (a wet wall) glinting where the lights fall
+///   on it, with rivulets running down it.
 ///
 /// The night and the light cast are blend modes and gradients in one layer,
 /// so they work on every renderer, the web included.
@@ -136,6 +138,9 @@ class Lighting extends Component {
 
     _current = this;
     try {
+      for (final wet in world.descendants().whereType<Glossy>()) {
+        _drawSheen(canvas, wet, lights);
+      }
       _renderGlow(world, canvas);
       for (final mirror in _mirrors) {
         mirror.renderMirroredGlow(canvas, (c) => _renderGlow(world, c));
@@ -144,6 +149,74 @@ class Lighting extends Component {
       _current = null;
     }
   }
+
+  double _time = 0;
+
+  @override
+  void update(double dt) {
+    super.update(dt);
+    _time += dt;
+  }
+
+  /// The lights glinting off [wet]: each light's cast once more, over its
+  /// wet area only, as strong as it is glossy - and rivulets running down
+  /// it, each a thin line as bright as the light where it is, with a
+  /// brighter bead of water sliding down.
+  void _drawSheen(Canvas canvas, Glossy wet, List<LightSource> lights) {
+    final gloss = wet.gloss.clamp(0.0, 1.0);
+    if (gloss <= 0) {
+      return;
+    }
+    final area = wet.glossArea();
+    final bounds = area.getBounds();
+    canvas
+      ..save()
+      ..clipPath(area);
+    for (final light in lights) {
+      _drawLight(canvas, light, _add, gloss * 0.45, light.strength);
+    }
+    final every = 100 / math.max(wet.rivulets, 0.1);
+    var i = 0;
+    for (var x = bounds.left + every / 2; x < bounds.right; x += every) {
+      i++;
+      final h = _unit(i * 12.9898);
+      final rx = x + (h - 0.5) * every * 0.8;
+      // Water gathers where it will: a rivulet starts anywhere down the
+      // wall and runs some way, not from roof to ground like a seam.
+      final top = bounds.top + bounds.height * 0.7 * _unit(i * 3.7);
+      final bottom = math.min(
+        bounds.bottom,
+        top + bounds.height * (0.15 + 0.45 * _unit(i * 7.3)),
+      );
+      final light = lightAt(Vector2(rx, (top + bottom) / 2)).light;
+      final lit = (light - (1 - darkness)).clamp(0.0, 1.0);
+      if (lit <= 0.02) {
+        continue;
+      }
+      final a = gloss * lit * (0.25 + 0.35 * h);
+      _rivulet.color = const Color(0xFFFFE8C8).withValues(alpha: a * 0.3);
+      canvas.drawLine(Offset(rx, top), Offset(rx, bottom), _rivulet);
+      // A bead of water sliding down it, catching more of the light.
+      final t = (_time * (0.15 + 0.2 * h) + h) % 1.0;
+      final y = top + (bottom - top) * t;
+      _bead.color = const Color(0xFFFFF0D8).withValues(alpha: a);
+      canvas.drawLine(Offset(rx, y - 4), Offset(rx, y), _bead);
+    }
+    canvas.restore();
+  }
+
+  static double _unit(double x) {
+    final s = math.sin(x) * 43758.5453;
+    return s - s.floorToDouble();
+  }
+
+  final Paint _rivulet = Paint()
+    ..strokeWidth = 0.6
+    ..blendMode = BlendMode.plus;
+  final Paint _bead = Paint()
+    ..strokeWidth = 1.3
+    ..strokeCap = StrokeCap.round
+    ..blendMode = BlendMode.plus;
 
   /// Draws every [Emissive] part under [parent], each in its own
   /// coordinates: the tree walked with every placed component's transform.

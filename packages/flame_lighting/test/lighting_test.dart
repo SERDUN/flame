@@ -32,6 +32,17 @@ class _Water extends PositionComponent with LightMirror {
   }
 }
 
+/// A wet wall right of x 400.
+class _WetWall extends Component with Glossy {
+  _WetWall(this.gloss);
+
+  @override
+  final double gloss;
+
+  @override
+  Path glossArea() => Path()..addRect(const Rect.fromLTWH(400, 250, 400, 150));
+}
+
 /// Brightness (red channel, 0..255) of the rendered game at a pixel.
 Future<int Function(int x, int y)> _render(FlameGame game) async {
   final recorder = PictureRecorder();
@@ -122,5 +133,18 @@ void main() {
     final at = await _render(game);
     expect(at(400, 280), greaterThan(40), reason: 'the halo above the bulb');
     expect(at(400, 60), lessThan(5), reason: 'not the whole sky');
+  });
+
+  testWithFlameGame('a wet wall glints where the lamp falls on it', (
+    game,
+  ) async {
+    await _setUp(game, [
+      LightSource(position: Vector2(400, 300)),
+      _WetWall(1),
+    ]);
+    final at = await _render(game);
+    // The lamp lights both sides alike; only the right one is wet.
+    expect(at(440, 340), greaterThan(at(360, 340) + 5), reason: 'glinting');
+    expect(at(100, 100), lessThan(10), reason: 'nothing where it is dark');
   });
 }
