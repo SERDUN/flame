@@ -56,6 +56,7 @@ Future<void> _setUp(
   FlameGame game,
   List<Component> extra, {
   double haze = 0,
+  double glow = 0,
   Color wall = const Color(0xFFFFFFFF),
 }) async {
   game.camera.viewfinder.anchor = Anchor.topLeft;
@@ -64,7 +65,7 @@ Future<void> _setUp(
     Lighting(
       ambient: const Color(0xFF000000),
       darkness: 1,
-      glow: 0,
+      glow: glow,
       haze: haze,
     ),
     ...extra,
@@ -149,4 +150,33 @@ void main() {
     expect(at(440, 340), greaterThan(at(360, 340) + 5), reason: 'glinting');
     expect(at(100, 100), lessThan(10), reason: 'nothing where it is dark');
   });
+
+  testWithFlameGame(
+    'water mirrors a torch beam in the wet air, not only the torch',
+    (
+      game,
+    ) async {
+      await _setUp(
+        game,
+        [
+          // A torch at (300, 300) shining right, over water from 400 down.
+          LightSource(
+            position: Vector2(300, 300),
+            radius: 300,
+            coneAngle: 0.6,
+            coneDirection: 0,
+            sourceRadius: 0,
+          ),
+          _Water(),
+        ],
+        glow: 0.5,
+        haze: 1,
+        wall: const Color(0xFF000000),
+      );
+      final at = await _render(game);
+      // The beam at (450, 300), mirrored about 400 to (450, 500), far from the
+      // torch; behind the torch there is no beam to mirror.
+      expect(at(450, 500), greaterThan(at(150, 500) + 10));
+    },
+  );
 }

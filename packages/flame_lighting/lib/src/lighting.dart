@@ -14,7 +14,8 @@ import 'package:flame_lighting/src/light_source.dart';
 /// - the light cast: each light's colour added on top at [glow], so a lamp
 ///   both reveals the street under it and warms it;
 /// - the glow in the mirrors: every [Emissive] part of the world (bulbs, lit
-///   windows, the halo [haze] makes round them) given to every
+///   windows, the halo [haze] makes round them) and the light hanging in
+///   the wet air (a torch's beam, a lamp's cone) given to every
 ///   [LightMirror] (water, a wet road) to show mirrored as it shows anything
 ///   - ripples bend it, a rough wet road smears it long.
 ///
@@ -146,7 +147,10 @@ class Lighting extends Component {
     _current = this;
     try {
       for (final mirror in _mirrors) {
-        mirror.renderMirroredGlow(canvas, (c) => _renderGlow(world, c));
+        mirror.renderMirroredGlow(
+          canvas,
+          (c) => _renderMirrorGlow(world, c, lights),
+        );
       }
     } finally {
       _current = null;
@@ -268,6 +272,25 @@ class Lighting extends Component {
   final Paint _rivulet = Paint()
     ..blendMode = BlendMode.plus
     ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 2.5);
+
+  /// What water mirrors of the lights: every glowing part, and the light in
+  /// the air itself - a torch's beam, a lamp's cone, seen because wet air
+  /// scatters them, so as strong as the [haze] is.
+  void _renderMirrorGlow(
+    Component world,
+    Canvas canvas,
+    List<LightSource> lights,
+  ) {
+    final air = glow * (0.2 + 0.5 * haze);
+    if (air > 0) {
+      for (final light in lights) {
+        _drawLight(canvas, light, _mirrorAir, air, light.strength);
+      }
+    }
+    _renderGlow(world, canvas);
+  }
+
+  final Paint _mirrorAir = Paint()..blendMode = BlendMode.plus;
 
   /// Draws every [Emissive] part under [parent], each in its own
   /// coordinates: the tree walked with every placed component's transform.
