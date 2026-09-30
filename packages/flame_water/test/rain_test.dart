@@ -144,13 +144,20 @@ void main() {
     final wall = _Wall()
       ..wetness = 1
       ..dryRate = 0.05;
-    final puddle = WaterSurface()
-      ..wetness = 1
-      ..dryRate = 0.005;
+    final puddle = WaterSurface()..wetness = 1;
     await game.world.addAll([Rain(intensity: 0), wall, puddle]);
     await game.ready();
     await _rainFor(game, 30);
     expect(puddle.wetness, greaterThan(wall.wetness * 3));
+  });
+
+  test('water dries as long as it is deep', () {
+    final film = WaterSurface(depth: 0.1, film: true);
+    final puddle = WaterSurface();
+    expect(film.dryRate, closeTo(0.02, 1e-9), reason: 'as the asphalt');
+    expect(puddle.dryRate, closeTo(film.dryRate / 10, 1e-9));
+    puddle.dryRate = 0.05;
+    expect(puddle.dryRate, 0.05, reason: 'set outright');
   });
 
   testWithFlameGame('a puddle shrinks on drier ground', (game) async {

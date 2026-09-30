@@ -312,5 +312,4 @@ WaterSurface puddle({
   // Still water: nearly a clear mirror.
   streak: 6,
   chopPerRain: 1.2,
-  // Standing water: it is the last to go when the street dries.
-)..dryRate = 0.006;
+);

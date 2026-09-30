@@ -131,6 +131,16 @@ class WaterSurface extends PositionComponent
   /// [ripples] and [waveAmplitude] are given outright.
   final double depth;
 
+  /// Water dries as long as it is deep: a film on the asphalt goes at the
+  /// usual rate, a puddle ten times as deep takes ten times as long. Unless
+  /// set outright.
+  @override
+  double get dryRate => _dryRate ?? 0.002 / math.max(depth, 0.1);
+
+  @override
+  set dryRate(double value) => _dryRate = value;
+  double? _dryRate;
+
   final RippleRings ripples;
 
   /// Colour of the ripple rings at full depth; shallower water shows them
