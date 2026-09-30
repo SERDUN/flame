@@ -8,13 +8,17 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   // Renders the rainy night for a while: the whole wet world runs without
-  // an error. With WET_WORLD_FRAME=<path> the last frame is saved to look at.
+  // an error. With WET_WORLD_FRAME=<path> the last frame is saved to look at,
+  // at WET_WORLD_SECONDS.
   testWithGame<RainyNightExample>(
     'the rainy night renders',
     RainyNightExample.new,
     (game) async {
       game.onGameResize(Vector2(800, 450));
-      for (var i = 0; i < 90; i++) {
+      // WET_WORLD_SECONDS picks the moment to look at (3 s by default).
+      final seconds =
+          double.tryParse(Platform.environment['WET_WORLD_SECONDS'] ?? '') ?? 3;
+      for (var i = 0; i < seconds * 30; i++) {
         game.update(1 / 30);
       }
       final recorder = PictureRecorder();

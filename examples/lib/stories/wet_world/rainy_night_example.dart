@@ -1,3 +1,5 @@
+import 'dart:ui';
+
 import 'package:examples/stories/wet_world/rain.dart';
 import 'package:examples/stories/wet_world/street.dart';
 import 'package:flame/components.dart';
@@ -40,7 +42,13 @@ class RainyNightExample extends FlameGame {
       puddle(left: 260, width: 320, chop: 1.2 * rain),
       puddle(left: 500, width: 130, top: 398, height: 44, chop: 1.2 * rain),
     ];
-    final lighting = Lighting(darkness: darkness, glow: glow, haze: haze);
+    final lighting = Lighting(
+      darkness: darkness,
+      glow: glow,
+      haze: haze,
+      // The road: the lamps and the torch lay pools of light on it.
+      floor: const Rect.fromLTWH(0, groundLine, 800, 120),
+    );
     final scene = street(lit: true);
     await world.addAll([
       ...scene,

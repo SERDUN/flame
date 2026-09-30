@@ -191,7 +191,7 @@ class Walker extends PositionComponent with Reflectable {
 
   final LightSource _torch = LightSource(
     color: const Color(0xFFE6EEFF),
-    radius: 230,
+    radius: 380,
     coneAngle: 0.62,
     intensity: 0.9,
     sourceRadius: 1.6,
