@@ -22,6 +22,7 @@ dependencies:
   flame_spine: ^0.3.1+6
   flame_svg: ^1.12.2
   flame_tiled: ^3.1.2
+  flame_water: ^0.1.0
   flutter:
     sdk: flutter
   google_fonts: ^8.0.2
