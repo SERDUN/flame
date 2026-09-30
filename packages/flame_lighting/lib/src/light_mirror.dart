@@ -22,4 +22,10 @@ mixin LightMirror on Component {
 
   /// Where it shows reflections, world coordinates.
   Path mirrorClip();
+
+  /// How far the surface's own movement (ripples from drops) shifts what it
+  /// mirrors at ([x], [y]), world coordinates and units; zero on still
+  /// water. The lights' reflections move with it, so a ring passing through
+  /// a lamp's streak breaks and bends it.
+  Offset disturbanceAt(double x, double y) => Offset.zero;
 }

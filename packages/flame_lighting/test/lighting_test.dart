@@ -17,7 +17,14 @@ class _Wall extends RectangleComponent {
 }
 
 class _Water extends PositionComponent with LightMirror {
-  _Water() : super(position: Vector2(0, 400), size: Vector2(800, 150));
+  _Water({this.shift = Offset.zero})
+    : super(position: Vector2(0, 400), size: Vector2(800, 150));
+
+  /// What the water's own movement does to its mirror, everywhere.
+  final Offset shift;
+
+  @override
+  Offset disturbanceAt(double x, double y) => shift;
 
   @override
   double get mirrorLine => 400;
@@ -125,5 +132,17 @@ void main() {
     final at = await _render(game);
     expect(at(400, 280), greaterThan(40), reason: 'the halo above the bulb');
     expect(at(400, 60), lessThan(5), reason: 'not the whole sky');
+  });
+
+  testWithFlameGame('moving water moves the mirrored lamp with it', (
+    game,
+  ) async {
+    await _setUp(game, [
+      LightSource(position: Vector2(400, 300), radius: 60),
+      _Water(shift: const Offset(10, 0)),
+    ]);
+    final at = await _render(game);
+    // The core's centre, mirrored at x 400, now sits 10 to the right.
+    expect(at(410, 500), greaterThan(at(390, 500) + 30));
   });
 }

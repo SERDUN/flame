@@ -276,6 +276,7 @@ class Lighting extends Component {
       _drawSlivers(
         canvas,
         paint,
+        mirror,
         light,
         center,
         width,
@@ -303,22 +304,41 @@ class Lighting extends Component {
           ],
           const [0, 0.35, 1],
         );
-      canvas.drawCircle(center, coreRadius, paint);
+      // In thin horizontal slices, each moved as the water under it moves:
+      // a ring passing through the mirrored lamp tears it apart.
+      const slices = 7;
+      final slice = coreRadius * 2 / slices;
+      for (var s = 0; s < slices; s++) {
+        final y = center.dy - coreRadius + s * slice;
+        final shift = mirror.disturbanceAt(center.dx, y + slice / 2);
+        canvas
+          ..save()
+          ..clipRect(
+            Rect.fromLTRB(
+              center.dx - coreRadius * 2,
+              y,
+              center.dx + coreRadius * 2,
+              y + slice + 0.5,
+            ),
+          )
+          ..translate(shift.dx, shift.dy)
+          ..drawCircle(center, coreRadius, paint)
+          ..restore();
+      }
     }
     canvas.restore();
   }
 
-  /// Gap between the slivers of a broken reflection, and their height.
-  static const double _sliverGap = 5;
-  static const double _sliverHeight = 2.2;
-
-  /// The glow of a mirrored light as slivers from [top] to [bottom] round
-  /// [center]: brightest at the mirrored source and fading [tall] above and
-  /// below it, [width] across at most, each sliver's width and brightness
-  /// wavering on its own in time.
+  /// The glow of a mirrored light, from [top] to [bottom] round [center]:
+  /// a narrow soft column a few sources wide, and over it bright slivers,
+  /// broken the way a wet surface breaks a reflection - uneven gaps and
+  /// heights, set a little off the axis, each coming and going on its own
+  /// in time. Brightest at the mirrored source, fading [tall] above and
+  /// below it. [width] is how wide the column may get.
   void _drawSlivers(
     Canvas canvas,
     Paint paint,
+    LightMirror mirror,
     LightSource light,
     Offset center,
     double width, {
@@ -331,39 +351,93 @@ class Lighting extends Component {
     if (alpha <= 0 || tall <= 0) {
       return;
     }
-    paint
-      ..shader = null
-      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 1.5);
     final from = math.max(top, center.dy - tall);
     final to = math.min(bottom, center.dy + tall);
-    for (var y = from; y < to; y += _sliverGap) {
-      final i = (y - from) / _sliverGap + seed;
-      final along = 1 - ((y - center.dy).abs() / tall).clamp(0.0, 1.0);
-      // Two slow waves per sliver, out of step with its neighbours.
-      final waver =
-          0.5 +
-          0.3 * math.sin(_time * 2.3 + i * 1.7) +
-          0.2 * math.sin(_time * 3.7 + i * 0.6);
-      final half = width * (0.15 + 0.55 * along) * (0.6 + 0.4 * waver);
-      final a = alpha * along * along * (0.35 + 0.65 * waver);
-      if (a <= 0.01 || half < 0.5) {
-        continue;
-      }
-      paint.color = light.color.withValues(alpha: a.clamp(0.0, 1.0));
-      canvas.drawRect(
-        Rect.fromLTRB(
-          center.dx - half,
-          y,
-          center.dx + half,
-          y + _sliverHeight,
-        ),
-        paint,
+    if (to <= from) {
+      return;
+    }
+    // A source as small as nothing still leaves a thin streak.
+    final source = math.max(light.sourceRadius, 2.0);
+    final column = math.min(width, source * 4);
+
+    // The soft column under the slivers: one narrow tall glow.
+    paint
+      ..color = const Color(0xFFFFFFFF)
+      ..shader = Gradient.radial(
+        Offset.zero,
+        column,
+        [
+          light.color.withValues(alpha: alpha * 0.45),
+          light.color.withValues(alpha: 0),
+        ],
       );
+    canvas
+      ..save()
+      ..translate(center.dx, center.dy)
+      ..scale(1, tall / column)
+      ..drawCircle(Offset.zero, column, paint)
+      ..restore();
+
+    paint
+      ..shader = null
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 1.2);
+    var y = from;
+    var k = 0;
+    while (y < to) {
+      final h0 = _hash(seed + k * 3.1);
+      final h1 = _hash(seed + k * 5.7 + 11);
+      final h2 = _hash(seed + k * 9.3 + 23);
+      k++;
+      final along = 1 - ((y - center.dy).abs() / tall).clamp(0.0, 1.0);
+      // Each sliver comes and goes on its own slow beat.
+      final beat = 0.5 + 0.5 * math.sin(_time * (1.5 + 2.5 * h0) + h1 * 6.3);
+      final height = 1.2 + 2.2 * h2;
+      if (beat > 0.25) {
+        final half =
+            column *
+            (0.25 + 0.75 * along) *
+            (0.4 + 0.6 * h1) *
+            (0.6 + 0.4 * beat);
+        final drift =
+            (h0 - 0.5) * column * (1 - along) * 1.2 +
+            math.sin(_time * 1.9 + h2 * 6.3) * source * 0.5;
+        // The water moves under the sliver: a ring passing shoves it
+        // aside, and where the surface tilts it catches more of the light.
+        final x = center.dx + drift;
+        final shift = mirror.disturbanceAt(x, y + height / 2);
+        final tilt = math.min(shift.distance / source, 1.0);
+        final a =
+            alpha *
+            along *
+            (0.3 + 0.7 * beat) *
+            (0.5 + 0.5 * h2) *
+            (1 + 0.8 * tilt);
+        if (a > 0.01 && half >= 0.5) {
+          paint.color = light.color.withValues(alpha: a.clamp(0.0, 1.0));
+          canvas.drawRect(
+            Rect.fromLTRB(
+              x + shift.dx * 2 - half,
+              y + shift.dy,
+              x + shift.dx * 2 + half,
+              y + shift.dy + height,
+            ),
+            paint,
+          );
+        }
+      }
+      // Uneven gaps: tight near the source, looser away from it.
+      y += height + 1.5 + (2 + 6 * h0) * (1.3 - along);
     }
     // The paint is shared: its colour's alpha would dim every gradient drawn
     // with it after this.
     paint
       ..maskFilter = null
       ..color = const Color(0xFFFFFFFF);
+  }
+
+  /// A steady pseudo-random number in `0..1` for [x].
+  static double _hash(double x) {
+    final s = math.sin(x * 12.9898) * 43758.5453;
+    return s - s.floorToDouble();
   }
 }
