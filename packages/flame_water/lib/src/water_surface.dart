@@ -264,23 +264,22 @@ class WaterSurface extends PositionComponent
     canvas
       ..save()
       ..translate(origin.x, origin.y);
-    _openArea(canvas, rect, _glowArea);
     final program = WaterShader.program;
-    if (quality == WaterQuality.rippled && program != null) {
+    final shaded = quality == WaterQuality.rippled && program != null;
+    if (shaded) {
+      // The shader smears it, fades it at the rim and adds it: no layers.
       _throughShader(
         canvas,
         _glowSlot,
         program,
         rect,
-        (c) => _smeared(
-          c,
-          streak,
-          () => _mirror(c, line, origin, () => glow(c, glowGain)),
-        ),
+        (c) => _mirror(c, line, origin, () => glow(c, glowGain)),
         gain: strength * glowGain,
         paint: _glowPaint,
       );
+      canvas.clipPath(outline());
     } else {
+      _openArea(canvas, rect, _glowArea);
       canvas.saveLayer(
         rect,
         _glowLayer
@@ -311,7 +310,9 @@ class WaterSurface extends PositionComponent
                 lighting.lightAt(Vector2(origin.x + x, origin.y + y)).light,
     );
     _litLastFrame = true;
-    _closeArea(canvas, rect);
+    if (!shaded) {
+      _closeArea(canvas, rect);
+    }
     canvas.restore();
   }
 
@@ -425,6 +426,39 @@ class WaterSurface extends PositionComponent
     final origin = absoluteTopLeftPosition;
     final line = (waterLine ?? origin.y) - origin.y;
     final outline = this.outline();
+    final program = WaterShader.program;
+    if (quality == WaterQuality.rippled && program != null && _shown > 0) {
+      // The water, its mirror, its tint and its rim, all in the shader: one
+      // draw, no layers.
+      _throughShader(
+        canvas,
+        _sceneSlot,
+        program,
+        rect,
+        (c) => _mirror(
+          c,
+          line,
+          origin,
+          () => ReflectionPass.run(this, () => _renderReflected(_root(), c)),
+        ),
+        gain: _shown.clamp(0.0, 1.0),
+        paint: _shaderPaint,
+        base: _base(),
+        tint: tint,
+        fade: fade.clamp(0.0, 1.0),
+        line: line,
+      );
+      final lit = _litLastFrame;
+      _litLastFrame = false;
+      if (!lit) {
+        canvas
+          ..save()
+          ..clipPath(outline);
+        ripples.render(canvas, _ringPaint());
+        canvas.restore();
+      }
+      return;
+    }
     _openArea(canvas, rect, _area);
     canvas.drawPath(outline, _water..color = color);
     if (film && wetDarkening > 0) {
@@ -436,11 +470,7 @@ class WaterSurface extends PositionComponent
     }
 
     if (_shown > 0) {
-      final program = WaterShader.program;
-      final shaded = quality == WaterQuality.rippled && program != null;
-      // Through the shader water mirrors as much as its angle of view lets
-      // it, row by row; drawn plainly, as much as it does at its middle.
-      final reflectance = shaded ? 1.0 : _meanReflectance(_view());
+      // Drawn plainly, water mirrors as much as it does at its middle.
       canvas.saveLayer(
         rect,
         _layer
@@ -448,28 +478,22 @@ class WaterSurface extends PositionComponent
             0,
             0,
             0,
-            (_shown * reflectance).clamp(0.0, 1.0),
+            (_shown * _meanReflectance(_view())).clamp(0.0, 1.0),
           ),
       );
-      void scene(Canvas c) => _mirror(
-        c,
-        line,
-        origin,
-        () => ReflectionPass.run(this, () => _renderReflected(_root(), c)),
-      );
-      if (shaded) {
-        _throughShader(
+      _smeared(
+        canvas,
+        streak,
+        () => _mirror(
           canvas,
-          _sceneSlot,
-          program,
-          rect,
-          (c) => _smeared(c, streak, () => scene(c)),
-          gain: 1,
-          paint: _shaderPaint,
-        );
-      } else {
-        _smeared(canvas, streak, () => scene(canvas));
-      }
+          line,
+          origin,
+          () => ReflectionPass.run(
+            this,
+            () => _renderReflected(_root(), canvas),
+          ),
+        ),
+      );
       if (fade > 0) {
         _fadePaint.shader = Gradient.linear(
           Offset(0, line),
@@ -495,6 +519,13 @@ class WaterSurface extends PositionComponent
       ripples.render(canvas, _ringPaint());
     }
     _closeArea(canvas, rect);
+  }
+
+  /// What lies under the mirror: the water's colour, and under a film the
+  /// ground it darkens over it.
+  Color _base() {
+    final dark = film ? wetDarkening.clamp(0.0, 1.0) : 0.0;
+    return Color.alphaBlend(Color.fromRGBO(0, 0, 0, dark), color);
   }
 
   bool get _softEdge => shape == WaterShape.ellipse && edgeSoftness > 0;
@@ -572,7 +603,10 @@ class WaterSurface extends PositionComponent
 
   /// [record] (drawing in the surface's own coordinates) rendered into an
   /// image and drawn over [rect] through the water shader: bent around the
-  /// newest rings, at [gain] brightness.
+  /// newest rings, smeared as rough as the surface is, mirrored as much as
+  /// water does at the angle each row is seen at, at [gain] brightness,
+  /// over [base], under [tint], faded by [fade] below [line] and eased out
+  /// at the rim.
   void _throughShader(
     Canvas canvas,
     _ShaderSlot slot,
@@ -581,14 +615,21 @@ class WaterSurface extends PositionComponent
     void Function(Canvas canvas) record, {
     required double gain,
     required Paint paint,
+    Color base = const Color(0x00000000),
+    Color tint = const Color(0x00000000),
+    double fade = 0,
+    double line = 0,
   }) {
-    final width = (size.x * resolution).ceil();
-    final height = (size.y * resolution).ceil();
+    // The smear is done in the shader: the image need be no finer than it.
+    final sigma = streak / 3;
+    final scale = resolution * (sigma < 0.5 ? 1 : (2.5 / sigma).clamp(0.25, 1));
+    final width = (size.x * scale).ceil();
+    final height = (size.y * scale).ceil();
     if (width <= 0 || height <= 0) {
       return;
     }
     final recorder = PictureRecorder();
-    record(Canvas(recorder)..scale(resolution));
+    record(Canvas(recorder)..scale(scale));
     final picture = recorder.endRecording();
     slot.image?.dispose();
     final image = slot.image = picture.toImageSync(width, height);
@@ -596,7 +637,13 @@ class WaterSurface extends PositionComponent
 
     final shader = slot.shader ??= program.fragmentShader();
     final view = _view();
+    final pool = outline().getBounds();
     var count = 0;
+    void color(UniformsSetter u, Color c) => u
+      ..setFloat(c.r * c.a)
+      ..setFloat(c.g * c.a)
+      ..setFloat(c.b * c.a)
+      ..setFloat(c.a);
     shader.setFloatUniforms((u) {
       u
         ..setVector(size)
@@ -609,9 +656,18 @@ class WaterSurface extends PositionComponent
         ..setFloat(view?.top ?? 0)
         ..setFloat(view?.bottom ?? 0)
         ..setFloat(view == null ? 0 : 1)
-        // The image is blurred down by streak / 3 (a sigma); across, the
-        // shader smears it that times the sine of the angle of view.
-        ..setFloat(streak / 3);
+        ..setFloat(sigma);
+      color(u, base);
+      color(u, tint);
+      u
+        ..setFloat(fade)
+        ..setFloat(line)
+        ..setFloat(pool.center.dx)
+        ..setFloat(pool.center.dy)
+        ..setFloat(pool.width / 2)
+        ..setFloat(pool.height / 2)
+        ..setFloat(_softEdge ? edgeSoftness.clamp(0.0, 1.0) : 0)
+        ..setFloat(shape == WaterShape.ellipse ? 1 : 0);
       ripples.forEachNewest(WaterShader.maxRings, (x, y, radius, opacity) {
         u.setFloats([x, y, radius, waveAmplitude * opacity]);
         count++;
@@ -622,7 +678,7 @@ class WaterSurface extends PositionComponent
     });
     shader
       ..setFloat(2, count.toDouble())
-      ..setImageSampler(0, image);
+      ..setImageSampler(0, image, filterQuality: FilterQuality.low);
     canvas.drawRect(rect, paint..shader = shader);
   }
 

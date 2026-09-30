@@ -1,7 +1,11 @@
 // Runs the rainy night alone and prints frame timings every 2 s:
 // flutter run -d macos --profile -t tool/wet_bench.dart
+// --dart-define=BENCH_WITHOUT=lighting,water,rain leaves those out, to see
+// what each costs.
 import 'package:examples/stories/wet_world/rainy_night_example.dart';
 import 'package:flame/game.dart';
+import 'package:flame_lighting/flame_lighting.dart';
+import 'package:flame_water/flame_water.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/widgets.dart';
 
@@ -29,5 +33,24 @@ void main() {
       raster.clear();
     }
   });
-  runApp(GameWidget(game: RainyNightExample()));
+  runApp(GameWidget(game: _Bench()));
+}
+
+// A bench tool: its knob comes from the build.
+// ignore: do_not_use_environment
+const _without = String.fromEnvironment('BENCH_WITHOUT');
+
+class _Bench extends RainyNightExample {
+  @override
+  Future<void> onLoad() async {
+    await super.onLoad();
+    final out = _without.split(',');
+    world.removeAll([
+      for (final c in world.descendants())
+        if ((out.contains('lighting') && c is Lighting) ||
+            (out.contains('water') && c is WaterSurface) ||
+            (out.contains('rain') && c is Rain))
+          c,
+    ]);
+  }
 }

@@ -1,4 +1,5 @@
 import 'dart:math' as math;
+import 'dart:typed_data';
 import 'dart:ui';
 
 import 'package:flame/components.dart';
@@ -81,8 +82,6 @@ class Rain extends Component with Reflectable {
   final List<_Droplet> _droplets = [];
   double _due = 0;
   bool _started = false;
-  final Paint _streak = Paint()..strokeCap = StrokeCap.round;
-  final Paint _splash = Paint()..strokeCap = StrokeCap.round;
 
   static const Color _water = Color(0xFFD6E0EE);
 
@@ -184,6 +183,7 @@ class Rain extends Component with Reflectable {
       p.at.addScaled(p.velocity, dt);
     }
     _droplets.removeWhere((p) => p.age >= p.life || p.at.y > p.floor);
+    _shade();
   }
 
   /// Whether a catcher (or the ground) stopped [d] on its way from [from]:
@@ -277,21 +277,6 @@ class Rain extends Component with Reflectable {
     }
   }
 
-  /// The rain's colour at [at], [alpha] opaque: tinted by the lights
-  /// there.
-  Color _lit(Lighting? lighting, Vector2 at, double alpha) {
-    final a = alpha.clamp(0.0, 1.0);
-    if (lighting == null) {
-      return _water.withValues(alpha: a);
-    }
-    final (:light, :color) = lighting.lightAt(at);
-    return Color.lerp(
-      _water,
-      color,
-      (light - (1 - lighting.darkness)) * 0.8,
-    )!.withValues(alpha: a);
-  }
-
   /// How bright a drop seen side-on in full light shows: the one scale the
   /// streaks are drawn at; everything else about how bright a drop is
   /// follows from the light on it and how it moves.
@@ -301,14 +286,13 @@ class Rain extends Component with Reflectable {
   /// exposure is measured against.
   static final double _referenceExposure = 2 / RainDrops.terminalSpeed(2);
 
-  @override
-  void render(Canvas canvas) {
+  /// Works out how every drop and droplet looks this frame, once: the rain
+  /// is drawn again in every water's reflection.
+  void _shade() {
     final lighting = Lighting.of(this);
     final span = Ground.of(this)?.depthSpan ?? 0;
-    final mirror = ReflectionPass.current;
     for (final d in _drops) {
       final speed = d.velocity.length;
-      final length = RainDrops.streakLength(speed / metre) * metre;
       // A drop is seen by the light it throws to the eye - from the lamps
       // round it, far more from one it is in front of - and a streak is
       // that light spread over the way it falls in an exposure: each point
@@ -316,35 +300,119 @@ class Rain extends Component with Reflectable {
       // heavy fast one come out alike; a fast small one is a faint line.
       final trueSpeed = math.max(speed / (metre * d.perspective), 0.5);
       final exposure = d.diameter / trueSpeed / _referenceExposure;
-      final light = lighting == null
-          ? 1.0
-          : lighting.scatteredLightAt(d.at, d.depth * span);
-      _streak
-        ..color = _lit(lighting, d.at, visibility * light * exposure)
-        ..strokeWidth = 0.8 + 1.4 * d.depth * (0.6 + 0.4 * d.strength);
-      // In water a drop is mirrored about the spot it falls to.
-      final shift = mirror?.mirrorShift(d.land) ?? 0;
-      final head = Offset(d.at.x, math.min(d.at.y, d.land) + shift);
-      final back = speed < 1e-6
-          ? Offset.zero
-          : Offset(d.velocity.x, d.velocity.y) / speed * length;
-      canvas.drawLine(head - back, head, _streak);
+      if (lighting == null) {
+        d.color = _water.withValues(alpha: (visibility * exposure).clamp(0, 1));
+        continue;
+      }
+      final lit = lighting.dropLightAt(d.at, d.depth * span);
+      d.color = Color.lerp(
+        _water,
+        lit.color,
+        (lit.light - (1 - lighting.darkness)) * 0.8,
+      )!.withValues(alpha: (visibility * lit.scattered * exposure).clamp(0, 1));
     }
     for (final p in _droplets) {
-      _splash
-        ..strokeWidth = p.width
-        ..color = _lit(
-          lighting,
-          p.at,
-          0.9 * (lighting?.lightAt(p.at).light ?? 1),
-        );
-      final shift = mirror?.mirrorShift(p.floor) ?? 0;
-      canvas.drawPoints(
-        PointMode.points,
-        [Offset(p.at.x, p.at.y + shift)],
-        _splash,
+      if (lighting == null) {
+        p.color = _water.withValues(alpha: 0.9);
+        continue;
+      }
+      final (:light, :color) = lighting.lightAt(p.at);
+      p.color = Color.lerp(
+        _water,
+        color,
+        (light - (1 - lighting.darkness)) * 0.8,
+      )!.withValues(alpha: (0.9 * light).clamp(0, 1));
+    }
+  }
+
+  // The streaks and droplets as triangles: one draw for the whole rain.
+  Float32List _positions = Float32List(0);
+  Int32List _colors = Int32List(0);
+  final Paint _paint = Paint();
+
+  @override
+  void render(Canvas canvas) {
+    final mirror = ReflectionPass.current;
+    final quads = _drops.length + _droplets.length;
+    if (quads == 0) {
+      return;
+    }
+    // Each streak is a strip three vertices wide: full down its middle,
+    // clear at its edges - soft-edged as a line drawn smooth, which bare
+    // triangles are not. Four triangles, twelve vertices.
+    if (_positions.length < quads * 24) {
+      _positions = Float32List(quads * 24 * 2);
+      _colors = Int32List(quads * 12 * 2);
+    }
+    var v = 0;
+    var c = 0;
+    void point(double x, double y, int argb) {
+      _positions[v++] = x;
+      _positions[v++] = y;
+      _colors[c++] = argb;
+    }
+
+    void quad(double hx, double hy, double tx, double ty, double w, int argb) {
+      var nx = ty - hy;
+      var ny = hx - tx;
+      final len = math.sqrt(nx * nx + ny * ny);
+      if (len < 1e-6) {
+        nx = w;
+        ny = 0;
+      } else {
+        nx *= w / len;
+        ny *= w / len;
+      }
+      final clear = argb & 0x00FFFFFF;
+      // tail edge, tail middle, head middle; tail edge, head middle, head
+      // edge - on each side.
+      for (final s in const [-1.0, 1.0]) {
+        point(tx + s * nx, ty + s * ny, clear);
+        point(tx, ty, argb);
+        point(hx, hy, argb);
+        point(tx + s * nx, ty + s * ny, clear);
+        point(hx, hy, argb);
+        point(hx + s * nx, hy + s * ny, clear);
+      }
+    }
+
+    for (final d in _drops) {
+      final speed = d.velocity.length;
+      final length = RainDrops.streakLength(speed / metre) * metre;
+      // In water a drop is mirrored about the spot it falls to.
+      final shift = mirror?.mirrorShift(d.land) ?? 0;
+      final hx = d.at.x;
+      final hy = math.min(d.at.y, d.land) + shift;
+      final bx = speed < 1e-6 ? 0.0 : d.velocity.x / speed * length;
+      final by = speed < 1e-6 ? 0.0 : d.velocity.y / speed * length;
+      quad(
+        hx,
+        hy,
+        hx - bx,
+        hy - by,
+        0.8 + 1.4 * d.depth * (0.6 + 0.4 * d.strength),
+        d.color.toARGB32(),
       );
     }
+    for (final p in _droplets) {
+      final shift = mirror?.mirrorShift(p.floor) ?? 0;
+      final y = p.at.y + shift;
+      quad(
+        p.at.x,
+        y - p.width / 2,
+        p.at.x,
+        y + p.width / 2,
+        p.width,
+        p.color.toARGB32(),
+      );
+    }
+    final vertices = Vertices.raw(
+      VertexMode.triangles,
+      Float32List.sublistView(_positions, 0, v),
+      colors: Int32List.sublistView(_colors, 0, c),
+    );
+    canvas.drawVertices(vertices, BlendMode.dst, _paint);
+    vertices.dispose();
   }
 }
 
@@ -387,6 +455,9 @@ class _Drop {
   final double strength;
 
   bool caught = false;
+
+  /// How it looks this frame.
+  Color color = const Color(0x00000000);
 }
 
 class _Droplet {
@@ -404,4 +475,7 @@ class _Droplet {
   final double life;
   final double width;
   double age = 0;
+
+  /// How it looks this frame.
+  Color color = const Color(0x00000000);
 }
