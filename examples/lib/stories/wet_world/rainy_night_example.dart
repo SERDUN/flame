@@ -36,7 +36,7 @@ class RainyNightExample extends FlameGame {
     final road = wetRoad();
     final puddles = [
       puddle(left: 260, width: 320),
-      puddle(left: 90, width: 110, top: 395, height: 26),
+      puddle(left: 500, width: 130, top: 398, height: 44),
     ];
     final lighting = Lighting(darkness: darkness, glow: glow, haze: haze);
     await world.addAll([

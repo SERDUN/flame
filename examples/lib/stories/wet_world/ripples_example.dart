@@ -28,7 +28,7 @@ class RipplesExample extends FlameGame with TapCallbacks {
     camera.viewfinder.anchor = Anchor.topLeft;
     _puddles.addAll([
       puddle(left: 260, width: 320),
-      puddle(left: 90, width: 110, top: 395, height: 26),
+      puddle(left: 500, width: 130, top: 398, height: 44),
     ]);
     await world.addAll([
       ...street(),

@@ -40,7 +40,7 @@ class MirrorPuddleExample extends FlameGame {
         squash: squash,
         fade: fade,
       ),
-      puddle(left: 90, width: 110, top: 395, height: 26),
+      puddle(left: 500, width: 130, top: 398, height: 44),
     ];
     await world.addAll([
       ...street(),

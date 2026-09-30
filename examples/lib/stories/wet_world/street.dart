@@ -204,7 +204,11 @@ WaterSurface wetRoad({double reflectivity = 0.14}) => WaterSurface(
   ripples: RippleRings(capacity: 64, lifeSec: 0.45, maxRadius: 10),
   rippleColor: const Color(0x22FFFFFF),
   waveAmplitude: 2.5,
-  lightStretch: 4,
+  // Rough asphalt under a film of water: a lamp runs down it into a streak,
+  // still bright - a lamp is far brighter than the screen's white, so its
+  // light smeared thin still shines.
+  streak: 70,
+  glowGain: 10,
 );
 
 /// A puddle lying on the road in front of the walker: its water line is the
@@ -231,6 +235,8 @@ WaterSurface puddle({
   tint: const Color(0x2230405A),
   rippleColor: const Color(0x55FFFFFF),
   waveAmplitude: 5,
+  // Still water: nearly a clear mirror.
+  streak: 6,
 );
 
 /// Where a drop lands: in the first puddle that covers the spot, else on the
