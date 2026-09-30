@@ -41,8 +41,9 @@ class RainyNightExample extends FlameGame {
       puddle(left: 500, width: 130, top: 398, height: 44, chop: 1.2 * rain),
     ];
     final lighting = Lighting(darkness: darkness, glow: glow, haze: haze);
+    final scene = street(lit: true);
     await world.addAll([
-      ...street(lit: true),
+      ...scene,
       road,
       ...puddles,
       lighting,
@@ -50,6 +51,7 @@ class RainyNightExample extends FlameGame {
         dropsPerSec: dropsPerSec,
         onLand: (at, strength) => landOn(puddles, road, at, strength),
         lighting: lighting,
+        ledges: scene.whereType<Houses>().first.ledges(),
         priority: 1100,
       ),
     ]);

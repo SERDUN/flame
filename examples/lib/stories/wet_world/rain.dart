@@ -24,8 +24,16 @@ class Rain extends Component with Reflectable {
     required this.dropsPerSec,
     required this.onLand,
     this.lighting,
+    this.ledges = const [],
     super.priority,
   });
+
+  /// Roofs and sills: a far drop - one falling by the houses' fronts - that
+  /// crosses one breaks on it, not on the road.
+  final List<Ledge> ledges;
+
+  /// Drops no nearer than this (`0..1`) fall by the houses.
+  static const double _byTheHouses = 0.25;
 
   final Lighting? lighting;
 
@@ -82,11 +90,23 @@ class Rain extends Component with Reflectable {
       _drops.add(_newDrop(dt));
     }
     for (final d in _drops) {
+      d.before = d.at.y;
       d.at
         ..y += d.speed * dt
         ..x += _wind * dt;
     }
     _drops.removeWhere((d) {
+      if (d.depth < _byTheHouses) {
+        for (final ledge in ledges) {
+          if (d.before < ledge.y &&
+              d.at.y >= ledge.y &&
+              d.at.x >= ledge.left &&
+              d.at.x <= ledge.right) {
+            _burst(Vector2(d.at.x, ledge.y), d);
+            return true;
+          }
+        }
+      }
       if (d.at.y < d.land) {
         return false;
       }
@@ -156,7 +176,9 @@ class Rain extends Component with Reflectable {
       );
     }
     for (final p in _droplets) {
-      _splash.strokeWidth = p.width;
+      _splash
+        ..strokeWidth = p.width
+        ..color = _lit(p.at, 0.9);
       canvas.drawPoints(PointMode.points, [p.at.toOffset()], _splash);
     }
   }
@@ -180,6 +202,9 @@ class _Drop {
   final double depth;
   final double speed;
   final double strength;
+
+  /// Where it was a step ago, to tell what it crossed.
+  double before = 0;
 }
 
 class _Droplet {

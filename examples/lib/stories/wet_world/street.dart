@@ -24,7 +24,10 @@ class Sky extends PositionComponent with Reflectable {
 
 /// A row of house fronts against the sky, with a few lit windows. With
 /// `lit` each lit window gives a little warm light, one of them flickering.
-class Houses extends PositionComponent with Reflectable {
+///
+/// Their fronts are wet ([Glossy]): the lamps glint off them and water
+/// runs down them. Rain breaks on their roofs and window sills ([ledges]).
+class Houses extends PositionComponent with Reflectable, Glossy {
   Houses({bool lit = false})
     : super(position: Vector2(0, 170), size: Vector2(800, 160)) {
     if (!lit) {
@@ -51,6 +54,46 @@ class Houses extends PositionComponent with Reflectable {
   }
 
   static const _heights = [120.0, 150.0, 100.0, 140.0, 110.0, 160.0, 125.0];
+  static const double _w = 800 / 7;
+
+  @override
+  double get gloss => 0.55;
+
+  @override
+  Path glossArea() {
+    final origin = absoluteTopLeftPosition;
+    final path = Path();
+    for (var i = 0; i < _heights.length; i++) {
+      final h = _heights[i];
+      path.addRect(
+        Rect.fromLTWH(origin.x + i * _w + 4, origin.y + size.y - h, _w - 8, h),
+      );
+    }
+    return path;
+  }
+
+  /// Where rain breaks on the houses, world coordinates: every roof, and the
+  /// sill under every lit window.
+  List<Ledge> ledges() {
+    final origin = absoluteTopLeftPosition;
+    return [
+      for (var i = 0; i < _heights.length; i++) ...[
+        Ledge(
+          origin.x + i * _w + 4,
+          origin.x + (i + 1) * _w - 4,
+          origin.y + size.y - _heights[i],
+        ),
+        for (var j = 0; j < 3; j++)
+          if ((i + j).isEven)
+            Ledge(
+              origin.x + i * _w + 16 + j * 28,
+              origin.x + i * _w + 34 + j * 28,
+              origin.y + size.y - _heights[i] + 41,
+            ),
+      ],
+    ];
+  }
+
   final Paint _wall = Paint()..color = const Color(0xFF1C2230);
   final Paint _window = Paint()..color = const Color(0xFFE8C77A);
 
@@ -257,4 +300,13 @@ void landOn(
     }
   }
   road?.splash(at, strength: strength * 0.7);
+}
+
+/// A level edge rain breaks on: a roof, a window sill. World coordinates.
+class Ledge {
+  const Ledge(this.left, this.right, this.y);
+
+  final double left;
+  final double right;
+  final double y;
 }
