@@ -102,4 +102,26 @@ void main() {
     rain.intensity = 2;
     expect(water.chop, closeTo(8, 1e-9));
   });
+
+  testWithFlameGame('rain soaks things only as wet as they can get', (
+    game,
+  ) async {
+    final wall = _Wall()..wetnessCap = 0.3;
+    await game.world.addAll([Rain(), wall]);
+    await game.ready();
+    await _rainFor(game, 20);
+    expect(wall.wetness, closeTo(0.3, 0.02));
+    wall.wetnessCap = 0.1;
+    await _rainFor(game, 200);
+    expect(wall.wetness, lessThan(0.15), reason: 'drying down to the cap');
+  });
+
+  testWithFlameGame('a puddle shrinks on drier ground', (game) async {
+    final puddle = WaterSurface(size: Vector2(200, 40), wetness: 0.1);
+    await game.world.add(puddle);
+    await game.ready();
+    final small = puddle.outline().getBounds().width;
+    puddle.wetness = 1;
+    expect(puddle.outline().getBounds().width, greaterThan(small * 2));
+  });
 }

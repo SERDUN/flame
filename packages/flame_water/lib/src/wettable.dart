@@ -13,6 +13,11 @@ mixin Wettable on Component {
   /// How wet it is now, `0..1`.
   double wetness = 0;
 
+  /// How wet it can get, `0..1`: the rain soaks it up to this and no more -
+  /// ground that drains well stays barely wet, a sodden street is soaked.
+  /// Above it (the cap lowered) it dries down to it.
+  double wetnessCap = 1;
+
   /// How fast it gets wet in a steady rain (intensity 1): the share of the
   /// way to soaked it goes in a second.
   double get wetRate => 0.3;
@@ -27,10 +32,13 @@ mixin Wettable on Component {
   void update(double dt) {
     super.update(dt);
     final rain = sheltered ? 0.0 : (Rain.of(this)?.intensity ?? 0);
-    if (rain > 0) {
-      wetness += (1 - wetness) * (1 - math.exp(-dt * wetRate * rain));
+    final cap = wetnessCap.clamp(0.0, 1.0);
+    if (rain > 0 && wetness < cap) {
+      wetness += (cap - wetness) * (1 - math.exp(-dt * wetRate * rain));
     } else {
-      wetness -= wetness * (1 - math.exp(-dt * dryRate));
+      // Dries - to nothing without rain, down to the cap with it.
+      final floor = rain > 0 ? cap : 0.0;
+      wetness -= (wetness - floor) * (1 - math.exp(-dt * dryRate));
     }
   }
 }

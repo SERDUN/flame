@@ -275,9 +275,10 @@ class WaterSurface extends PositionComponent
   /// Whether a Lighting drew the rings with the glow last frame.
   bool _litLastFrame = false;
 
-  /// The rings' paint: [rippleColor], plainer the more water there is.
+  /// The rings' paint: [rippleColor], plainer the more water there is - and
+  /// the wetter it is (barely wet asphalt hardly shows a ring).
   Paint _ringPaint() {
-    final plain = 0.5 + 0.5 * depth.clamp(0.0, 1.0);
+    final plain = (0.5 + 0.5 * depth.clamp(0.0, 1.0)) * wetness.clamp(0.0, 1.0);
     return _ripplePaint
       ..color = rippleColor.withValues(alpha: rippleColor.a * plain);
   }
@@ -323,9 +324,19 @@ class WaterSurface extends PositionComponent
     ..style = PaintingStyle.stroke
     ..strokeWidth = 1.2;
 
+  /// How much of its shape a pool fills now: standing water shrinks as the
+  /// ground dries - a puddle on barely wet ground is a small dark patch.
+  /// A film always covers its ground; its wetness shows in its mirror.
+  double get _fill => film ? 1 : 0.3 + 0.7 * wetness.clamp(0.0, 1.0);
+
   /// The water's outline in its own coordinates.
   Path outline() {
-    final rect = size.toRect();
+    final whole = size.toRect();
+    final rect = Rect.fromCenter(
+      center: whole.center,
+      width: whole.width * _fill,
+      height: whole.height * _fill,
+    );
     return switch (shape) {
       WaterShape.rect => Path()..addRect(rect),
       WaterShape.ellipse => Path()..addOval(rect),
@@ -438,6 +449,8 @@ class WaterSurface extends PositionComponent
   /// ellipse stays.
   void _closeArea(Canvas canvas, Rect rect) {
     if (_softEdge) {
+      // The water as it stands now: a drying pool is smaller than its rect.
+      final pool = outline().getBounds();
       final soft = edgeSoftness.clamp(0.0, 1.0);
       _edgeMask.shader = Gradient.radial(
         Offset.zero,
@@ -447,9 +460,19 @@ class WaterSurface extends PositionComponent
       );
       canvas
         ..save()
-        ..translate(rect.center.dx, rect.center.dy)
-        ..scale(rect.width / 2, rect.height / 2)
-        ..drawRect(const Rect.fromLTRB(-1.01, -1.01, 1.01, 1.01), _edgeMask)
+        ..translate(pool.center.dx, pool.center.dy)
+        ..scale(pool.width / 2, pool.height / 2)
+        // Over the whole rectangle, in the pool's own scale: past the pool's
+        // rim the mask is clear, so nothing outside it stays.
+        ..drawRect(
+          Rect.fromLTRB(
+            (rect.left - pool.center.dx) / (pool.width / 2) - 0.01,
+            (rect.top - pool.center.dy) / (pool.height / 2) - 0.01,
+            (rect.right - pool.center.dx) / (pool.width / 2) + 0.01,
+            (rect.bottom - pool.center.dy) / (pool.height / 2) + 0.01,
+          ),
+          _edgeMask,
+        )
         ..restore();
     }
     canvas.restore();
