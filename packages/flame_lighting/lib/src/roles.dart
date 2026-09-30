@@ -3,6 +3,7 @@ import 'dart:ui';
 
 import 'package:flame/components.dart';
 import 'package:flame_lighting/src/light_source.dart';
+import 'package:flame_lighting/src/world_lookup.dart';
 
 /// The ground, seen from the side: the band of the view from the line things
 /// stand on (its top edge) down towards the viewer. Lights lay pools on it
@@ -55,16 +56,8 @@ mixin Ground on Component {
   }
 
   /// The ground of the world [component] is in, if there is one.
-  static Ground? of(Component component) {
-    var top = component;
-    for (final a in component.ancestors()) {
-      top = a;
-      if (a is World) {
-        break;
-      }
-    }
-    return top.descendants().whereType<Ground>().firstOrNull;
-  }
+  static Ground? of(Component component) => _lookup.of(component);
+  static final WorldLookup<Ground> _lookup = WorldLookup();
 }
 
 /// Which way a component faces: a character, a car. What it carries - a

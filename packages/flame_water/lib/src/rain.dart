@@ -63,16 +63,8 @@ class Rain extends Component with Reflectable {
   double behind = -0.25;
 
   /// The rain over the world [component] is in, if there is one.
-  static Rain? of(Component component) {
-    var top = component;
-    for (final a in component.ancestors()) {
-      top = a;
-      if (a is World) {
-        break;
-      }
-    }
-    return top.descendants().whereType<Rain>().firstOrNull;
-  }
+  static Rain? of(Component component) => _lookup.of(component);
+  static final WorldLookup<Rain> _lookup = WorldLookup();
 
   /// Drops in the air now, and droplets of bursts.
   @visibleForTesting

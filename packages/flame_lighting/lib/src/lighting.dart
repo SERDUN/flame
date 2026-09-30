@@ -7,6 +7,7 @@ import 'package:flame_lighting/src/light_mirror.dart';
 import 'package:flame_lighting/src/light_source.dart';
 import 'package:flame_lighting/src/lighting_shader.dart';
 import 'package:flame_lighting/src/roles.dart';
+import 'package:flame_lighting/src/world_lookup.dart';
 
 /// The night over a world, and its lights.
 ///
@@ -82,11 +83,15 @@ class Lighting extends Component {
   final Paint _fill = Paint();
   final Paint _coneMask = Paint()..blendMode = BlendMode.dstIn;
 
-  Iterable<LightSource> get _lights =>
-      _world().descendants().whereType<LightSource>();
+  // The world's lights and mirrors, gathered once a frame: every drop and
+  // every glint asks for them.
+  List<LightSource> get _lights =>
+      _lightList ??= _world().descendants().whereType<LightSource>().toList();
+  List<LightSource>? _lightList;
 
-  Iterable<LightMirror> get _mirrors =>
-      _world().descendants().whereType<LightMirror>();
+  List<LightMirror> get _mirrors =>
+      _mirrorList ??= _world().descendants().whereType<LightMirror>().toList();
+  List<LightMirror>? _mirrorList;
 
   Component _world() {
     Component top = this;
@@ -217,16 +222,8 @@ class Lighting extends Component {
   }
 
   /// The lighting of the world [component] is in, if it has one.
-  static Lighting? of(Component component) {
-    var top = component;
-    for (final a in component.ancestors()) {
-      top = a;
-      if (a is World) {
-        break;
-      }
-    }
-    return top.children.whereType<Lighting>().firstOrNull;
-  }
+  static Lighting? of(Component component) => _lookup.of(component);
+  static final WorldLookup<Lighting> _lookup = WorldLookup();
 
   /// Cuts [light]'s halo out of the night, as its haze makes it.
   void _cutHalo(Canvas canvas, LightSource light) {
@@ -386,6 +383,8 @@ class Lighting extends Component {
   void update(double dt) {
     super.update(dt);
     _time += dt;
+    _lightList = null;
+    _mirrorList = null;
   }
 
   /// The lights glinting off [wet]: each light's cast once more, over its
