@@ -36,6 +36,8 @@ class Houses extends PositionComponent
     // they shed their water fast once the rain stops.
     wetness = 1;
     dryRate = 0.05;
+    // Brick and plaster: they soak water up and darken.
+    porosity = 0.6;
     if (!lit) {
       return;
     }
@@ -63,7 +65,10 @@ class Houses extends PositionComponent
   static const double _w = 800 / 7;
 
   @override
-  double get gloss => 0.6 * wetness;
+  double get gloss => 0.6 * wetGloss;
+
+  @override
+  double get darkening => wetDarkening;
 
   @override
   Path glossArea() {
@@ -142,9 +147,10 @@ class Lamp extends PositionComponent with Reflectable {
         size: Vector2(20, 150),
         children: [
           if (lit) ...[
+            // A street lamp lights the street for some metres round.
             LightSource(
               position: Vector2(10, 16),
-              radius: 260,
+              radius: 420,
               coneAngle: 1.9,
               intensity: 0.95,
               sourceRadius: 5,
@@ -265,7 +271,7 @@ List<Component> street({bool lit = false}) => [
 /// much, only lying rough on the asphalt - so everything it mirrors, the
 /// street and the lamps alike, runs down it into a smear, and the rain keeps
 /// it astir.
-WaterSurface wetRoad({double reflectivity = 0.6}) => WaterSurface(
+WaterSurface wetRoad({double reflectivity = 0.85}) => WaterSurface(
   position: Vector2(0, groundLine),
   size: Vector2(800, 120),
   shape: WaterShape.rect,
@@ -283,7 +289,7 @@ WaterSurface wetRoad({double reflectivity = 0.6}) => WaterSurface(
   // A film: it comes and goes with the rain; the rain keeps it astir.
   film: true,
   chopPerRain: 4,
-);
+)..porosity = 0.4;
 
 /// A puddle lying on the road in front of the walker: its water line is the
 /// line the street stands on, so feet meet their reflection. It shows the same
@@ -295,7 +301,7 @@ WaterSurface puddle({
   required double width,
   double top = 345,
   double height = 34,
-  double reflectivity = 0.75,
+  double reflectivity = 1,
   double squash = 0.6,
   double fade = 0.7,
 }) => WaterSurface(
