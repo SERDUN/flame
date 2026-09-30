@@ -2,30 +2,26 @@ import 'dart:ui';
 
 import 'package:flame/components.dart';
 
-/// A surface that shows the lights above it mirrored: water, a wet road, a
-/// glossy roof. The `Lighting` layer lights it where a mirrored light falls,
-/// drawn out down the surface as light on wet ground is.
+/// Parts of a component that give light themselves: a bulb, a lit window,
+/// the halo wet air makes round a lamp.
+///
+/// The `Lighting` draws them over the night, undimmed, after it has cut the
+/// lights out of the dark - and hands them to every [LightMirror], which
+/// shows them mirrored as it mirrors anything.
+mixin Emissive on Component {
+  /// Draws the glowing parts, in this component's own coordinates.
+  void renderEmissive(Canvas canvas);
+}
+
+/// A surface that mirrors light: water, a wet road, a glossy roof.
+///
+/// A lamp in a puddle is the lamp's own glow seen in the water, so it has to
+/// go through whatever the surface does to a reflection - ripples bend it,
+/// a rough wet road smears it into a long streak. The lighting gives each
+/// mirror the world's glow to draw that way.
 mixin LightMirror on Component {
-  /// World y of the line the lights are mirrored about.
-  double get mirrorLine;
-
-  /// How tall a reflection is against what it reflects (as the surface's
-  /// own mirror): below 1 squeezes it.
-  double get mirrorSquash;
-
-  /// How much light it gives back, `0..1`.
-  double get mirrorStrength;
-
-  /// How far a light's reflection is drawn out down the surface, against its
-  /// width: 1 a round spot (still water), more a long streak (a wet road).
-  double get mirrorStretch;
-
-  /// Where it shows reflections, world coordinates.
-  Path mirrorClip();
-
-  /// How far the surface's own movement (ripples from drops) shifts what it
-  /// mirrors at ([x], [y]), world coordinates and units; zero on still
-  /// water. The lights' reflections move with it, so a ring passing through
-  /// a lamp's streak breaks and bends it.
-  Offset disturbanceAt(double x, double y) => Offset.zero;
+  /// Draws the world's glow mirrored in this surface onto [canvas], which is
+  /// in world coordinates. [glow] draws every [Emissive] part of the world,
+  /// in world coordinates, onto the canvas it is given.
+  void renderMirroredGlow(Canvas canvas, void Function(Canvas canvas) glow);
 }

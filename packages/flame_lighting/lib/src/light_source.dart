@@ -2,14 +2,18 @@ import 'dart:math' as math;
 import 'dart:ui';
 
 import 'package:flame/components.dart';
+import 'package:flame_lighting/src/light_mirror.dart';
+import 'package:flame_lighting/src/lighting.dart';
 
 /// A light in the world: a lamp, a lit window, a headlight.
 ///
 /// It shines from its position out to [radius], fading with distance, all
 /// around or - with a [coneAngle] - in a cone along [coneDirection] (a
-/// street lamp shines down). It draws nothing itself: a `Lighting` layer
-/// cuts it out of the night and adds its glow.
-class LightSource extends PositionComponent {
+/// street lamp shines down). A `Lighting` layer cuts it out of the night and
+/// adds its glow; as an [Emissive] it draws its own source - a disc
+/// [sourceRadius] across - and the halo the air's haze makes round it, which
+/// water then mirrors like anything else.
+class LightSource extends PositionComponent with Emissive {
   LightSource({
     super.position,
     this.color = const Color(0xFFFFD9A0),
@@ -122,5 +126,44 @@ class LightSource extends PositionComponent {
         false,
       )
       ..close();
+  }
+
+  final Paint _glow = Paint();
+
+  @override
+  void renderEmissive(Canvas canvas) {
+    final s = strength.clamp(0.0, 1.0);
+    if (s <= 0 || sourceRadius <= 0) {
+      return;
+    }
+    final haze = Lighting.current?.haze ?? 0;
+    if (haze > 0) {
+      // Wet air scatters the light into a wide soft halo round the source.
+      final a = haze * s * 0.6;
+      final halo = sourceRadius * (6 + 24 * haze);
+      _glow.shader = Gradient.radial(
+        Offset.zero,
+        halo,
+        [
+          color.withValues(alpha: a),
+          color.withValues(alpha: a * 0.35),
+          color.withValues(alpha: 0),
+        ],
+        const [0, 0.25, 1],
+      );
+      canvas.drawCircle(Offset.zero, halo, _glow);
+    }
+    // The source itself: nearly white at its heart.
+    _glow.shader = Gradient.radial(
+      Offset.zero,
+      sourceRadius * 1.6,
+      [
+        Color.lerp(color, const Color(0xFFFFFFFF), 0.6)!.withValues(alpha: s),
+        color.withValues(alpha: s),
+        color.withValues(alpha: 0),
+      ],
+      const [0, 0.55, 1],
+    );
+    canvas.drawCircle(Offset.zero, sourceRadius * 1.6, _glow);
   }
 }

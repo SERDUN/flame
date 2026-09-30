@@ -16,26 +16,20 @@ class _Wall extends RectangleComponent {
       );
 }
 
+/// Still water below y 400: the glow mirrored about that line, plainly.
 class _Water extends PositionComponent with LightMirror {
-  _Water({this.shift = Offset.zero})
-    : super(position: Vector2(0, 400), size: Vector2(800, 150));
-
-  /// What the water's own movement does to its mirror, everywhere.
-  final Offset shift;
+  _Water() : super(position: Vector2(0, 400), size: Vector2(800, 150));
 
   @override
-  Offset disturbanceAt(double x, double y) => shift;
-
-  @override
-  double get mirrorLine => 400;
-  @override
-  double get mirrorSquash => 1;
-  @override
-  double get mirrorStrength => 1;
-  @override
-  double get mirrorStretch => 1;
-  @override
-  Path mirrorClip() => Path()..addRect(toAbsoluteRect());
+  void renderMirroredGlow(Canvas canvas, void Function(Canvas) glow) {
+    canvas
+      ..save()
+      ..clipRect(toAbsoluteRect())
+      ..translate(0, 800)
+      ..scale(1, -1);
+    glow(canvas);
+    canvas.restore();
+  }
 }
 
 /// Brightness (red channel, 0..255) of the rendered game at a pixel.
@@ -88,7 +82,7 @@ void main() {
     expect(at(400, 260), lessThan(10));
   });
 
-  testWithFlameGame('wet ground shows the lamp mirrored below its line', (
+  testWithFlameGame('water shows the lamp itself, as bright as the lamp', (
     game,
   ) async {
     await _setUp(game, [
@@ -96,13 +90,9 @@ void main() {
       _Water(),
     ]);
     final at = await _render(game);
-    // Mirrored 100 below the line at 400: around y 500, lit only near x 400.
-    // The glow is broken into slivers: look at the brightest in a strip.
-    final strip = [for (var y = 470; y < 530; y++) at(400, y)];
-    expect(strip.reduce(math.max), greaterThan(60));
-    expect(at(700, 495), lessThan(10));
-    // The lamp itself mirrored: nearly as bright as the lamp.
-    expect(at(400, 500), greaterThan(at(400, 300) * 0.85));
+    // Mirrored about 400: the lamp at 300 shows at 500.
+    expect(at(400, 500), greaterThan(at(400, 300) * 0.9));
+    expect(at(700, 500), lessThan(10));
   });
 
   testWithFlameGame('a cone has no hard edge: light eases off to its sides', (
@@ -132,17 +122,5 @@ void main() {
     final at = await _render(game);
     expect(at(400, 280), greaterThan(40), reason: 'the halo above the bulb');
     expect(at(400, 60), lessThan(5), reason: 'not the whole sky');
-  });
-
-  testWithFlameGame('moving water moves the mirrored lamp with it', (
-    game,
-  ) async {
-    await _setUp(game, [
-      LightSource(position: Vector2(400, 300), radius: 60),
-      _Water(shift: const Offset(10, 0)),
-    ]);
-    final at = await _render(game);
-    // The core's centre, mirrored at x 400, now sits 10 to the right.
-    expect(at(410, 500), greaterThan(at(390, 500) + 30));
   });
 }
