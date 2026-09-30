@@ -1,0 +1,7 @@
+/// Light and dark for Flame scenes: lights that cut through a night, glow,
+/// and show in whatever mirrors them.
+library;
+
+export 'src/light_mirror.dart' show LightMirror;
+export 'src/light_source.dart' show LightSource;
+export 'src/lighting.dart' show Lighting;

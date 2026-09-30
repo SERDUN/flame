@@ -1,0 +1,24 @@
+name: flame_lighting
+resolution: workspace
+description: Light and dark for Flame scenes - lights that cut through a night, glow, and show in whatever mirrors them.
+version: 0.1.0
+publish_to: none
+homepage: https://github.com/SERDUN/flame/tree/serdun/packages/flame_lighting
+topics:
+  - flame
+  - lighting
+
+environment:
+  sdk: ">=3.11.0 <4.0.0"
+  flutter: ">=3.41.0"
+
+dependencies:
+  flame: ^1.38.0
+  flutter:
+    sdk: flutter
+
+dev_dependencies:
+  flame_lint: ^1.4.3
+  flame_test: ^2.3.0
+  flutter_test:
+    sdk: flutter

@@ -52,6 +52,7 @@ workspace:
   - packages/flame_forge2d
   - packages/flame_forge2d/example
   - packages/flame_noise
+  - packages/flame_lighting
   - packages/flame_water
   - packages/flame_riverpod
   - packages/flame_riverpod/example
