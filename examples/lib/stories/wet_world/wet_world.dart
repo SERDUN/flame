@@ -16,6 +16,7 @@ void addWetWorldStories(Dashbook dashbook) {
         game: RainyNightExample(
           darkness: context.numberProperty('darkness', 0.7),
           glow: context.numberProperty('glow', 0.35),
+          haze: context.numberProperty('haze', 0.5),
           dropsPerSec: context.numberProperty('drops per second', 250),
         ),
       ),

@@ -41,6 +41,7 @@ class Houses extends PositionComponent with Reflectable {
               intensity: 0.55,
               color: const Color(0xFFFFC870),
               flicker: i == 3 && j == 1 ? 0.6 : 0,
+              sourceRadius: 2.5,
               seed: i * 3 + j,
             ),
           );
@@ -88,8 +89,15 @@ class Lamp extends PositionComponent with Reflectable {
               radius: 260,
               coneAngle: 1.9,
               intensity: 0.95,
+              sourceRadius: 5,
             ),
-            LightSource(position: Vector2(10, 16), radius: 36, intensity: 0.9),
+            // The bulb's own glow; the air's halo round it is the cone's.
+            LightSource(
+              position: Vector2(10, 16),
+              radius: 36,
+              intensity: 0.9,
+              sourceRadius: 0,
+            ),
           ],
         ],
       );
