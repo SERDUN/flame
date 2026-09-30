@@ -25,6 +25,7 @@ class Lighting extends Component {
     this.ambient = const Color(0xFF060A16),
     this.darkness = 0.65,
     this.glow = 0.35,
+    this.haze = 0.4,
     super.priority = 1000,
   });
 
@@ -36,6 +37,19 @@ class Lighting extends Component {
 
   /// How much colour the lights add over what they reveal, `0..1`.
   double glow;
+
+  /// How thick the air is with rain and mist, `0..1`: it scatters every
+  /// light into a wide soft halo round its source, as a lamp in a wet night
+  /// glows far beyond its bulb.
+  double haze;
+
+  double _time = 0;
+
+  @override
+  void update(double dt) {
+    super.update(dt);
+    _time += dt;
+  }
 
   final Paint _layer = Paint();
   final Paint _dark = Paint();
@@ -111,6 +125,7 @@ class Lighting extends Component {
     );
     for (final light in lights) {
       _drawLight(canvas, light, _cut, 1, light.strength.clamp(0.0, 1.0));
+      _drawHalo(canvas, light, _cut, 1);
     }
     for (final mirror in mirrors) {
       _drawMirrored(canvas, mirror, lights, _cut, 1);
@@ -122,10 +137,33 @@ class Lighting extends Component {
     }
     for (final light in lights) {
       _drawLight(canvas, light, _add, glow, light.strength);
+      _drawHalo(canvas, light, _add, glow);
     }
     for (final mirror in mirrors) {
       _drawMirrored(canvas, mirror, lights, _add, glow);
     }
+  }
+
+  /// The light scattered by the air round [light]'s source: a wide soft
+  /// halo, as big and as bright as [haze] makes it.
+  void _drawHalo(Canvas canvas, LightSource light, Paint paint, double amount) {
+    final a = (amount * haze * light.strength * 0.6).clamp(0.0, 1.0);
+    if (a <= 0 || light.sourceRadius <= 0) {
+      return;
+    }
+    final center = light.absolutePosition.toOffset();
+    final radius = light.sourceRadius * (6 + 24 * haze);
+    paint.shader = Gradient.radial(
+      center,
+      radius,
+      [
+        light.color.withValues(alpha: a),
+        light.color.withValues(alpha: a * 0.35),
+        light.color.withValues(alpha: 0),
+      ],
+      const [0, 0.25, 1],
+    );
+    canvas.drawCircle(center, radius, paint);
   }
 
   /// [light]'s shape filled with its colour fading out from its centre, at
@@ -199,9 +237,11 @@ class Lighting extends Component {
   /// The lights above [mirror] as it shows them, each mirrored about its
   /// line and squeezed, clipped to it: the light's own source as a bright
   /// core nearly as strong as the source - a mirror image of a lamp is a
-  /// lamp - and around it the light's glow drawn out down the surface into a
-  /// streak. The core ignores [amount]: it is the light itself, not its
-  /// glow.
+  /// lamp - and its glow as a column of short horizontal slivers running
+  /// down the surface, each flickering in width and brightness: the surface
+  /// is never flat, so the reflection breaks into pieces that shimmer, as a
+  /// lamp's does on a wet road. The core ignores [amount]: it is the light
+  /// itself, not its glow.
   void _drawMirrored(
     Canvas canvas,
     LightMirror mirror,
@@ -218,7 +258,7 @@ class Lighting extends Component {
     canvas
       ..save()
       ..clipPath(clip);
-    for (final light in lights) {
+    for (final (index, light) in lights.indexed) {
       final at = light.absolutePosition;
       final height = mirror.mirrorLine - at.y;
       if (height <= 0) {
@@ -233,43 +273,97 @@ class Lighting extends Component {
         at.x,
         mirror.mirrorLine + height * mirror.mirrorSquash,
       );
-      final stretch = mirror.mirrorStretch;
-      canvas
-        ..save()
-        ..translate(center.dx, center.dy)
-        ..scale(1, stretch);
-      final glow = (amount * reflect * strength).clamp(0.0, 1.0);
-      paint.shader = Gradient.radial(
-        Offset.zero,
+      _drawSlivers(
+        canvas,
+        paint,
+        light,
+        center,
         width,
-        [
-          light.color.withValues(alpha: glow),
-          light.color.withValues(alpha: glow * 0.3),
-          light.color.withValues(alpha: 0),
-        ],
-        const [0, 0.3, 1],
+        tall: width * mirror.mirrorStretch,
+        top: math.max(mirror.mirrorLine, bounds.top),
+        bottom: bounds.bottom,
+        alpha: (amount * reflect * strength).clamp(0.0, 1.0),
+        seed: index * 7.31,
       );
-      canvas.drawCircle(Offset.zero, width, paint);
       final core = reflect * strength;
       final coreRadius = light.sourceRadius * 2.5;
-      paint.shader = Gradient.radial(
-        Offset.zero,
-        coreRadius,
-        [
-          Color.lerp(
-            light.color,
-            const Color(0xFFFFFFFF),
-            0.5,
-          )!.withValues(alpha: core),
-          light.color.withValues(alpha: core * 0.6),
-          light.color.withValues(alpha: 0),
-        ],
-        const [0, 0.35, 1],
-      );
-      canvas
-        ..drawCircle(Offset.zero, coreRadius, paint)
-        ..restore();
+      paint
+        ..maskFilter = null
+        ..shader = Gradient.radial(
+          center,
+          coreRadius,
+          [
+            Color.lerp(
+              light.color,
+              const Color(0xFFFFFFFF),
+              0.5,
+            )!.withValues(alpha: core),
+            light.color.withValues(alpha: core * 0.6),
+            light.color.withValues(alpha: 0),
+          ],
+          const [0, 0.35, 1],
+        );
+      canvas.drawCircle(center, coreRadius, paint);
     }
     canvas.restore();
+  }
+
+  /// Gap between the slivers of a broken reflection, and their height.
+  static const double _sliverGap = 5;
+  static const double _sliverHeight = 2.2;
+
+  /// The glow of a mirrored light as slivers from [top] to [bottom] round
+  /// [center]: brightest at the mirrored source and fading [tall] above and
+  /// below it, [width] across at most, each sliver's width and brightness
+  /// wavering on its own in time.
+  void _drawSlivers(
+    Canvas canvas,
+    Paint paint,
+    LightSource light,
+    Offset center,
+    double width, {
+    required double tall,
+    required double top,
+    required double bottom,
+    required double alpha,
+    required double seed,
+  }) {
+    if (alpha <= 0 || tall <= 0) {
+      return;
+    }
+    paint
+      ..shader = null
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 1.5);
+    final from = math.max(top, center.dy - tall);
+    final to = math.min(bottom, center.dy + tall);
+    for (var y = from; y < to; y += _sliverGap) {
+      final i = (y - from) / _sliverGap + seed;
+      final along = 1 - ((y - center.dy).abs() / tall).clamp(0.0, 1.0);
+      // Two slow waves per sliver, out of step with its neighbours.
+      final waver =
+          0.5 +
+          0.3 * math.sin(_time * 2.3 + i * 1.7) +
+          0.2 * math.sin(_time * 3.7 + i * 0.6);
+      final half = width * (0.15 + 0.55 * along) * (0.6 + 0.4 * waver);
+      final a = alpha * along * along * (0.35 + 0.65 * waver);
+      if (a <= 0.01 || half < 0.5) {
+        continue;
+      }
+      paint.color = light.color.withValues(alpha: a.clamp(0.0, 1.0));
+      canvas.drawRect(
+        Rect.fromLTRB(
+          center.dx - half,
+          y,
+          center.dx + half,
+          y + _sliverHeight,
+        ),
+        paint,
+      );
+    }
+    // The paint is shared: its colour's alpha would dim every gradient drawn
+    // with it after this.
+    paint
+      ..maskFilter = null
+      ..color = const Color(0xFFFFFFFF);
   }
 }

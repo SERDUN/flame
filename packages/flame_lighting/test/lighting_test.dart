@@ -40,11 +40,20 @@ Future<int Function(int x, int y)> _render(FlameGame game) async {
   return (int x, int y) => bytes.getUint8((y * 800 + x) * 4);
 }
 
-Future<void> _setUp(FlameGame game, List<Component> extra) async {
+Future<void> _setUp(
+  FlameGame game,
+  List<Component> extra, {
+  double haze = 0,
+}) async {
   game.camera.viewfinder.anchor = Anchor.topLeft;
   await game.world.addAll([
     _Wall(),
-    Lighting(ambient: const Color(0xFF000000), darkness: 1, glow: 0),
+    Lighting(
+      ambient: const Color(0xFF000000),
+      darkness: 1,
+      glow: 0,
+      haze: haze,
+    ),
     ...extra,
   ]);
   await game.ready();
@@ -81,7 +90,9 @@ void main() {
     ]);
     final at = await _render(game);
     // Mirrored 100 below the line at 400: around y 500, lit only near x 400.
-    expect(at(400, 495), greaterThan(60));
+    // The glow is broken into slivers: look at the brightest in a strip.
+    final strip = [for (var y = 470; y < 530; y++) at(400, y)];
+    expect(strip.reduce(math.max), greaterThan(60));
     expect(at(700, 495), lessThan(10));
     // The lamp itself mirrored: nearly as bright as the lamp.
     expect(at(400, 500), greaterThan(at(400, 300) * 0.85));
@@ -103,5 +114,16 @@ void main() {
     expect(row.first, greaterThan(50), reason: 'lit along the axis');
     expect(row.last, lessThan(5), reason: 'dark past the edge');
     expect(steepest, lessThan(8), reason: 'no step at the edge: $row');
+  });
+
+  testWithFlameGame('in thick air a lamp glows round its bulb, above it too', (
+    game,
+  ) async {
+    await _setUp(game, [
+      LightSource(position: Vector2(400, 300), coneAngle: math.pi / 2),
+    ], haze: 1);
+    final at = await _render(game);
+    expect(at(400, 280), greaterThan(40), reason: 'the halo above the bulb');
+    expect(at(400, 60), lessThan(5), reason: 'not the whole sky');
   });
 }
