@@ -28,7 +28,7 @@ class RippleRings {
     return RippleRings(
       capacity: 96,
       lifeSec: 0.3 + 0.4 * d,
-      maxRadius: 6 + 18 * d,
+      maxRadius: 9 + 15 * d,
     );
   }
 
@@ -112,7 +112,14 @@ class RippleRings {
 
   /// Draws every live ring with [paint] (a stroke), its opacity scaled by each
   /// ring's.
-  void render(Canvas canvas, Paint paint) {
+  ///
+  /// With [lightAt] each ring is as bright as the light where it is: a
+  /// ring's crest is a glint, mirroring whatever light is round it.
+  void render(
+    Canvas canvas,
+    Paint paint, {
+    double Function(double x, double y)? lightAt,
+  }) {
     final alpha = paint.color.a;
     for (var i = 0; i < capacity; i++) {
       final r = ring(i);
@@ -120,7 +127,10 @@ class RippleRings {
         continue;
       }
       final (radius, opacity) = r;
-      paint.color = paint.color.withValues(alpha: alpha * opacity);
+      final light = lightAt == null ? 1.0 : lightAt(_x[i], _y[i]);
+      paint.color = paint.color.withValues(
+        alpha: (alpha * opacity * light).clamp(0.0, 1.0),
+      );
       canvas.drawOval(
         Rect.fromCenter(
           center: Offset(_x[i], _y[i]),

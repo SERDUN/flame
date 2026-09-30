@@ -208,8 +208,31 @@ class WaterSurface extends PositionComponent with LightMirror {
       );
       canvas.restore();
     }
+    // The rings' crests glint with the light round them - bright by a lamp,
+    // faint but there in the dark, lit by the sky.
+    final lighting = Lighting.current;
+    ripples.render(
+      canvas,
+      _ringPaint(),
+      lightAt: lighting == null
+          ? null
+          : (x, y) =>
+                0.35 +
+                lighting.lightAt(Vector2(origin.x + x, origin.y + y)).light,
+    );
+    _litLastFrame = true;
     _closeArea(canvas, rect);
     canvas.restore();
+  }
+
+  /// Whether a Lighting drew the rings with the glow last frame.
+  bool _litLastFrame = false;
+
+  /// The rings' paint: [rippleColor], plainer the more water there is.
+  Paint _ringPaint() {
+    final plain = 0.5 + 0.5 * depth.clamp(0.0, 1.0);
+    return _ripplePaint
+      ..color = rippleColor.withValues(alpha: rippleColor.a * plain);
   }
 
   /// Runs [draw] blurred up and down by [spread]: a rough surface mirrors
@@ -338,12 +361,13 @@ class WaterSurface extends PositionComponent with LightMirror {
     if (tint.a > 0) {
       canvas.drawRect(rect, _tintPaint..color = tint);
     }
-    final plain = 0.35 + 0.65 * depth.clamp(0.0, 1.0);
-    ripples.render(
-      canvas,
-      _ripplePaint
-        ..color = rippleColor.withValues(alpha: rippleColor.a * plain),
-    );
+    // Under a Lighting the rings are glints over the night, drawn with the
+    // glow; without one they are drawn here.
+    final lit = _litLastFrame;
+    _litLastFrame = false;
+    if (!lit) {
+      ripples.render(canvas, _ringPaint());
+    }
     _closeArea(canvas, rect);
   }
 
