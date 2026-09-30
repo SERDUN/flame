@@ -5,6 +5,7 @@ import 'package:flame/components.dart';
 import 'package:flame/extensions.dart';
 import 'package:flame_lighting/src/light_mirror.dart';
 import 'package:flame_lighting/src/light_source.dart';
+import 'package:flame_lighting/src/roles.dart';
 
 /// The night over a world, and its lights.
 ///
@@ -56,11 +57,10 @@ class Lighting extends Component {
   /// glows far beyond its bulb.
   double haze;
 
-  /// The ground, seen from the side: a band of the view, its top edge the
-  /// line things stand on, going away from the viewer up to it. Where a
-  /// light's cone reaches the ground it lays a pool of light on it - a lamp
-  /// a wide one under itself, a torch a long one ahead of the walker.
-  /// `null`: no ground to light.
+  /// The ground band lights lay pools on; `null` takes the world's
+  /// [Ground]. Where a light's cone reaches the ground it lays a pool of
+  /// light on it - a lamp a wide one under itself, a torch a long one ahead
+  /// of the walker.
   Rect? floor;
 
   /// The lighting drawing now, for the [Emissive] parts it draws.
@@ -206,7 +206,7 @@ class Lighting extends Component {
   /// round the foot of a lamp shining straight down - and lays an oval of
   /// light over it on the floor band, fading with the way the light went.
   void _drawPool(Canvas canvas, LightSource light, Paint paint, double amount) {
-    final floor = this.floor;
+    final floor = this.floor ?? Ground.of(this)?.groundBand();
     final cone = light.coneAngle;
     if (floor == null || cone == null) {
       return;
@@ -287,10 +287,10 @@ class Lighting extends Component {
   /// runs down it: soft, blurred, only just lighter than the wall, and only
   /// where light falls.
   ///
-  /// [canvas] is in world coordinates. A [Glossy] component calls this (via
-  /// [Glossy.renderSheen]) as it draws itself, so the sheen lies where the
-  /// wall is: behind whatever stands in front of it, under the night, and
-  /// in the water's mirror too.
+  /// [canvas] is in world coordinates. A [Glossy] component has this drawn
+  /// right after itself, so the sheen lies where the wall is: behind
+  /// whatever stands in front of it, under the night, and in the water's
+  /// mirror too.
   void drawSheen(Canvas canvas, Glossy wet) {
     final lights = _lights.toList();
     final gloss = wet.gloss.clamp(0.0, 1.0);

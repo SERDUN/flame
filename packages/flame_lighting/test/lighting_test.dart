@@ -29,6 +29,12 @@ class _Water extends PositionComponent with LightMirror {
   }
 }
 
+/// The ground from y 400 down.
+class _Ground extends Component with Ground {
+  @override
+  Rect groundBand() => const Rect.fromLTWH(0, 400, 800, 150);
+}
+
 /// A wet wall right of x 400.
 class _WetWall extends Component with Glossy {
   _WetWall(this.gloss);
@@ -38,9 +44,6 @@ class _WetWall extends Component with Glossy {
 
   @override
   Path glossArea() => Path()..addRect(const Rect.fromLTWH(400, 250, 400, 150));
-
-  @override
-  void render(Canvas canvas) => renderSheen(canvas);
 }
 
 /// Brightness (red channel, 0..255) of the rendered game at a pixel.
@@ -196,7 +199,9 @@ void main() {
           coneDirection: 0.3,
           sourceRadius: 0,
         ),
-      ], floor: const Rect.fromLTWH(0, 400, 800, 150));
+        // The lighting finds the ground itself.
+        _Ground(),
+      ]);
       final at = await _render(game);
       // Down in the ground band, where the beam itself never reaches on
       // screen: lit ahead of the torch, dark behind it.

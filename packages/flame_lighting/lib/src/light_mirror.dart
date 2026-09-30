@@ -33,29 +33,26 @@ mixin LightMirror on Component {
 /// Rough and upright, it does not show the street, but the light that falls
 /// on it glints off the water on it: a sheen of every light over
 /// [glossArea], as strong as [gloss], and faint damp trails where water runs
-/// down it, seen only where light falls. The component calls [renderSheen]
-/// at the end of its own render, so the sheen lies where it is - behind
-/// what stands in front of it.
+/// down it, seen only where light falls. It is drawn right after the
+/// component, so it lies where the component is - behind what stands in
+/// front of it.
 mixin Glossy on Component {
-  /// Draws the sheen of the world's `Lighting` (if it has one) over this
-  /// surface. [canvas] is as the component's render got it.
-  void renderSheen(Canvas canvas) {
-    Component top = this;
-    for (final a in ancestors()) {
-      top = a;
-      if (a is World) {
-        break;
-      }
-    }
-    final lighting = top.children.whereType<Lighting>().firstOrNull;
+  /// Draws the component, then the sheen of the world's `Lighting` (if it
+  /// has one) over it - right after it, so the sheen lies where it is and
+  /// whatever stands in front of it hides it. Nothing to call by hand.
+  @override
+  void renderTree(Canvas canvas) {
+    super.renderTree(canvas);
+    final lighting = Lighting.of(this);
     if (lighting == null) {
       return;
     }
+    // After its own tree the canvas is back in its parent's coordinates;
+    // the sheen is laid out in the world's.
     canvas.save();
-    final Component self = this;
-    if (self is PositionComponent) {
-      // Back to world coordinates, where the sheen is laid out.
-      final origin = self.absoluteTopLeftPosition;
+    final holder = parent;
+    if (holder is PositionComponent) {
+      final origin = holder.absoluteTopLeftPosition;
       canvas.translate(-origin.x, -origin.y);
     }
     lighting.drawSheen(canvas, this);
