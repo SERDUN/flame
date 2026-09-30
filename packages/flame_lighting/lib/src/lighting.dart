@@ -341,22 +341,20 @@ class Lighting extends Component {
       // slowly as the water on it thickens and thins.
       final breath = 0.75 + 0.25 * math.sin(_time * (0.4 + 0.5 * h) + h * 6);
       final a = gloss * lit * (0.08 + 0.1 * h) * breath;
-      final halfWidth = 1.5 + 2.5 * _unit(i * 5.1);
-      _rivulet.shader = Gradient.linear(
-        Offset(rx, top),
-        Offset(rx, bottom),
-        [
-          const Color(0x00FFE8C8),
-          const Color(0xFFFFE8C8).withValues(alpha: a),
-          const Color(0xFFFFE8C8).withValues(alpha: a * 0.6),
-          const Color(0x00FFE8C8),
-        ],
-        const [0, 0.25, 0.7, 1],
-      );
-      canvas.drawRect(
-        Rect.fromLTRB(rx - halfWidth, top, rx + halfWidth, bottom),
-        _rivulet,
-      );
+      // Soft all round by its own gradient - an ellipse fading from its
+      // middle out - rather than by a blur: a blur per trail is a pass of
+      // its own on the GPU, dozens of them in every reflection of the wall.
+      final halfWidth = 4 + 2.5 * _unit(i * 5.1);
+      final middle = Offset(rx, top + (bottom - top) * 0.4);
+      canvas
+        ..save()
+        ..translate(middle.dx, middle.dy)
+        ..scale(halfWidth, (bottom - top) / 2)
+        ..drawRect(
+          const Rect.fromLTRB(-1, -1, 1, 1),
+          _rivulet..color = Color.fromRGBO(255, 255, 255, a),
+        )
+        ..restore();
     }
     canvas.restore();
   }
@@ -368,7 +366,13 @@ class Lighting extends Component {
 
   final Paint _rivulet = Paint()
     ..blendMode = BlendMode.plus
-    ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 2.5);
+    ..shader = Gradient.radial(
+      Offset.zero,
+      1,
+      // Warm lamp-lit water; the paint's alpha sets how bright.
+      const [Color(0xFFFFE8C8), Color(0x99FFE8C8), Color(0x00FFE8C8)],
+      const [0, 0.45, 1],
+    );
 
   /// What water mirrors of the lights: every glowing part, and the light in
   /// the air itself - a torch's beam, a lamp's cone, seen because wet air
