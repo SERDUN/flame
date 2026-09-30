@@ -30,8 +30,8 @@ mixin LightMirror on Component {
 ///
 /// Rough and upright, it does not show the street, but the light that falls
 /// on it glints off the water on it: the `Lighting` lays a sheen of every
-/// light over [glossArea], as strong as [gloss], and water trickling down it
-/// in thin rivulets that catch the light round them.
+/// light over [glossArea], as strong as [gloss], and faint damp trails where
+/// water runs down it, seen only where light falls.
 mixin Glossy on Component {
   /// How wet and glossy it is, `0..1`: 0 dry, 1 streaming.
   double get gloss;

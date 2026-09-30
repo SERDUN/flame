@@ -159,9 +159,9 @@ class Lighting extends Component {
   }
 
   /// The lights glinting off [wet]: each light's cast once more, over its
-  /// wet area only, as strong as it is glossy - and rivulets running down
-  /// it, each a thin line as bright as the light where it is, with a
-  /// brighter bead of water sliding down.
+  /// wet area only, as strong as it is glossy - and damp trails where water
+  /// runs down it: soft, blurred, only just lighter than the wall, and only
+  /// where light falls.
   void _drawSheen(Canvas canvas, Glossy wet, List<LightSource> lights) {
     final gloss = wet.gloss.clamp(0.0, 1.0);
     if (gloss <= 0) {
@@ -193,14 +193,27 @@ class Lighting extends Component {
       if (lit <= 0.02) {
         continue;
       }
-      final a = gloss * lit * (0.25 + 0.35 * h);
-      _rivulet.color = const Color(0xFFFFE8C8).withValues(alpha: a * 0.3);
-      canvas.drawLine(Offset(rx, top), Offset(rx, bottom), _rivulet);
-      // A bead of water sliding down it, catching more of the light.
-      final t = (_time * (0.15 + 0.2 * h) + h) % 1.0;
-      final y = top + (bottom - top) * t;
-      _bead.color = const Color(0xFFFFF0D8).withValues(alpha: a);
-      canvas.drawLine(Offset(rx, y - 4), Offset(rx, y), _bead);
+      // A damp trail, not a line: wide, blurred, fading in and out along
+      // its length, only just lighter than the wall round it. It breathes
+      // slowly as the water on it thickens and thins.
+      final breath = 0.75 + 0.25 * math.sin(_time * (0.4 + 0.5 * h) + h * 6);
+      final a = gloss * lit * (0.08 + 0.1 * h) * breath;
+      final halfWidth = 1.5 + 2.5 * _unit(i * 5.1);
+      _rivulet.shader = Gradient.linear(
+        Offset(rx, top),
+        Offset(rx, bottom),
+        [
+          const Color(0x00FFE8C8),
+          const Color(0xFFFFE8C8).withValues(alpha: a),
+          const Color(0xFFFFE8C8).withValues(alpha: a * 0.6),
+          const Color(0x00FFE8C8),
+        ],
+        const [0, 0.25, 0.7, 1],
+      );
+      canvas.drawRect(
+        Rect.fromLTRB(rx - halfWidth, top, rx + halfWidth, bottom),
+        _rivulet,
+      );
     }
     canvas.restore();
   }
@@ -211,12 +224,8 @@ class Lighting extends Component {
   }
 
   final Paint _rivulet = Paint()
-    ..strokeWidth = 0.6
-    ..blendMode = BlendMode.plus;
-  final Paint _bead = Paint()
-    ..strokeWidth = 1.3
-    ..strokeCap = StrokeCap.round
-    ..blendMode = BlendMode.plus;
+    ..blendMode = BlendMode.plus
+    ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 2.5);
 
   /// Draws every [Emissive] part under [parent], each in its own
   /// coordinates: the tree walked with every placed component's transform.
