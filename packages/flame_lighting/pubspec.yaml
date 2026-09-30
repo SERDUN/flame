@@ -26,3 +26,4 @@ dev_dependencies:
 flutter:
   shaders:
     - shaders/pool.frag
+    - shaders/light.frag

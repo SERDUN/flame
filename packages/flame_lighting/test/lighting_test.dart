@@ -202,7 +202,7 @@ void main() {
   testWithFlameGame(
     'a lamp lays its pool from how its light falls on the ground',
     (game) async {
-      await LightingShader.load(asset: 'shaders/pool.frag');
+      await LightingShader.load(directory: 'shaders');
       await _setUp(
         game,
         [
@@ -273,7 +273,7 @@ void main() {
     (
       game,
     ) async {
-      await LightingShader.load(asset: 'shaders/pool.frag');
+      await LightingShader.load(directory: 'shaders');
       await _setUp(game, [
         // Held 40 over the ground, shining right and a little down.
         LightSource(

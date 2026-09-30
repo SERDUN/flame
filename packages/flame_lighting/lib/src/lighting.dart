@@ -118,9 +118,24 @@ class Lighting extends Component {
     Vector2 point,
     double inFront, {
     double forwardScatter = 0.7,
+  }) => dropLightAt(point, inFront, forwardScatter: forwardScatter).scattered;
+
+  /// All a drop at [point], [inFront] of the lights' line, needs of the
+  /// light, in one pass over the lights: what it scatters to the eye
+  /// (as [scatteredLightAt]), how lit it is and the colour the lights give
+  /// it (as [lightAt], reaching it in depth).
+  ({double scattered, double light, Color color}) dropLightAt(
+    Vector2 point,
+    double inFront, {
+    double forwardScatter = 0.7,
   }) {
     final g = forwardScatter;
-    var total = 1 - darkness;
+    final base = 1 - darkness;
+    var scattered = base;
+    var total = 0.0;
+    var r = 0.0;
+    var gr = 0.0;
+    var b = 0.0;
     for (final light in _lights) {
       final amount = light.lightAt(point, inFront: inFront);
       if (amount <= 0) {
@@ -134,9 +149,24 @@ class Lighting extends Component {
       final phase = math
           .pow((1 + g * g) / (1 + g * g - 2 * g * mu), 1.5)
           .toDouble();
-      total += amount * phase;
+      scattered += amount * phase;
+      total += amount;
+      r += light.color.r * amount;
+      gr += light.color.g * amount;
+      b += light.color.b * amount;
     }
-    return total;
+    return (
+      scattered: scattered,
+      light: (base + total).clamp(0.0, 1.0),
+      color: total <= 0
+          ? const Color(0xFFFFFFFF)
+          : Color.from(
+              alpha: 1,
+              red: r / total,
+              green: gr / total,
+              blue: b / total,
+            ),
+    );
   }
 
   /// How lit [point] is (world coordinates): the ambient share that is left
@@ -374,6 +404,9 @@ class Lighting extends Component {
     paint.shader = null;
   }
 
+  final Expando<FragmentShader> _cutCones = Expando();
+  final Expando<FragmentShader> _addCones = Expando();
+  final Expando<FragmentShader> _airCones = Expando();
   final Expando<FragmentShader> _cutPools = Expando();
   final Expando<FragmentShader> _addPools = Expando();
 
@@ -538,6 +571,32 @@ class Lighting extends Component {
     if (cone == null) {
       paint.shader = falloff;
       canvas.drawCircle(center, light.radius, paint);
+      return;
+    }
+    final program = LightingShader.cone;
+    if (program != null) {
+      // The same falloff and soft edge, worked out per point: no layer.
+      final shaders = paint == _cut
+          ? _cutCones
+          : paint == _add
+          ? _addCones
+          : _airCones;
+      final shader = shaders[light] ??= program.fragmentShader();
+      shader.setFloatUniforms((u) {
+        u
+          ..setFloat(center.dx)
+          ..setFloat(center.dy)
+          ..setFloat(light.radius)
+          ..setFloat(light.color.r)
+          ..setFloat(light.color.g)
+          ..setFloat(light.color.b)
+          ..setFloat(a)
+          ..setFloat(light.coneDirection)
+          ..setFloat(cone / 2)
+          ..setFloat(LightSource.softEdge / 2);
+      });
+      canvas.drawCircle(center, light.radius, paint..shader = shader);
+      paint.shader = null;
       return;
     }
     // A cone with no hard edge: the disc of light, masked across by a sweep

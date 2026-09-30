@@ -1,19 +1,25 @@
 import 'dart:ui';
 
-/// The shader that lays a light's pool on the ground, shared by every
-/// lighting. Load it once, before the scene is shown; until it is loaded,
-/// pools are drawn as soft ovals.
+/// The shaders the lighting draws with, shared by every lighting: a light's
+/// cone, and the pool it lays on the ground. Load them once, before the
+/// scene is shown; until they are loaded, cones are drawn through a layer
+/// and pools as soft ovals.
 abstract final class LightingShader {
-  static FragmentProgram? _program;
+  static FragmentProgram? _pool;
+  static FragmentProgram? _cone;
 
-  /// The loaded program; `null` before [load] finishes.
-  static FragmentProgram? get program => _program;
+  /// The pool program; `null` before [load] finishes.
+  static FragmentProgram? get program => _pool;
 
-  /// Loads the program. [asset] is the key the app bundles it under; the
-  /// package's own tests, where it is the app, pass `shaders/pool.frag`.
+  /// The cone program; `null` before [load] finishes.
+  static FragmentProgram? get cone => _cone;
+
+  /// Loads the programs from [directory], the key the app bundles them
+  /// under; the package's own tests, where it is the app, pass `shaders`.
   static Future<void> load({
-    String asset = 'packages/flame_lighting/shaders/pool.frag',
+    String directory = 'packages/flame_lighting/shaders',
   }) async {
-    _program ??= await FragmentProgram.fromAsset(asset);
+    _pool ??= await FragmentProgram.fromAsset('$directory/pool.frag');
+    _cone ??= await FragmentProgram.fromAsset('$directory/light.frag');
   }
 }
