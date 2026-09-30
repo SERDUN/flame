@@ -1,6 +1,4 @@
-import 'dart:math' as math;
-import 'dart:ui';
-
+import 'package:examples/stories/wet_world/rain.dart';
 import 'package:examples/stories/wet_world/street.dart';
 import 'package:flame/components.dart';
 import 'package:flame/events.dart';
@@ -8,7 +6,7 @@ import 'package:flame/game.dart';
 import 'package:flame_water/flame_water.dart';
 
 class RipplesExample extends FlameGame with TapCallbacks {
-  RipplesExample({this.dropsPerSec = 60})
+  RipplesExample({this.dropsPerSec = 250})
     : super(
         camera: CameraComponent.withFixedResolution(width: 800, height: 450),
       );
@@ -49,65 +47,4 @@ class RipplesExample extends FlameGame with TapCallbacks {
   void onTapDown(TapDownEvent event) {
     _land(camera.globalToLocal(event.canvasPosition), 1);
   }
-}
-
-/// Streaks falling to the road; each lands at its own depth on it (nearer
-/// ones lower on screen) and reports where.
-class Rain extends Component with Reflectable {
-  Rain({required this.dropsPerSec, required this.onLand});
-
-  final double dropsPerSec;
-  final void Function(Vector2 at, double strength) onLand;
-
-  final math.Random _random = math.Random(7);
-  final List<_Drop> _drops = [];
-  double _due = 0;
-  final Paint _paint = Paint()
-    ..color = const Color(0x99C8D4E6)
-    ..strokeWidth = 1.2;
-
-  @override
-  void update(double dt) {
-    _due += dt * dropsPerSec;
-    while (_due >= 1) {
-      _due -= 1;
-      final land = groundLine + 6 + _random.nextDouble() * 110;
-      _drops.add(
-        _Drop(
-          Vector2(_random.nextDouble() * 800, -20),
-          land,
-          0.3 + 0.7 * _random.nextDouble(),
-        ),
-      );
-    }
-    for (final drop in _drops) {
-      drop.at.y += 700 * dt;
-    }
-    _drops.removeWhere((d) {
-      if (d.at.y < d.land) {
-        return false;
-      }
-      onLand(Vector2(d.at.x, d.land), d.strength);
-      return true;
-    });
-  }
-
-  @override
-  void render(Canvas canvas) {
-    for (final d in _drops) {
-      canvas.drawLine(
-        Offset(d.at.x, d.at.y - 14 * d.strength),
-        Offset(d.at.x, d.at.y),
-        _paint,
-      );
-    }
-  }
-}
-
-class _Drop {
-  _Drop(this.at, this.land, this.strength);
-
-  final Vector2 at;
-  final double land;
-  final double strength;
 }

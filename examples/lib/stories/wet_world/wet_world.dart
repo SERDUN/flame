@@ -26,7 +26,7 @@ void addWetWorldStories(Dashbook dashbook) {
       'Ripples',
       (context) => GameWidget(
         game: RipplesExample(
-          dropsPerSec: context.numberProperty('drops per second', 60),
+          dropsPerSec: context.numberProperty('drops per second', 250),
         ),
       ),
       codeLink: _forkLink('ripples_example.dart'),
