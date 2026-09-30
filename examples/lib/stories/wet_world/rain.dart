@@ -3,6 +3,7 @@ import 'dart:ui';
 
 import 'package:examples/stories/wet_world/street.dart';
 import 'package:flame/components.dart';
+import 'package:flame_lighting/flame_lighting.dart';
 import 'package:flame_water/flame_water.dart';
 
 /// Rain over the street, seen from the side.
@@ -14,8 +15,19 @@ import 'package:flame_water/flame_water.dart';
 /// Where it lands it bursts into a few droplets at once, and [onLand] is told
 /// in that same step - a ring in a puddle starts exactly where and when the
 /// drop hits.
+///
+/// With [lighting] it draws above the night: a drop is as bright as the
+/// light where it is, and takes the light's colour - rain shines in a lamp's
+/// cone and all but vanishes between the lamps.
 class Rain extends Component with Reflectable {
-  Rain({required this.dropsPerSec, required this.onLand});
+  Rain({
+    required this.dropsPerSec,
+    required this.onLand,
+    this.lighting,
+    super.priority,
+  });
+
+  final Lighting? lighting;
 
   final double dropsPerSec;
   final void Function(Vector2 at, double strength) onLand;
@@ -113,12 +125,28 @@ class Rain extends Component with Reflectable {
     }
   }
 
+  static const Color _rain = Color(0xFFD6E0EE);
+
+  /// The rain's colour at [at], [alpha] times as bright as the light there.
+  Color _lit(Vector2 at, double alpha) {
+    final lighting = this.lighting;
+    if (lighting == null || ReflectionPass.isActive) {
+      return _rain.withValues(alpha: alpha);
+    }
+    final (:light, :color) = lighting.lightAt(at);
+    return Color.lerp(
+      _rain,
+      color,
+      (light - (1 - lighting.darkness)) * 0.8,
+    )!.withValues(alpha: (alpha * light * 1.3).clamp(0.0, 1.0));
+  }
+
   @override
   void render(Canvas canvas) {
     for (final d in _drops) {
       final length = (12 + 30 * d.depth) * d.strength;
       _streak
-        ..color = Color.fromRGBO(214, 224, 238, 0.3 + 0.6 * d.depth)
+        ..color = _lit(d.at, 0.3 + 0.6 * d.depth)
         ..strokeWidth = 0.8 + 1.4 * d.depth;
       final head = Offset(d.at.x, math.min(d.at.y, d.land));
       canvas.drawLine(

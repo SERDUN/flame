@@ -1,5 +1,6 @@
 import 'package:dashbook/dashbook.dart';
 import 'package:examples/stories/wet_world/mirror_puddle_example.dart';
+import 'package:examples/stories/wet_world/rainy_night_example.dart';
 import 'package:examples/stories/wet_world/ripples_example.dart';
 import 'package:flame/game.dart';
 
@@ -9,6 +10,18 @@ String _forkLink(String path) =>
 
 void addWetWorldStories(Dashbook dashbook) {
   dashbook.storiesOf('Wet world')
+    ..add(
+      'Rainy night',
+      (context) => GameWidget(
+        game: RainyNightExample(
+          darkness: context.numberProperty('darkness', 0.7),
+          glow: context.numberProperty('glow', 0.35),
+          dropsPerSec: context.numberProperty('drops per second', 250),
+        ),
+      ),
+      codeLink: _forkLink('rainy_night_example.dart'),
+      info: RainyNightExample.description,
+    )
     ..add(
       'Mirror puddle',
       (context) => GameWidget(

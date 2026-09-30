@@ -2,6 +2,7 @@ import 'dart:math' as math;
 import 'dart:ui';
 
 import 'package:flame/components.dart';
+import 'package:flame_lighting/flame_lighting.dart';
 import 'package:flame_water/flame_water.dart';
 
 /// The line the street stands on, in the samples' 800x450 world.
@@ -21,9 +22,32 @@ class Sky extends PositionComponent with Reflectable {
   void render(Canvas canvas) => canvas.drawRect(size.toRect(), _paint);
 }
 
-/// A row of house fronts against the sky, with a few lit windows.
+/// A row of house fronts against the sky, with a few lit windows. With
+/// `lit` each lit window gives a little warm light, one of them flickering.
 class Houses extends PositionComponent with Reflectable {
-  Houses() : super(position: Vector2(0, 170), size: Vector2(800, 160));
+  Houses({bool lit = false})
+    : super(position: Vector2(0, 170), size: Vector2(800, 160)) {
+    if (!lit) {
+      return;
+    }
+    const w = 800 / 7;
+    for (var i = 0; i < _heights.length; i++) {
+      for (var j = 0; j < 3; j++) {
+        if ((i + j).isEven) {
+          add(
+            LightSource(
+              position: Vector2(i * w + 25 + j * 28, size.y - _heights[i] + 31),
+              radius: 46,
+              intensity: 0.55,
+              color: const Color(0xFFFFC870),
+              flicker: i == 3 && j == 1 ? 0.6 : 0,
+              seed: i * 3 + j,
+            ),
+          );
+        }
+      }
+    }
+  }
 
   static const _heights = [120.0, 150.0, 100.0, 140.0, 110.0, 160.0, 125.0];
   final Paint _wall = Paint()..color = const Color(0xFF1C2230);
@@ -49,13 +73,25 @@ class Houses extends PositionComponent with Reflectable {
 }
 
 /// A street lamp: a post and a warm bulb. In a reflection the bulb blurs into
-/// a glow, as a light does in water.
+/// a glow, as a light does in water. With `lit` it holds its lights: a cone
+/// down onto the street and a small halo round the bulb.
 class Lamp extends PositionComponent with Reflectable {
-  Lamp({required double x})
+  Lamp({required double x, bool lit = false})
     : super(
         position: Vector2(x, groundLine),
         anchor: Anchor.bottomCenter,
         size: Vector2(20, 150),
+        children: [
+          if (lit) ...[
+            LightSource(
+              position: Vector2(10, 16),
+              radius: 260,
+              coneAngle: 1.9,
+              intensity: 0.95,
+            ),
+            LightSource(position: Vector2(10, 16), radius: 36, intensity: 0.9),
+          ],
+        ],
       );
 
   final Paint _post = Paint()..color = const Color(0xFF0E1118);
@@ -134,11 +170,12 @@ class Road extends PositionComponent {
 }
 
 /// The street without its water: sky, houses, a lamp, the walker, the road.
-List<Component> street() => [
+/// With [lit] the lamps and windows give light.
+List<Component> street({bool lit = false}) => [
   Sky(),
-  Houses(),
-  Lamp(x: 560),
-  Lamp(x: 220),
+  Houses(lit: lit),
+  Lamp(x: 560, lit: lit),
+  Lamp(x: 220, lit: lit),
   Road(),
   Walker(),
 ];
@@ -159,6 +196,7 @@ WaterSurface wetRoad({double reflectivity = 0.14}) => WaterSurface(
   ripples: RippleRings(capacity: 64, lifeSec: 0.45, maxRadius: 10),
   rippleColor: const Color(0x22FFFFFF),
   waveAmplitude: 2.5,
+  lightStretch: 4,
 );
 
 /// A puddle lying on the road in front of the walker: its water line is the
