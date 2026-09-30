@@ -27,13 +27,14 @@ import 'package:flutter/foundation.dart' show visibleForTesting;
 /// Under a `Lighting` a drop is as bright as the light where it is and takes
 /// its colour, so rain shines in a lamp's cone; keep the rain's priority
 /// above the lighting's for that. [Rain.of] finds the rain over a world, for
-/// what depends on it (water astir, walls getting wet).
+/// what depends on it (water astir, things getting wet and drying).
 class Rain extends Component with Reflectable {
   Rain({
     this.intensity = 1,
     Vector2? wind,
     this.density = 0.3,
     this.metre = 50,
+    this.drying = 1,
     int seed = 7,
     super.priority = 1100,
   }) : wind = wind ?? Vector2(1.6, 0),
@@ -50,6 +51,11 @@ class Rain extends Component with Reflectable {
 
   /// World units in a metre.
   double metre;
+
+  /// How fast wet things dry in this weather: 1 the usual, 0 not at all
+  /// (a still, cold, damp night), 5 in a warm wind. Each `Wettable` dries at
+  /// its own rate times this.
+  double drying;
 
   /// How far behind the street line rain falls too, as a depth below 0: the
   /// rain over the roofs and behind the houses, which a [RainCatcher] there

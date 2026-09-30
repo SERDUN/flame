@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'dart:ui';
 
 import 'package:flame/components.dart';
@@ -103,17 +104,53 @@ void main() {
     expect(water.chop, closeTo(8, 1e-9));
   });
 
-  testWithFlameGame('rain soaks things only as wet as they can get', (
-    game,
-  ) async {
-    final wall = _Wall()..wetnessCap = 0.3;
-    await game.world.addAll([Rain(), wall]);
+  testWithFlameGame(
+    'a steady rain holds things where wetting and drying meet',
+    (game) async {
+      final wall = _Wall();
+      final rain = Rain(intensity: 0.3);
+      await game.world.addAll([rain, wall]);
+      await game.ready();
+      await _rainFor(game, 120);
+      // wetRate 0.3 x 0.3 against dryRate 0.02: 0.09 / 0.11.
+      expect(wall.wetness, closeTo(0.09 / 0.11, 0.01), reason: 'a drizzle');
+      rain.intensity = 2;
+      await _rainFor(game, 60);
+      expect(wall.wetness, closeTo(0.6 / 0.62, 0.01), reason: 'a downpour');
+    },
+  );
+
+  testWithFlameGame(
+    'after the rain things dry to nothing, as fast as the weather dries',
+    (game) async {
+      final wall = _Wall()..wetness = 1;
+      final rain = Rain(intensity: 0);
+      await game.world.addAll([rain, wall]);
+      await game.ready();
+      await _rainFor(game, 10);
+      expect(wall.wetness, closeTo(math.exp(-0.2), 0.01));
+      final before = wall.wetness;
+      rain.drying = 4;
+      await _rainFor(game, 10);
+      expect(wall.wetness, closeTo(before * math.exp(-0.8), 0.01));
+      rain.drying = 0;
+      final still = wall.wetness;
+      await _rainFor(game, 10);
+      expect(wall.wetness, closeTo(still, 1e-9), reason: 'no drying at all');
+    },
+  );
+
+  testWithFlameGame('a puddle dries slower than a wall', (game) async {
+    final wall = _Wall()
+      ..wetness = 1
+      ..dryRate = 0.05;
+    final puddle = WaterSurface()
+      ..wetness = 1
+      ..dryRate = 0.005;
+    await game.world.addAll([Rain(intensity: 0), wall, puddle]);
     await game.ready();
-    await _rainFor(game, 20);
-    expect(wall.wetness, closeTo(0.3, 0.02));
-    wall.wetnessCap = 0.1;
-    await _rainFor(game, 200);
-    expect(wall.wetness, lessThan(0.15), reason: 'drying down to the cap');
+    await _rainFor(game, 30);
+    expect(puddle.wetness, greaterThan(wall.wetness * 3));
   });
 
   testWithFlameGame('a puddle shrinks on drier ground', (game) async {
