@@ -1,4 +1,3 @@
-import 'dart:math' as math;
 import 'dart:ui';
 
 import 'package:flame/components.dart';
@@ -108,24 +107,6 @@ void main() {
     expect(surface.covers(Vector2(50, 90)), isFalse);
     surface.splash(Vector2(50, 120));
     expect(surface.ripples.count, 1);
-  });
-
-  testWithFlameGame('ripples move what the water mirrors, only near them', (
-    game,
-  ) async {
-    final surface = _surface();
-    await game.world.add(surface);
-    await game.ready();
-    expect(surface.disturbanceAt(50, 120), Offset.zero, reason: 'still');
-    surface
-      ..splash(Vector2(50, 120))
-      ..update(0.2);
-    final near = [
-      for (var x = 50.0; x < 80; x += 0.5)
-        surface.disturbanceAt(x, 120).dx.abs(),
-    ].reduce(math.max);
-    expect(near, greaterThan(0.5));
-    expect(surface.disturbanceAt(0, 139).distance, lessThan(0.05));
   });
 }
 

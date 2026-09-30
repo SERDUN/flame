@@ -1,4 +1,3 @@
-import 'dart:math' as math;
 import 'dart:ui';
 
 import 'package:flame/components.dart';
@@ -45,8 +44,10 @@ enum WaterShape {
 ///
 /// Rain hitting it is [splash]ed into [ripples].
 ///
-/// Under a `Lighting` it is a [LightMirror]: the lights above it show in it
-/// as spots, drawn out [lightStretch] times down the water.
+/// Under a `Lighting` it is a [LightMirror]: the world's glow (lamps, lit
+/// windows, their halos) is mirrored in it through the same shader, so drops
+/// bend a lamp's reflection as they bend the street's, and a rough surface
+/// ([streak]) smears it down into a long broken streak, as a wet road does.
 ///
 /// The surface must not be rotated or scaled, nor its parents: it maps world
 /// coordinates to its own by its absolute top-left corner.
@@ -70,7 +71,8 @@ class WaterSurface extends PositionComponent with LightMirror {
     this.resolution = 1,
     this.waveAmplitude = 3,
     double? wavelength,
-    this.lightStretch = 1.5,
+    this.streak = 0,
+    this.glowGain = 1.4,
   }) : ripples = ripples ?? RippleRings(),
        wavelength = wavelength ?? (ripples?.maxRadius ?? 24) * 0.4;
 
@@ -122,64 +124,61 @@ class WaterSurface extends PositionComponent with LightMirror {
   /// Length of a ring's wave, local units.
   double wavelength;
 
-  /// How long the lights above it are drawn down the water against their
-  /// width: a still puddle shows a round spot, a wet road a long streak.
-  double lightStretch;
+  /// How far a rough surface smears its reflection down towards the
+  /// viewer, local units: 0 still water, a clear mirror; a wet road smears a
+  /// lamp into a streak many times its size. The mirrored street takes a
+  /// tenth of it (a soft mirror), the glow all of it.
+  double streak;
+
+  /// How bright the mirrored glow comes out, against the glow itself.
+  double glowGain;
+
+  /// How much more water gives back of a light seen low across it than its
+  /// [reflectivity] says: at a grazing angle it mirrors most of what falls
+  /// on it (Fresnel), so a puddle shows a lamp nearly as bright as the lamp.
+  static const double grazing = 1.6;
 
   @override
-  double get mirrorLine => waterLine ?? absoluteTopLeftPosition.y;
-
-  @override
-  double get mirrorSquash => squash;
-
-  @override
-  double get mirrorStrength => reflectivity;
-
-  @override
-  double get mirrorStretch => lightStretch;
-
-  @override
-  Offset disturbanceAt(double x, double y) {
-    if (waveAmplitude <= 0) {
-      return Offset.zero;
+  void renderMirroredGlow(Canvas canvas, void Function(Canvas canvas) glow) {
+    final strength = (reflectivity * grazing).clamp(0.0, 1.0);
+    if (strength <= 0) {
+      return;
     }
+    final rect = size.toRect();
     final origin = absoluteTopLeftPosition;
-    final px = x - origin.x;
-    final py = y - origin.y;
-    final flatten = ripples.flatten;
-    final width = wavelength * 0.75;
-    var sx = 0.0;
-    var sy = 0.0;
-    // The water shader's own wave, so the lights move as the mirror does.
-    ripples.forEachNewest(WaterShader.maxRings, (cx, cy, radius, opacity) {
-      final dx = px - cx;
-      final dy = (py - cy) / flatten;
-      final dist = math.sqrt(dx * dx + dy * dy);
-      if (dist < 1e-4) {
-        return;
-      }
-      final off = dist - radius;
-      final envelope = math.exp(-(off * off) / (width * width));
-      final wave =
-          math.sin(off * 2 * math.pi / wavelength) *
-          envelope *
-          waveAmplitude *
-          opacity;
-      sx += dx / dist * wave;
-      sy += dy / dist * flatten * wave;
-    });
-    return Offset(sx, sy);
+    final line = (waterLine ?? origin.y) - origin.y;
+    canvas
+      ..save()
+      ..translate(origin.x, origin.y)
+      ..clipPath(outline());
+    final program = WaterShader.program;
+    if (quality == WaterQuality.rippled && program != null) {
+      _throughShader(
+        canvas,
+        _glowSlot,
+        program,
+        rect,
+        (c) => _mirror(c, line, origin, () => glow(c)),
+        streak: streak,
+        gain: strength * glowGain,
+        paint: _glowPaint,
+      );
+    } else {
+      canvas.saveLayer(
+        rect,
+        _glowLayer..color = Color.fromRGBO(0, 0, 0, strength),
+      );
+      _mirror(canvas, line, origin, () => glow(canvas));
+      canvas.restore();
+    }
+    canvas.restore();
   }
 
-  @override
-  Path mirrorClip() {
-    final origin = absoluteTopLeftPosition;
-    return outline().shift(Offset(origin.x, origin.y));
-  }
-
-  Image? _image;
-  FragmentShader? _shader;
+  final _ShaderSlot _sceneSlot = _ShaderSlot();
+  final _ShaderSlot _glowSlot = _ShaderSlot();
   final Paint _shaderPaint = Paint();
+  final Paint _glowPaint = Paint()..blendMode = BlendMode.plus;
+  final Paint _glowLayer = Paint()..blendMode = BlendMode.plus;
 
   final Paint _water = Paint();
   final Paint _layer = Paint();
@@ -239,11 +238,26 @@ class WaterSurface extends PositionComponent with LightMirror {
         _layer..color = Color.fromRGBO(0, 0, 0, reflectivity.clamp(0.0, 1.0)),
       );
       final program = WaterShader.program;
+      void scene(Canvas c) => _mirror(
+        c,
+        line,
+        origin,
+        () => ReflectionPass.run(this, () => _renderReflected(_root(), c)),
+      );
       if (quality == WaterQuality.rippled && program != null) {
-        _drawRippled(canvas, rect, line, origin, program);
+        _throughShader(
+          canvas,
+          _sceneSlot,
+          program,
+          rect,
+          scene,
+          streak: streak * 0.1,
+          gain: 1,
+          paint: _shaderPaint,
+        );
       } else {
         canvas.save();
-        _mirror(canvas, line, origin);
+        scene(canvas);
         canvas.restore();
       }
       if (fade > 0) {
@@ -267,46 +281,57 @@ class WaterSurface extends PositionComponent with LightMirror {
     canvas.restore();
   }
 
-  /// Draws the reflection into [canvas], which is in the surface's own
-  /// coordinates: mirrored about the water line, squeezed, then back to world
-  /// coordinates, where the reflected components draw themselves.
-  void _mirror(Canvas canvas, double line, Vector2 origin) {
+  /// Sets [canvas] (in the surface's own coordinates) to mirror the world
+  /// about the water line, squeezed, and runs [draw] there, in world
+  /// coordinates.
+  void _mirror(
+    Canvas canvas,
+    double line,
+    Vector2 origin,
+    void Function() draw,
+  ) {
     canvas
       ..translate(0, line)
       ..scale(1, -squash)
       ..translate(-origin.x, -origin.y - line);
-    ReflectionPass.run(this, () => _renderReflected(_root(), canvas));
+    draw();
   }
 
-  /// The mirror rendered into an image and drawn through the water shader,
-  /// bent around the newest rings.
-  void _drawRippled(
+  /// [record] (drawing in the surface's own coordinates) rendered into an
+  /// image and drawn over [rect] through the water shader: bent around the
+  /// newest rings, smeared [streak] down, at [gain] brightness.
+  void _throughShader(
     Canvas canvas,
-    Rect rect,
-    double line,
-    Vector2 origin,
+    _ShaderSlot slot,
     FragmentProgram program,
-  ) {
+    Rect rect,
+    void Function(Canvas canvas) record, {
+    required double streak,
+    required double gain,
+    required Paint paint,
+  }) {
     final width = (size.x * resolution).ceil();
     final height = (size.y * resolution).ceil();
     if (width <= 0 || height <= 0) {
       return;
     }
     final recorder = PictureRecorder();
-    _mirror(Canvas(recorder)..scale(resolution), line, origin);
+    record(Canvas(recorder)..scale(resolution));
     final picture = recorder.endRecording();
-    _image?.dispose();
-    final image = _image = picture.toImageSync(width, height);
+    slot.image?.dispose();
+    final image = slot.image = picture.toImageSync(width, height);
     picture.dispose();
 
-    final shader = _shader ??= program.fragmentShader();
+    final shader = slot.shader ??= program.fragmentShader();
     var count = 0;
     shader.setFloatUniforms((u) {
       u
         ..setVector(size)
         ..setFloat(0) // the ring count, set below
         ..setFloat(ripples.flatten)
-        ..setFloat(wavelength);
+        ..setFloat(wavelength)
+        ..setFloat(streak)
+        ..setFloat(gain);
       ripples.forEachNewest(WaterShader.maxRings, (x, y, radius, opacity) {
         u.setFloats([x, y, radius, waveAmplitude * opacity]);
         count++;
@@ -318,13 +343,13 @@ class WaterSurface extends PositionComponent with LightMirror {
     shader
       ..setFloat(2, count.toDouble())
       ..setImageSampler(0, image);
-    canvas.drawRect(rect, _shaderPaint..shader = shader);
+    canvas.drawRect(rect, paint..shader = shader);
   }
 
   @override
   void onRemove() {
-    _image?.dispose();
-    _image = null;
+    _sceneSlot.dispose();
+    _glowSlot.dispose();
     super.onRemove();
   }
 
@@ -378,5 +403,17 @@ class WaterSurface extends PositionComponent with LightMirror {
     final r = c.toAbsoluteRect();
     final origin = absoluteTopLeftPosition;
     return r.right >= origin.x && r.left <= origin.x + size.x;
+  }
+}
+
+/// One image the water renders a reflection into each frame, and the shader
+/// instance that draws it (each draw keeps its own uniforms).
+class _ShaderSlot {
+  Image? image;
+  FragmentShader? shader;
+
+  void dispose() {
+    image?.dispose();
+    image = null;
   }
 }
