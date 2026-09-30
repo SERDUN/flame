@@ -13,12 +13,17 @@ import 'package:flame_lighting/src/light_source.dart';
 ///   [LightSource] cutting its shape out of that dark with a soft falloff;
 /// - the light cast: each light's colour added on top at [glow], so a lamp
 ///   both reveals the street under it and warms it;
-/// - the glow: every [Emissive] part of the world (bulbs, lit windows, the
-///   halo [haze] makes round them) drawn over the night undimmed, and then
-///   given to every [LightMirror] (water, a wet road) to show mirrored as it
-///   shows anything - ripples bend it, a rough wet road smears it long;
-///   and every [Glossy] surface (a wet wall) glinting where the lights fall
-///   on it, with rivulets running down it.
+/// - the glow in the mirrors: every [Emissive] part of the world (bulbs, lit
+///   windows, the halo [haze] makes round them) given to every
+///   [LightMirror] (water, a wet road) to show mirrored as it shows anything
+///   - ripples bend it, a rough wet road smears it long.
+///
+/// The glowing parts themselves are drawn by their components in place, so
+/// whatever stands in front of a lamp hides it; the night is cut round
+/// every light and its halo so they are not dimmed.
+///
+/// A [Glossy] surface (a wet wall) draws its own sheen as it draws itself,
+/// through [drawSheen], so it stays in its place among the components.
 ///
 /// The night and the light cast are blend modes and gradients in one layer,
 /// so they work on every renderer, the web included.
@@ -127,6 +132,8 @@ class Lighting extends Component {
     );
     for (final light in lights) {
       _drawLight(canvas, light, _cut, 1, light.strength.clamp(0.0, 1.0));
+      // The air glowing round a source lets its halo through the night.
+      _cutHalo(canvas, light);
     }
     canvas.restore();
 
@@ -138,16 +145,45 @@ class Lighting extends Component {
 
     _current = this;
     try {
-      for (final wet in world.descendants().whereType<Glossy>()) {
-        _drawSheen(canvas, wet, lights);
-      }
-      _renderGlow(world, canvas);
       for (final mirror in _mirrors) {
         mirror.renderMirroredGlow(canvas, (c) => _renderGlow(world, c));
       }
     } finally {
       _current = null;
     }
+  }
+
+  /// The lighting of the world [component] is in, if it has one.
+  static Lighting? of(Component component) {
+    var top = component;
+    for (final a in component.ancestors()) {
+      top = a;
+      if (a is World) {
+        break;
+      }
+    }
+    return top.children.whereType<Lighting>().firstOrNull;
+  }
+
+  /// Cuts [light]'s halo out of the night, as its haze makes it.
+  void _cutHalo(Canvas canvas, LightSource light) {
+    final a = (haze * light.strength * 0.6).clamp(0.0, 1.0);
+    if (a <= 0 || light.sourceRadius <= 0) {
+      return;
+    }
+    final center = light.absolutePosition.toOffset();
+    final radius = light.haloRadius(haze);
+    _cut.shader = Gradient.radial(
+      center,
+      radius,
+      [
+        const Color(0xFFFFFFFF).withValues(alpha: a),
+        const Color(0xFFFFFFFF).withValues(alpha: a * 0.35),
+        const Color(0x00FFFFFF),
+      ],
+      const [0, 0.25, 1],
+    );
+    canvas.drawCircle(center, radius, _cut);
   }
 
   double _time = 0;
@@ -162,7 +198,13 @@ class Lighting extends Component {
   /// wet area only, as strong as it is glossy - and damp trails where water
   /// runs down it: soft, blurred, only just lighter than the wall, and only
   /// where light falls.
-  void _drawSheen(Canvas canvas, Glossy wet, List<LightSource> lights) {
+  ///
+  /// [canvas] is in world coordinates. A [Glossy] component calls this (via
+  /// [Glossy.renderSheen]) as it draws itself, so the sheen lies where the
+  /// wall is: behind whatever stands in front of it, under the night, and
+  /// in the water's mirror too.
+  void drawSheen(Canvas canvas, Glossy wet) {
+    final lights = _lights.toList();
     final gloss = wet.gloss.clamp(0.0, 1.0);
     if (gloss <= 0) {
       return;

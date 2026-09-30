@@ -9,11 +9,8 @@ import 'package:flutter_test/flutter_test.dart';
 
 /// A white wall filling the view, so any light shows as brightness.
 class _Wall extends RectangleComponent {
-  _Wall()
-    : super(
-        size: Vector2(800, 600),
-        paint: Paint()..color = const Color(0xFFFFFFFF),
-      );
+  _Wall(Color color)
+    : super(size: Vector2(800, 600), paint: Paint()..color = color);
 }
 
 /// Still water below y 400: the glow mirrored about that line, plainly.
@@ -41,6 +38,9 @@ class _WetWall extends Component with Glossy {
 
   @override
   Path glossArea() => Path()..addRect(const Rect.fromLTWH(400, 250, 400, 150));
+
+  @override
+  void render(Canvas canvas) => renderSheen(canvas);
 }
 
 /// Brightness (red channel, 0..255) of the rendered game at a pixel.
@@ -56,10 +56,11 @@ Future<void> _setUp(
   FlameGame game,
   List<Component> extra, {
   double haze = 0,
+  Color wall = const Color(0xFFFFFFFF),
 }) async {
   game.camera.viewfinder.anchor = Anchor.topLeft;
   await game.world.addAll([
-    _Wall(),
+    _Wall(wall),
     Lighting(
       ambient: const Color(0xFF000000),
       darkness: 1,
@@ -138,10 +139,11 @@ void main() {
   testWithFlameGame('a wet wall glints where the lamp falls on it', (
     game,
   ) async {
+    // A grey wall: a white one could not get any brighter.
     await _setUp(game, [
       LightSource(position: Vector2(400, 300)),
       _WetWall(1),
-    ]);
+    ], wall: const Color(0xFF808080));
     final at = await _render(game);
     // The lamp lights both sides alike; only the right one is wet.
     expect(at(440, 340), greaterThan(at(360, 340) + 5), reason: 'glinting');

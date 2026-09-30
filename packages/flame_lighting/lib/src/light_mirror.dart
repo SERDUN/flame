@@ -1,15 +1,17 @@
 import 'dart:ui';
 
 import 'package:flame/components.dart';
+import 'package:flame_lighting/src/lighting.dart';
 
 /// Parts of a component that give light themselves: a bulb, a lit window,
 /// the halo wet air makes round a lamp.
 ///
-/// The `Lighting` draws them over the night, undimmed, after it has cut the
-/// lights out of the dark - and hands them to every [LightMirror], which
-/// shows them mirrored as it mirrors anything.
+/// The component draws them in place, as part of its own render (so what
+/// stands in front of it hides them), and the `Lighting` hands them to every
+/// [LightMirror], which shows them mirrored as it mirrors anything.
 mixin Emissive on Component {
-  /// Draws the glowing parts, in this component's own coordinates.
+  /// Draws the glowing parts, in this component's own coordinates. Call it
+  /// from the component's render too.
   void renderEmissive(Canvas canvas);
 }
 
@@ -29,10 +31,37 @@ mixin LightMirror on Component {
 /// A wet surface that is no mirror: a wall, a roof, a car's side in the rain.
 ///
 /// Rough and upright, it does not show the street, but the light that falls
-/// on it glints off the water on it: the `Lighting` lays a sheen of every
-/// light over [glossArea], as strong as [gloss], and faint damp trails where
-/// water runs down it, seen only where light falls.
+/// on it glints off the water on it: a sheen of every light over
+/// [glossArea], as strong as [gloss], and faint damp trails where water runs
+/// down it, seen only where light falls. The component calls [renderSheen]
+/// at the end of its own render, so the sheen lies where it is - behind
+/// what stands in front of it.
 mixin Glossy on Component {
+  /// Draws the sheen of the world's `Lighting` (if it has one) over this
+  /// surface. [canvas] is as the component's render got it.
+  void renderSheen(Canvas canvas) {
+    Component top = this;
+    for (final a in ancestors()) {
+      top = a;
+      if (a is World) {
+        break;
+      }
+    }
+    final lighting = top.children.whereType<Lighting>().firstOrNull;
+    if (lighting == null) {
+      return;
+    }
+    canvas.save();
+    final Component self = this;
+    if (self is PositionComponent) {
+      // Back to world coordinates, where the sheen is laid out.
+      final origin = self.absoluteTopLeftPosition;
+      canvas.translate(-origin.x, -origin.y);
+    }
+    lighting.drawSheen(canvas, this);
+    canvas.restore();
+  }
+
   /// How wet and glossy it is, `0..1`: 0 dry, 1 streaming.
   double get gloss;
 

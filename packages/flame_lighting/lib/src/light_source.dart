@@ -130,17 +130,25 @@ class LightSource extends PositionComponent with Emissive {
 
   final Paint _glow = Paint();
 
+  /// Radius of the halo [haze] makes round the source.
+  double haloRadius(double haze) => sourceRadius * (6 + 24 * haze);
+
+  /// The source and its halo, drawn in place: whatever stands in front of
+  /// the light hides them.
+  @override
+  void render(Canvas canvas) => renderEmissive(canvas);
+
   @override
   void renderEmissive(Canvas canvas) {
     final s = strength.clamp(0.0, 1.0);
     if (s <= 0 || sourceRadius <= 0) {
       return;
     }
-    final haze = Lighting.current?.haze ?? 0;
+    final haze = (Lighting.current ?? Lighting.of(this))?.haze ?? 0;
     if (haze > 0) {
       // Wet air scatters the light into a wide soft halo round the source.
       final a = haze * s * 0.6;
-      final halo = sourceRadius * (6 + 24 * haze);
+      final halo = haloRadius(haze);
       _glow.shader = Gradient.radial(
         Offset.zero,
         halo,
