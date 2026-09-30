@@ -167,13 +167,35 @@ class Lamp extends PositionComponent with Reflectable {
 }
 
 /// A walker under an umbrella, going back and forth along the street.
+///
+/// With `lit` the walker carries a torch: a narrow cool beam from the hand,
+/// forward and a little down onto the road, turning round with the walker.
 class Walker extends PositionComponent with Reflectable {
-  Walker({this.speed = 60})
+  Walker({this.speed = 60, bool lit = false})
     : super(
         position: Vector2(120, groundLine),
         anchor: Anchor.bottomCenter,
         size: Vector2(40, 90),
-      );
+      ) {
+    if (lit) {
+      add(_torch);
+      _aimTorch();
+    }
+  }
+
+  /// Where the torch is held, on the walker's drawing: by the hip.
+  static const double _handHeight = 50;
+
+  /// How far below level the beam points, radians.
+  static const double _tilt = 0.28;
+
+  final LightSource _torch = LightSource(
+    color: const Color(0xFFE6EEFF),
+    radius: 230,
+    coneAngle: 0.62,
+    intensity: 0.9,
+    sourceRadius: 1.6,
+  );
 
   final double speed;
   double _direction = 1;
@@ -191,6 +213,14 @@ class Walker extends PositionComponent with Reflectable {
       _direction = -_direction;
       position.x = position.x.clamp(100, 700);
     }
+    _aimTorch();
+  }
+
+  /// The torch in the leading hand, its beam the way the walker goes.
+  void _aimTorch() {
+    _torch
+      ..position = Vector2(20 + 8 * _direction, _handHeight)
+      ..coneDirection = _direction > 0 ? _tilt : math.pi - _tilt;
   }
 
   @override
@@ -230,7 +260,7 @@ List<Component> street({bool lit = false}) => [
   Lamp(x: 560, lit: lit),
   Lamp(x: 220, lit: lit),
   Road(),
-  Walker(),
+  Walker(lit: lit),
 ];
 
 /// A film of water over the whole road: water like a puddle's, mirroring as
