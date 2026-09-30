@@ -113,6 +113,8 @@ class Houses extends PositionComponent with Reflectable, Glossy {
         }
       }
     }
+    // The fronts are wet: the sheen lies on them, behind anyone in front.
+    renderSheen(canvas);
   }
 }
 
