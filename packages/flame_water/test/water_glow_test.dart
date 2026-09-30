@@ -68,7 +68,18 @@ void main() {
   ) async {
     await _scene(game, streak: 80);
     final at = await _render(game);
-    expect(at(400, 540), greaterThan(30), reason: 'the streak below it');
+    // Still water shows nothing 40 below the mirrored lamp (tested above);
+    // a rough surface carries its light there, in a narrow column that
+    // fades smoothly - one continuous smear, no copies of the lamp in it.
+    expect(at(400, 540), greaterThan(15), reason: 'the streak below it');
     expect(at(430, 540), lessThan(at(400, 540)), reason: 'narrow');
+    final column = [for (var y = 505; y < 560; y++) at(400, y)];
+    for (var i = 1; i < column.length; i++) {
+      expect(
+        column[i],
+        lessThanOrEqualTo(column[i - 1] + 2),
+        reason: '$column',
+      );
+    }
   });
 }

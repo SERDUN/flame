@@ -124,10 +124,10 @@ class WaterSurface extends PositionComponent with LightMirror {
   /// Length of a ring's wave, local units.
   double wavelength;
 
-  /// How far a rough surface smears its reflection down towards the
-  /// viewer, local units: 0 still water, a clear mirror; a wet road smears a
-  /// lamp into a streak many times its size. The mirrored street takes a
-  /// tenth of it (a soft mirror), the glow all of it.
+  /// How far a rough surface smears its reflection up and down, local units
+  /// (the spread of a vertical blur): 0 still water, a clear mirror; a wet
+  /// road smears a lamp into a streak many times its size. The mirrored
+  /// street takes a tenth of it (a soft mirror), the glow all of it.
   double streak;
 
   /// How bright the mirrored glow comes out, against the glow itself.
@@ -158,8 +158,8 @@ class WaterSurface extends PositionComponent with LightMirror {
         _glowSlot,
         program,
         rect,
-        (c) => _mirror(c, line, origin, () => glow(c)),
-        streak: streak,
+        (c) =>
+            _smeared(c, streak, () => _mirror(c, line, origin, () => glow(c))),
         gain: strength * glowGain,
         paint: _glowPaint,
       );
@@ -168,9 +168,36 @@ class WaterSurface extends PositionComponent with LightMirror {
         rect,
         _glowLayer..color = Color.fromRGBO(0, 0, 0, strength),
       );
-      _mirror(canvas, line, origin, () => glow(canvas));
+      _smeared(
+        canvas,
+        streak,
+        () => _mirror(canvas, line, origin, () => glow(canvas)),
+      );
       canvas.restore();
     }
+    canvas.restore();
+  }
+
+  /// Runs [draw] blurred up and down by [spread]: a rough surface mirrors
+  /// every point over a range of heights. A real blur, continuous - not
+  /// copies of the point at steps.
+  void _smeared(Canvas canvas, double spread, void Function() draw) {
+    if (spread < 0.5) {
+      canvas.save();
+      draw();
+      canvas.restore();
+      return;
+    }
+    canvas.saveLayer(
+      null,
+      _smear
+        ..imageFilter = ImageFilter.blur(
+          sigmaX: 0.6,
+          sigmaY: spread / 3,
+          tileMode: TileMode.decal,
+        ),
+    );
+    draw();
     canvas.restore();
   }
 
@@ -179,6 +206,7 @@ class WaterSurface extends PositionComponent with LightMirror {
   final Paint _shaderPaint = Paint();
   final Paint _glowPaint = Paint()..blendMode = BlendMode.plus;
   final Paint _glowLayer = Paint()..blendMode = BlendMode.plus;
+  final Paint _smear = Paint();
 
   final Paint _water = Paint();
   final Paint _layer = Paint();
@@ -250,15 +278,12 @@ class WaterSurface extends PositionComponent with LightMirror {
           _sceneSlot,
           program,
           rect,
-          scene,
-          streak: streak * 0.1,
+          (c) => _smeared(c, streak * 0.1, () => scene(c)),
           gain: 1,
           paint: _shaderPaint,
         );
       } else {
-        canvas.save();
-        scene(canvas);
-        canvas.restore();
+        _smeared(canvas, streak * 0.1, () => scene(canvas));
       }
       if (fade > 0) {
         _fadePaint.shader = Gradient.linear(
@@ -299,14 +324,13 @@ class WaterSurface extends PositionComponent with LightMirror {
 
   /// [record] (drawing in the surface's own coordinates) rendered into an
   /// image and drawn over [rect] through the water shader: bent around the
-  /// newest rings, smeared [streak] down, at [gain] brightness.
+  /// newest rings, at [gain] brightness.
   void _throughShader(
     Canvas canvas,
     _ShaderSlot slot,
     FragmentProgram program,
     Rect rect,
     void Function(Canvas canvas) record, {
-    required double streak,
     required double gain,
     required Paint paint,
   }) {
@@ -330,7 +354,6 @@ class WaterSurface extends PositionComponent with LightMirror {
         ..setFloat(0) // the ring count, set below
         ..setFloat(ripples.flatten)
         ..setFloat(wavelength)
-        ..setFloat(streak)
         ..setFloat(gain);
       ripples.forEachNewest(WaterShader.maxRings, (x, y, radius, opacity) {
         u.setFloats([x, y, radius, waveAmplitude * opacity]);
