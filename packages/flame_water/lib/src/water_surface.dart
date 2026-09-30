@@ -64,18 +64,23 @@ class WaterSurface extends PositionComponent with LightMirror {
     this.squash = 1,
     this.fade = 0.8,
     this.tint = const Color(0x00000000),
+    this.depth = 1,
+    this.edgeSoftness = 0.35,
     RippleRings? ripples,
     this.rippleColor = const Color(0x99FFFFFF),
     this.reflects = _isReflectable,
     this.quality = WaterQuality.rippled,
     this.resolution = 1,
-    this.waveAmplitude = 3,
+    double? waveAmplitude,
     double? wavelength,
     this.streak = 0,
     this.chop = 0,
     this.glowGain = 4,
-  }) : ripples = ripples ?? RippleRings(),
-       wavelength = wavelength ?? (ripples?.maxRadius ?? 24) * 0.4;
+  }) : ripples = ripples ?? RippleRings.forDepth(depth),
+       waveAmplitude = waveAmplitude ?? 1.5 + 3.5 * depth.clamp(0.0, 1.0),
+       wavelength =
+           wavelength ??
+           (ripples ?? RippleRings.forDepth(depth)).maxRadius * 0.4;
 
   static bool _isReflectable(Component c) => c is Reflectable;
 
@@ -104,9 +109,22 @@ class WaterSurface extends PositionComponent with LightMirror {
   /// Laid over the reflection: water takes on its own colour.
   Color tint;
 
+  /// How gently a puddle fades out at its rim, `0..1`: the share of its
+  /// radius over which the water thins to nothing. 0 a hard line. Only an
+  /// [WaterShape.ellipse] fades: a rect is a road, and its edge is the
+  /// road's.
+  double edgeSoftness;
+
+  /// How much water lies here, `0..1`: 0 a film on asphalt, 1 a puddle.
+  /// Drops break on all of it; the deeper, the wider, slower and plainer
+  /// the rings they leave and the more those bend the reflection - unless
+  /// [ripples] and [waveAmplitude] are given outright.
+  final double depth;
+
   final RippleRings ripples;
 
-  /// Colour of the ripple rings.
+  /// Colour of the ripple rings at full depth; shallower water shows them
+  /// fainter.
   Color rippleColor;
 
   /// Which components the water mirrors, and with them everything under
@@ -164,8 +182,8 @@ class WaterSurface extends PositionComponent with LightMirror {
     final line = (waterLine ?? origin.y) - origin.y;
     canvas
       ..save()
-      ..translate(origin.x, origin.y)
-      ..clipPath(outline());
+      ..translate(origin.x, origin.y);
+    _openArea(canvas, rect, _glowArea);
     final program = WaterShader.program;
     if (quality == WaterQuality.rippled && program != null) {
       _throughShader(
@@ -190,6 +208,7 @@ class WaterSurface extends PositionComponent with LightMirror {
       );
       canvas.restore();
     }
+    _closeArea(canvas, rect);
     canvas.restore();
   }
 
@@ -222,6 +241,9 @@ class WaterSurface extends PositionComponent with LightMirror {
   final Paint _glowPaint = Paint()..blendMode = BlendMode.plus;
   final Paint _glowLayer = Paint()..blendMode = BlendMode.plus;
   final Paint _smear = Paint();
+  final Paint _area = Paint();
+  final Paint _glowArea = Paint()..blendMode = BlendMode.plus;
+  final Paint _edgeMask = Paint()..blendMode = BlendMode.dstIn;
 
   final Paint _water = Paint();
   final Paint _layer = Paint();
@@ -271,10 +293,8 @@ class WaterSurface extends PositionComponent with LightMirror {
     final origin = absoluteTopLeftPosition;
     final line = (waterLine ?? origin.y) - origin.y;
     final outline = this.outline();
-    canvas
-      ..save()
-      ..clipPath(outline)
-      ..drawPath(outline, _water..color = color);
+    _openArea(canvas, rect, _area);
+    canvas.drawPath(outline, _water..color = color);
 
     if (reflectivity > 0) {
       canvas.saveLayer(
@@ -318,7 +338,49 @@ class WaterSurface extends PositionComponent with LightMirror {
     if (tint.a > 0) {
       canvas.drawRect(rect, _tintPaint..color = tint);
     }
-    ripples.render(canvas, _ripplePaint..color = rippleColor);
+    final plain = 0.35 + 0.65 * depth.clamp(0.0, 1.0);
+    ripples.render(
+      canvas,
+      _ripplePaint
+        ..color = rippleColor.withValues(alpha: rippleColor.a * plain),
+    );
+    _closeArea(canvas, rect);
+  }
+
+  bool get _softEdge => shape == WaterShape.ellipse && edgeSoftness > 0;
+
+  /// Opens the water's area on [canvas] (in the surface's coordinates):
+  /// clipped hard to its outline, or a layer landing with [layer]'s blend,
+  /// whose rim [_closeArea] fades out.
+  void _openArea(Canvas canvas, Rect rect, Paint layer) {
+    if (_softEdge) {
+      canvas.saveLayer(rect, layer);
+    } else {
+      canvas
+        ..save()
+        ..clipPath(outline());
+    }
+  }
+
+  /// Closes what [_openArea] opened; a soft edge first fades the water out
+  /// towards its rim - over the whole rectangle, so nothing outside the
+  /// ellipse stays.
+  void _closeArea(Canvas canvas, Rect rect) {
+    if (_softEdge) {
+      final soft = edgeSoftness.clamp(0.0, 1.0);
+      _edgeMask.shader = Gradient.radial(
+        Offset.zero,
+        1,
+        const [Color(0xFFFFFFFF), Color(0xFFFFFFFF), Color(0x00FFFFFF)],
+        [0, 1 - soft, 1],
+      );
+      canvas
+        ..save()
+        ..translate(rect.center.dx, rect.center.dy)
+        ..scale(rect.width / 2, rect.height / 2)
+        ..drawRect(const Rect.fromLTRB(-1.01, -1.01, 1.01, 1.01), _edgeMask)
+        ..restore();
+    }
     canvas.restore();
   }
 

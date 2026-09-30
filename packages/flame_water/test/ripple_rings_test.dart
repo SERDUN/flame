@@ -32,4 +32,11 @@ void main() {
     expect(weakR, lessThan(strongR));
     expect(weakA, lessThan(strongA));
   });
+
+  test('a drop leaves a wider, longer ring in a puddle than on a film', () {
+    final film = RippleRings.forDepth(0.1);
+    final puddle = RippleRings.forDepth(1);
+    expect(puddle.maxRadius, greaterThan(film.maxRadius * 2));
+    expect(puddle.lifeSec, greaterThan(film.lifeSec));
+  });
 }

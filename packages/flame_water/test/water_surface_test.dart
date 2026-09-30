@@ -108,6 +108,34 @@ void main() {
     surface.splash(Vector2(50, 120));
     expect(surface.ripples.count, 1);
   });
+
+  testWithFlameGame('a puddle fades out towards its rim, no hard line', (
+    game,
+  ) async {
+    final surface = WaterSurface(
+      position: Vector2(0, 100),
+      size: Vector2(100, 40),
+      color: _water,
+      reflectivity: 1,
+      fade: 0,
+      edgeSoftness: 0.5,
+    );
+    await game.world.addAll([
+      _Block(
+        position: Vector2(0, 40),
+        size: Vector2(100, 60),
+        paint: Paint()..color = _red,
+      ),
+      surface,
+    ]);
+    await game.ready();
+    final pixel = await _draw(surface);
+    final middle = pixel(50, 120).r;
+    final nearRim = pixel(8, 120).r;
+    expect(middle, greaterThan(0.9));
+    expect(nearRim, inExclusiveRange(0.02, middle), reason: 'thinning out');
+    expect(pixel(1, 101).a, lessThan(0.05), reason: 'nothing past the rim');
+  });
 }
 
 class _Probe extends PositionComponent with Reflectable {

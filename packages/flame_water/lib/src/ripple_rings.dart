@@ -20,6 +20,18 @@ class RippleRings {
        _age = Float64List(capacity)..fillRange(0, capacity, double.infinity),
        _strength = Float64List(capacity);
 
+  /// Rings on water [depth] deep (`0..1`: 0 a film on asphalt, 1 a
+  /// puddle): a drop on a film breaks into a small quick ring, in a puddle
+  /// it sets off a wide slow one - there is more water to carry it.
+  factory RippleRings.forDepth(double depth) {
+    final d = depth.clamp(0.0, 1.0);
+    return RippleRings(
+      capacity: 96,
+      lifeSec: 0.3 + 0.4 * d,
+      maxRadius: 6 + 18 * d,
+    );
+  }
+
   /// Rings alive at once, at most.
   final int capacity;
 
