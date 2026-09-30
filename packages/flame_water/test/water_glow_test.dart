@@ -29,6 +29,8 @@ Future<WaterSurface> _scene(FlameGame game, {double streak = 0}) async {
     fade: 0,
     streak: streak,
     waveAmplitude: 6,
+    // The lamp as bright as white, not burnt out: shifts show.
+    glowGain: 1,
   );
   await game.world.addAll([
     water,

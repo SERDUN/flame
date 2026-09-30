@@ -72,7 +72,8 @@ class WaterSurface extends PositionComponent with LightMirror {
     this.waveAmplitude = 3,
     double? wavelength,
     this.streak = 0,
-    this.glowGain = 1.4,
+    this.chop = 0,
+    this.glowGain = 4,
   }) : ripples = ripples ?? RippleRings(),
        wavelength = wavelength ?? (ripples?.maxRadius ?? 24) * 0.4;
 
@@ -126,11 +127,25 @@ class WaterSurface extends PositionComponent with LightMirror {
 
   /// How far a rough surface smears its reflection up and down, local units
   /// (the spread of a vertical blur): 0 still water, a clear mirror; a wet
-  /// road smears a lamp into a streak many times its size. The mirrored
-  /// street takes a tenth of it (a soft mirror), the glow all of it.
+  /// road smears a lamp into a streak many times its size, and the street
+  /// with it - the same roughness for everything it mirrors. Water on a road
+  /// mirrors as much as a puddle does; only how rough it lies differs.
   double streak;
 
-  /// How bright the mirrored glow comes out, against the glow itself.
+  /// How far the restless chop rain keeps on the whole surface shifts what
+  /// it mirrors, local units: 0 still water; on a road in the rain it breaks
+  /// every reflection into wavering bands. Drawn by the water shader, so
+  /// only at [WaterQuality.rippled].
+  double chop;
+
+  double _time = 0;
+
+  /// How much brighter than the screen's white a light's source is. The
+  /// glow is mirrored through an image that stops at white, so a lamp
+  /// smeared thin over a rough surface would fade to nothing; this gives it
+  /// back its real brightness. A property of the lights, the same for every
+  /// surface: a still puddle shows the lamp burnt out white, a rough road a
+  /// bright streak.
   double glowGain;
 
   /// How much more water gives back of a light seen low across it than its
@@ -246,6 +261,7 @@ class WaterSurface extends PositionComponent with LightMirror {
   @override
   void update(double dt) {
     super.update(dt);
+    _time += dt;
     ripples.update(dt);
   }
 
@@ -278,12 +294,12 @@ class WaterSurface extends PositionComponent with LightMirror {
           _sceneSlot,
           program,
           rect,
-          (c) => _smeared(c, streak * 0.1, () => scene(c)),
+          (c) => _smeared(c, streak, () => scene(c)),
           gain: 1,
           paint: _shaderPaint,
         );
       } else {
-        _smeared(canvas, streak * 0.1, () => scene(canvas));
+        _smeared(canvas, streak, () => scene(canvas));
       }
       if (fade > 0) {
         _fadePaint.shader = Gradient.linear(
@@ -354,7 +370,9 @@ class WaterSurface extends PositionComponent with LightMirror {
         ..setFloat(0) // the ring count, set below
         ..setFloat(ripples.flatten)
         ..setFloat(wavelength)
-        ..setFloat(gain);
+        ..setFloat(gain)
+        ..setFloat(_time)
+        ..setFloat(chop);
       ripples.forEachNewest(WaterShader.maxRings, (x, y, radius, opacity) {
         u.setFloats([x, y, radius, waveAmplitude * opacity]);
         count++;
