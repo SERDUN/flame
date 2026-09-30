@@ -147,7 +147,9 @@ class LightSource extends PositionComponent with Emissive {
     final haze = (Lighting.current ?? Lighting.of(this))?.haze ?? 0;
     if (haze > 0) {
       // Wet air scatters the light into a wide soft halo round the source.
-      final a = haze * s * 0.6;
+      // Scattered light, as bright as it is even in a mirror that brings
+      // the source back brighter than white.
+      final a = haze * s * 0.6 / Lighting.headroom;
       final halo = haloRadius(haze);
       _glow.shader = Gradient.radial(
         Offset.zero,

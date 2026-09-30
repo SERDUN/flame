@@ -210,7 +210,8 @@ class WaterSurface extends PositionComponent
   /// smeared thin over a rough surface would fade to nothing; this gives it
   /// back its real brightness. A property of the lights, the same for every
   /// surface: a still puddle shows the lamp burnt out white, a rough road a
-  /// bright streak.
+  /// bright streak. Only the sources: the light the haze scatters round
+  /// them comes back as bright as it is.
   double glowGain;
 
   /// How much more water gives back of a light seen low across it than its
@@ -219,7 +220,10 @@ class WaterSurface extends PositionComponent
   static const double grazing = 1.6;
 
   @override
-  void renderMirroredGlow(Canvas canvas, void Function(Canvas canvas) glow) {
+  void renderMirroredGlow(
+    Canvas canvas,
+    void Function(Canvas canvas, double headroom) glow,
+  ) {
     final strength = (_shown * grazing).clamp(0.0, 1.0);
     if (strength <= 0) {
       return;
@@ -238,8 +242,11 @@ class WaterSurface extends PositionComponent
         _glowSlot,
         program,
         rect,
-        (c) =>
-            _smeared(c, streak, () => _mirror(c, line, origin, () => glow(c))),
+        (c) => _smeared(
+          c,
+          streak,
+          () => _mirror(c, line, origin, () => glow(c, glowGain)),
+        ),
         gain: strength * glowGain,
         paint: _glowPaint,
       );
@@ -251,7 +258,7 @@ class WaterSurface extends PositionComponent
       _smeared(
         canvas,
         streak,
-        () => _mirror(canvas, line, origin, () => glow(canvas)),
+        () => _mirror(canvas, line, origin, () => glow(canvas, 1)),
       );
       canvas.restore();
     }

@@ -25,7 +25,16 @@ mixin LightMirror on Component {
   /// Draws the world's glow mirrored in this surface onto [canvas], which is
   /// in world coordinates. [glow] draws every [Emissive] part of the world,
   /// in world coordinates, onto the canvas it is given.
-  void renderMirroredGlow(Canvas canvas, void Function(Canvas canvas) glow);
+  ///
+  /// A light's source is brighter than an image's white; the light its haze
+  /// scatters is not. A mirror that gives what it is given back `headroom`
+  /// times brighter passes that number to [glow], which then draws what the
+  /// air scatters that much fainter: brought back, only the sources come out
+  /// brighter than white, and a halo as bright as it is.
+  void renderMirroredGlow(
+    Canvas canvas,
+    void Function(Canvas canvas, double headroom) glow,
+  );
 }
 
 /// A wet surface that is no mirror: a wall, a roof, a car's side in the rain.

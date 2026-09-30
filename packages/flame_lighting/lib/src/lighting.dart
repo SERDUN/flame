@@ -67,6 +67,12 @@ class Lighting extends Component {
   static Lighting? get current => _current;
   static Lighting? _current;
 
+  /// How much brighter than drawn the glow being drawn now comes out: above
+  /// 1 while a mirror that brings back more than white takes it. What the
+  /// air scatters is drawn this much fainter.
+  static double get headroom => _headroom;
+  static double _headroom = 1;
+
   final Paint _layer = Paint();
   final Paint _dark = Paint();
   final Paint _cut = Paint()..blendMode = BlendMode.dstOut;
@@ -159,7 +165,14 @@ class Lighting extends Component {
       for (final mirror in _mirrors) {
         mirror.renderMirroredGlow(
           canvas,
-          (c) => _renderMirrorGlow(world, c, lights),
+          (c, headroom) {
+            _headroom = headroom < 1 ? 1 : headroom;
+            try {
+              _renderMirrorGlow(world, c, lights);
+            } finally {
+              _headroom = 1;
+            }
+          },
         );
       }
     } finally {
@@ -365,7 +378,7 @@ class Lighting extends Component {
     Canvas canvas,
     List<LightSource> lights,
   ) {
-    final air = glow * (0.2 + 0.5 * haze);
+    final air = glow * (0.2 + 0.5 * haze) / _headroom;
     if (air > 0) {
       for (final light in lights) {
         _drawLight(canvas, light, _mirrorAir, air, light.strength);

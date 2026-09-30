@@ -15,16 +15,23 @@ class _Wall extends RectangleComponent {
 
 /// Still water below y 400: the glow mirrored about that line, plainly.
 class _Water extends PositionComponent with LightMirror {
-  _Water() : super(position: Vector2(0, 400), size: Vector2(800, 150));
+  _Water({this.headroom = 1})
+    : super(position: Vector2(0, 400), size: Vector2(800, 150));
+
+  /// How much brighter than drawn it will bring the glow back.
+  final double headroom;
 
   @override
-  void renderMirroredGlow(Canvas canvas, void Function(Canvas) glow) {
+  void renderMirroredGlow(
+    Canvas canvas,
+    void Function(Canvas, double) glow,
+  ) {
     canvas
       ..save()
       ..clipRect(toAbsoluteRect())
       ..translate(0, 800)
       ..scale(1, -1);
-    glow(canvas);
+    glow(canvas, headroom);
     canvas.restore();
   }
 }
@@ -141,6 +148,33 @@ void main() {
     expect(at(400, 280), greaterThan(40), reason: 'the halo above the bulb');
     expect(at(400, 60), lessThan(5), reason: 'not the whole sky');
   });
+
+  testWithFlameGame(
+    'a mirror with headroom gets the halo fainter, not the bulb',
+    (game) async {
+      Future<int Function(int, int)> mirrored(double headroom) async {
+        game.world.removeAll(game.world.children);
+        await game.ready();
+        await _setUp(
+          game,
+          [
+            LightSource(position: Vector2(400, 300), coneAngle: math.pi / 2),
+            _Water(headroom: headroom),
+          ],
+          haze: 1,
+          wall: const Color(0xFF000000),
+        );
+        return _render(game);
+      }
+
+      final plain = await mirrored(1);
+      final bright = await mirrored(4);
+      // The bulb at (400, 300) shows at (400, 500); its halo 20 above it
+      // at (400, 520).
+      expect(bright(400, 500), plain(400, 500), reason: 'the bulb as bright');
+      expect(bright(400, 520), lessThan(plain(400, 520) * 0.5));
+    },
+  );
 
   testWithFlameGame('a wet wall glints where the lamp falls on it', (
     game,
