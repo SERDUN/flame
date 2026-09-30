@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'dart:ui';
 
 import 'package:flame/components.dart';
@@ -136,6 +137,39 @@ class WaterSurface extends PositionComponent with LightMirror {
 
   @override
   double get mirrorStretch => lightStretch;
+
+  @override
+  Offset disturbanceAt(double x, double y) {
+    if (waveAmplitude <= 0) {
+      return Offset.zero;
+    }
+    final origin = absoluteTopLeftPosition;
+    final px = x - origin.x;
+    final py = y - origin.y;
+    final flatten = ripples.flatten;
+    final width = wavelength * 0.75;
+    var sx = 0.0;
+    var sy = 0.0;
+    // The water shader's own wave, so the lights move as the mirror does.
+    ripples.forEachNewest(WaterShader.maxRings, (cx, cy, radius, opacity) {
+      final dx = px - cx;
+      final dy = (py - cy) / flatten;
+      final dist = math.sqrt(dx * dx + dy * dy);
+      if (dist < 1e-4) {
+        return;
+      }
+      final off = dist - radius;
+      final envelope = math.exp(-(off * off) / (width * width));
+      final wave =
+          math.sin(off * 2 * math.pi / wavelength) *
+          envelope *
+          waveAmplitude *
+          opacity;
+      sx += dx / dist * wave;
+      sy += dy / dist * flatten * wave;
+    });
+    return Offset(sx, sy);
+  }
 
   @override
   Path mirrorClip() {
