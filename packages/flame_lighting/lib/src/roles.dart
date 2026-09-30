@@ -12,6 +12,48 @@ mixin Ground on Component {
   /// The band, world coordinates.
   Rect groundBand();
 
+  // How the ground lies before the eye. The band is the ground from the
+  // street line (depth 0) to the nearest ground in view (depth 1); these
+  // say how far that really is and from how high it is seen, world units,
+  // so what depends on the angle of view - how water mirrors, where light
+  // falls, how rain scatters it - follows from one place.
+
+  /// How far the nearest ground in view lies in front of the street line.
+  double get depthSpan => groundBand().height * 4;
+
+  /// How high above the ground the eye is.
+  double get eyeHeight => groundBand().height * 0.65;
+
+  /// How far from the eye the nearest ground in view is.
+  double get nearDistance => groundBand().height * 2;
+
+  /// The depth of the ground seen at world [y]: 0 on the street line, 1 the
+  /// nearest in view.
+  double depthAt(double y) {
+    final band = groundBand();
+    return ((y - band.top) / band.height).clamp(0.0, 1.0);
+  }
+
+  /// The sine of the angle the eye looks down onto the ground at [depth]:
+  /// small far off (it looks along the ground), larger near.
+  double sinElevation(double depth) {
+    final distance = nearDistance + (1 - depth) * depthSpan;
+    return eyeHeight / math.sqrt(eyeHeight * eyeHeight + distance * distance);
+  }
+
+  /// How much of the light falling on still water at [depth] it mirrors
+  /// (Fresnel, Schlick's approximation for water): most of it far off,
+  /// where the eye looks along it, little near, where it looks down.
+  double waterReflectance(double depth) => fresnel(sinElevation(depth));
+
+  /// Water's reflectance seen at an angle whose sine above the surface is
+  /// [sinElevation].
+  static double fresnel(double sinElevation) {
+    const f0 = 0.02;
+    final c = 1 - sinElevation.clamp(0.0, 1.0);
+    return f0 + (1 - f0) * c * c * c * c * c;
+  }
+
   /// The ground of the world [component] is in, if there is one.
   static Ground? of(Component component) {
     var top = component;

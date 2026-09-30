@@ -176,6 +176,55 @@ void main() {
     },
   );
 
+  testWithFlameGame(
+    'a drop in front of a lamp flares, one behind it dims',
+    (game) async {
+      final lighting = Lighting(darkness: 1);
+      await game.world.addAll([
+        lighting,
+        LightSource(position: Vector2(400, 300), radius: 300),
+      ]);
+      await game.ready();
+      final at = Vector2(420, 300);
+      final side = lighting.scatteredLightAt(at, 0);
+      final front = lighting.scatteredLightAt(at, 200);
+      final behind = lighting.scatteredLightAt(at, -200);
+      expect(front, greaterThan(side * 5));
+      expect(behind, lessThan(side));
+      expect(
+        side,
+        closeTo(LightSource(radius: 300).lightAt(Vector2(20, 0)), 1e-9),
+        reason: 'side-on: what reaches it',
+      );
+    },
+  );
+
+  testWithFlameGame(
+    'a lamp lays its pool from how its light falls on the ground',
+    (game) async {
+      await LightingShader.load(asset: 'shaders/pool.frag');
+      await _setUp(
+        game,
+        [
+          _Ground(),
+          // Hanging 150 over the ground at x 400, pointing straight down.
+          LightSource(position: Vector2(400, 250), radius: 400, coneAngle: 1.6),
+        ],
+        wall: const Color(0xFF000000),
+        glow: 1,
+      );
+      final at = await _render(game);
+      // Near the street line, right under the lamp, the light comes in
+      // steepest: brightest there, fading along the street and towards
+      // the eye.
+      final under = at(400, 405);
+      expect(under, greaterThan(40));
+      expect(at(560, 405), lessThan(under));
+      expect(at(400, 540), lessThan(under));
+      expect(at(100, 405), lessThan(5), reason: 'outside the cone');
+    },
+  );
+
   testWithFlameGame('a wet wall glints where the lamp falls on it', (
     game,
   ) async {
@@ -224,6 +273,7 @@ void main() {
     (
       game,
     ) async {
+      await LightingShader.load(asset: 'shaders/pool.frag');
       await _setUp(game, [
         // Held 40 over the ground, shining right and a little down.
         LightSource(
@@ -237,10 +287,13 @@ void main() {
         _Ground(),
       ]);
       final at = await _render(game);
-      // Down in the ground band, where the beam itself never reaches on
-      // screen: lit ahead of the torch, dark behind it.
-      expect(at(460, 480), greaterThan(40));
-      expect(at(150, 480), lessThan(5));
+      // On the ground along the street line, where the beam itself never
+      // reaches on screen: lit ahead of the torch, dark behind it. It
+      // shines along the street, not towards the eye: the ground well in
+      // front of the line is out of its reach.
+      expect(at(460, 410), greaterThan(40));
+      expect(at(150, 410), lessThan(5));
+      expect(at(460, 520), lessThan(5));
     },
   );
 }

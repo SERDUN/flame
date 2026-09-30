@@ -73,12 +73,13 @@ class LightSource extends PositionComponent with Emissive {
 
   /// How much of this light reaches [point] (world coordinates), `0..1` times
   /// [strength]: a smooth fall to nothing at [radius], and nothing outside
-  /// the cone.
-  double lightAt(Vector2 point) {
+  /// the cone. A point [inFront] world units nearer the eye than the light
+  /// (rain between it and the eye) is that much farther from it.
+  double lightAt(Vector2 point, {double inFront = 0}) {
     final origin = absolutePosition;
     final dx = point.x - origin.x;
     final dy = point.y - origin.y;
-    final distance = math.sqrt(dx * dx + dy * dy);
+    final distance = math.sqrt(dx * dx + dy * dy + inFront * inFront);
     if (distance >= radius) {
       return 0;
     }

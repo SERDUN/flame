@@ -39,12 +39,12 @@ mixin LightMirror on Component {
 
 /// A wet surface that is no mirror: a wall, a roof, a car's side in the rain.
 ///
-/// Rough and upright, it does not show the street, but the light that falls
-/// on it glints off the water on it: a sheen of every light over
-/// [glossArea], as strong as [gloss], and faint damp trails where water runs
-/// down it, seen only where light falls. It is drawn right after the
-/// component, so it lies where the component is - behind what stands in
-/// front of it.
+/// Wet, it is darker ([darkening]). Rough and upright, it does not show the
+/// street, but the light that falls on it glints off the water on it: a
+/// sheen of every light over [glossArea], as strong as [gloss], and faint
+/// damp trails where water runs down it, seen only where light falls. It is
+/// drawn right after the component, so it lies where the component is -
+/// behind what stands in front of it.
 mixin Glossy on Component {
   /// Draws the component, then the sheen of the world's `Lighting` (if it
   /// has one) over it - right after it, so the sheen lies where it is and
@@ -52,8 +52,9 @@ mixin Glossy on Component {
   @override
   void renderTree(Canvas canvas) {
     super.renderTree(canvas);
+    final dark = darkening.clamp(0.0, 1.0);
     final lighting = Lighting.of(this);
-    if (lighting == null) {
+    if (lighting == null && dark <= 0) {
       return;
     }
     // After its own tree the canvas is back in its parent's coordinates;
@@ -64,9 +65,22 @@ mixin Glossy on Component {
       final origin = holder.absoluteTopLeftPosition;
       canvas.translate(-origin.x, -origin.y);
     }
-    lighting.drawSheen(canvas, this);
+    if (dark > 0) {
+      // Darker where wet, under whatever light then falls on it.
+      canvas.drawPath(
+        glossArea(),
+        _darken..color = Color.fromRGBO(0, 0, 0, dark),
+      );
+    }
+    lighting?.drawSheen(canvas, this);
     canvas.restore();
   }
+
+  static final Paint _darken = Paint();
+
+  /// How much of its colour it has lost to the water in it, `0..1`: a wet
+  /// wall is darker than a dry one. Drawn over [glossArea].
+  double get darkening => 0;
 
   /// How wet and glossy it is, `0..1`: 0 dry, 1 streaming.
   double get gloss;

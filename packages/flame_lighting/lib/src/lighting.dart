@@ -5,6 +5,7 @@ import 'package:flame/components.dart';
 import 'package:flame/extensions.dart';
 import 'package:flame_lighting/src/light_mirror.dart';
 import 'package:flame_lighting/src/light_source.dart';
+import 'package:flame_lighting/src/lighting_shader.dart';
 import 'package:flame_lighting/src/roles.dart';
 
 /// The night over a world, and its lights.
@@ -96,6 +97,41 @@ class Lighting extends Component {
       }
     }
     return top;
+  }
+
+  /// How much light a drop of water at [point] (world coordinates) sends to
+  /// the eye, [inFront] world units nearer the eye than the line the lights
+  /// stand on (below 0 behind it): the ambient share left of the night plus
+  /// every light reaching it, each weighted by how a drop scatters it.
+  ///
+  /// A drop throws most of the light it gets onward, the way it was going
+  /// (Henyey-Greenstein, g [forwardScatter]): a drop between the eye and a
+  /// lamp flares, one beside it (seen side-on, 1 by this measure) shows
+  /// what reaches it, one behind the lamp less. Not clamped: a drop just in
+  /// front of a lamp is many times brighter than one beside it.
+  double scatteredLightAt(
+    Vector2 point,
+    double inFront, {
+    double forwardScatter = 0.7,
+  }) {
+    final g = forwardScatter;
+    var total = 1 - darkness;
+    for (final light in _lights) {
+      final amount = light.lightAt(point, inFront: inFront);
+      if (amount <= 0) {
+        continue;
+      }
+      // The light comes from the lamp to the drop; the eye looks back along
+      // the depth. The cosine between the two ways.
+      final across = point.distanceTo(light.absolutePosition);
+      final way = math.sqrt(across * across + inFront * inFront);
+      final mu = way < 1e-6 ? 1.0 : inFront / way;
+      final phase = math
+          .pow((1 + g * g) / (1 + g * g - 2 * g * mu), 1.5)
+          .toDouble();
+      total += amount * phase;
+    }
+    return total;
   }
 
   /// How lit [point] is (world coordinates): the ambient share that is left
@@ -219,13 +255,27 @@ class Lighting extends Component {
   /// round the foot of a lamp shining straight down - and lays an oval of
   /// light over it on the floor band, fading with the way the light went.
   void _drawPool(Canvas canvas, LightSource light, Paint paint, double amount) {
-    final floor = this.floor ?? Ground.of(this)?.groundBand();
+    final ground = Ground.of(this);
+    final floor = this.floor ?? ground?.groundBand();
     final cone = light.coneAngle;
     if (floor == null || cone == null) {
       return;
     }
     final at = light.absolutePosition;
     final height = floor.top - at.y;
+    final program = LightingShader.program;
+    if (program != null && height > 0) {
+      _poolThroughShader(
+        canvas,
+        program,
+        light,
+        paint,
+        amount,
+        floor,
+        ground?.depthSpan ?? floor.height * 4,
+      );
+      return;
+    }
     final axis = light.coneDirection;
     if (height <= 0 || math.sin(axis) <= 0.05) {
       return;
@@ -286,6 +336,49 @@ class Lighting extends Component {
       ..drawCircle(Offset.zero, 1, paint)
       ..restore();
   }
+
+  /// The pool as it falls: every point of [floor] lit by as much of
+  /// [light] as reaches it and at the angle it comes in, [span] world units
+  /// from the street line to the band's bottom.
+  void _poolThroughShader(
+    Canvas canvas,
+    FragmentProgram program,
+    LightSource light,
+    Paint paint,
+    double amount,
+    Rect floor,
+    double span,
+  ) {
+    final at = light.absolutePosition;
+    final cone = light.coneAngle!;
+    // A shader keeps its uniforms by reference: one per light and pass.
+    final shaders = paint == _cut ? _cutPools : _addPools;
+    final shader = shaders[light] ??= program.fragmentShader();
+    final strength = (amount * light.strength).clamp(0.0, 1.0);
+    shader.setFloatUniforms((u) {
+      u
+        ..setFloat(at.x)
+        ..setFloat(at.y)
+        ..setFloat(floor.top - at.y)
+        ..setFloat(math.cos(light.coneDirection))
+        ..setFloat(math.sin(light.coneDirection))
+        ..setFloat(cone / 2)
+        ..setFloat(cone / 2 * LightSource.softEdge)
+        ..setFloat(light.radius)
+        ..setFloat(floor.top)
+        ..setFloat(floor.height)
+        ..setFloat(span)
+        ..setFloat(light.color.r)
+        ..setFloat(light.color.g)
+        ..setFloat(light.color.b)
+        ..setFloat(strength);
+    });
+    canvas.drawRect(floor, paint..shader = shader);
+    paint.shader = null;
+  }
+
+  final Expando<FragmentShader> _cutPools = Expando();
+  final Expando<FragmentShader> _addPools = Expando();
 
   double _time = 0;
 

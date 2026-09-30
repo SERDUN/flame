@@ -22,3 +22,7 @@ dev_dependencies:
   flame_test: ^2.3.0
   flutter_test:
     sdk: flutter
+
+flutter:
+  shaders:
+    - shaders/pool.frag
