@@ -105,6 +105,8 @@ class Substance {
   );
 
   /// Umbrella canvas: tight woven fabric that sheds water, taut and drumming.
+  /// A drop on it is a crisp tap: the fabric is a membrane so damped and so
+  /// dense in its modes that it rings at no note of its own.
   static const canvas = Substance(
     name: 'canvas',
     porosity: 0.05,
@@ -112,9 +114,8 @@ class Substance {
     restitution: 0.35,
     slip: 0.85,
     loudness: 0.7,
-    soundHz: 1300,
-    ringSec: 0.004,
-    hitSec: 0.012,
+    soundHz: 1800,
+    ringSec: 0,
     friction: 0.7,
   );
 
@@ -129,9 +130,8 @@ class Substance {
     slip: 0.3,
     splashAbove: 120,
     loudness: 0.1,
-    soundHz: 700,
+    soundHz: 1800,
     ringSec: 0,
-    hitSec: 0.02,
     friction: 0.8,
   );
 
@@ -145,9 +145,8 @@ class Substance {
     slip: 0.7,
     splashAbove: 90,
     loudness: 0.2,
-    soundHz: 3000,
+    soundHz: 1800,
     ringSec: 0,
-    hitSec: 0.008,
     friction: 0.8,
   );
 
@@ -162,9 +161,8 @@ class Substance {
     slip: 0.3,
     splashAbove: 110,
     loudness: 0.15,
-    soundHz: 800,
+    soundHz: 1800,
     ringSec: 0,
-    hitSec: 0.01,
   );
 
   /// Wood: a bench, a fence.
@@ -177,9 +175,8 @@ class Substance {
     restitution: 0.15,
     slip: 0.6,
     loudness: 0.45,
-    soundHz: 1600,
-    ringSec: 0.01,
-    hitSec: 0.003,
+    soundHz: 1800,
+    ringSec: 0,
     friction: 0.7,
   );
 
@@ -193,9 +190,8 @@ class Substance {
     slip: 1,
     splashAbove: 100,
     loudness: 0.4,
-    soundHz: 2500,
-    ringSec: 0.02,
-    hitSec: 0.003,
+    soundHz: 1800,
+    ringSec: 0,
     friction: 0.1,
   );
 
