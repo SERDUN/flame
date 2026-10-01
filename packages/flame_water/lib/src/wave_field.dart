@@ -33,13 +33,15 @@ abstract class WaveField {
     required double depth,
   });
 
-  /// Moves the surface on by [steps] steps of the wave equation; each step
-  /// keeps [damping] of the motion.
-  void step(int steps, {required double damping});
+  /// Moves the surface on by [steps] steps of the wave equation; in each a
+  /// wave travels [courant] cells (no more than 1/sqrt(2)), and [damping] of
+  /// the motion is kept.
+  void step(int steps, {required double damping, required double courant});
 
   /// The heights now, one float a cell in the red channel, for a dart:ui
   /// shader to sample (unfiltered: not every GPU filters float textures).
   ui.Image? get heights;
 
+  /// Lets go of the field's textures; it is not used after.
   void dispose();
 }

@@ -95,7 +95,7 @@ class _GpuWaveField implements WaveField {
   final gpu.HostBuffer _host = gpu.gpuContext.createHostBuffer();
   final List<gpu.Texture> _textures;
   final List<double> _drops = [];
-  final Float32List _params = Float32List(4 + maxDrops * 4);
+  final Float32List _params = Float32List(8 + maxDrops * 4);
   int _turn = 0;
   ui.Image? _heights;
 
@@ -118,8 +118,8 @@ class _GpuWaveField implements WaveField {
   }
 
   @override
-  void step(int steps, {required double damping}) {
-    if (steps <= 0) {
+  void step(int steps, {required double damping, required double courant}) {
+    if (steps <= 0 || _disposed) {
       return;
     }
     _host.reset();
@@ -137,9 +137,10 @@ class _GpuWaveField implements WaveField {
         ..[0] = 1 / columns
         ..[1] = 1 / rows
         ..[2] = damping
-        ..[3] = count.toDouble();
+        ..[3] = count.toDouble()
+        ..[4] = courant * courant;
       for (var i = 0; i < count * 4; i++) {
-        _params[4 + i] = _drops[i];
+        _params[8 + i] = _drops[i];
       }
       _drops.removeRange(0, count * 4);
       final pass = commands.createRenderPass(
@@ -165,8 +166,12 @@ class _GpuWaveField implements WaveField {
   @override
   ui.Image? get heights => _heights;
 
+  bool _disposed = false;
+
   @override
   void dispose() {
+    _disposed = true;
+    _drops.clear();
     _heights?.dispose();
     _heights = null;
   }

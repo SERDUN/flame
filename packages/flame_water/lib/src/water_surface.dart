@@ -88,6 +88,7 @@ class WaterSurface extends PositionComponent
     this.streak = 0,
     this.chopPerRain = 0,
     this.film = false,
+    this.gpuWaves = false,
     this.glowGain = 10,
     double wetness = 1,
   }) : ripples = ripples ?? RippleRings.forDepth(depth),
@@ -618,9 +619,11 @@ class WaterSurface extends PositionComponent
     final origin = absoluteTopLeftPosition;
     final x = worldPoint.x - origin.x;
     final y = worldPoint.y - origin.y;
-    ripples.add(x, y, strength: strength);
     final waves = _waves;
-    if (waves != null) {
+    if (waves == null) {
+      ripples.add(x, y, strength: strength);
+    } else {
+      // The field carries the drop's waves; rings would only be counted.
       _splashes++;
       waves.drop(
         x / size.x,
@@ -650,13 +653,14 @@ class WaterSurface extends PositionComponent
   }
 
   /// Whether the surface moves by the wave equation on the GPU rather than
-  /// by its rings: at [WaterQuality.rippled], where flutter_gpu is on. Off
-  /// for a surface that should keep to the rings.
-  bool gpuWaves = true;
+  /// by its rings, at [WaterQuality.rippled] where flutter_gpu is on. Worth
+  /// it for a puddle, where the waves cross and reflect off its rim; a film
+  /// on a whole road is better served by its rings - the field there would
+  /// be coarse and slow. Off unless asked for.
+  bool gpuWaves;
 
   WaveField? _waves;
   bool _wavesAsked = false;
-  double _waveSteps = 0;
 
   /// The field's cell, local units: a sixth of the rings' wavelength (any
   /// coarser and a ring comes out many-sided), or more for a big surface,
@@ -669,10 +673,16 @@ class WaterSurface extends PositionComponent
   /// A drop's dent, cells across: wide enough to come out round.
   static const double _dropCells = 2.5;
 
-  /// Steps of the wave equation a second: a wave in it crosses 1/sqrt(2) of
-  /// a cell a step, and should go as fast as a ring grows.
-  double get _stepsPerSecond =>
-      ripples.maxRadius / ripples.lifeSec / (math.sqrt1_2 * _cell);
+  /// How fast a wave crosses the field, cells a second: as fast as a ring
+  /// grows.
+  double get _waveSpeed => ripples.maxRadius / ripples.lifeSec / _cell;
+
+  /// The most a step can carry a wave, cells: past it the scheme blows up.
+  static const double _maxCourant = math.sqrt1_2;
+
+  /// Steps a frame at most: a slow frame then runs the water slower rather
+  /// than taking a burst of steps.
+  static const int _maxSteps = 6;
 
   /// Starts making the field once the surface has a size.
   void _askForWaves() {
@@ -696,30 +706,26 @@ class WaterSurface extends PositionComponent
     });
   }
 
+  /// Moves the field on by [dt]: in as few steps as keep each under the
+  /// largest one the scheme allows, and at least one a frame - a slow
+  /// surface takes small steps every frame rather than a full step every
+  /// few, which shows as the field jumping.
   void _stepWaves(double dt) {
     final waves = _waves;
-    if (waves == null) {
+    if (waves == null || dt <= 0) {
       return;
     }
-    if (dt > 0) {
-      final k = 1 - math.exp(-dt);
-      _splashRate += (_splashes / dt - _splashRate) * k;
-    }
+    _splashRate += (_splashes / dt - _splashRate) * (1 - math.exp(-dt));
     _splashes = 0;
-    final rate = _stepsPerSecond;
-    _waveSteps += dt * rate;
-    // A slow frame skips steps rather than taking a burst of them.
-    final steps = _waveSteps.floor().clamp(0, 6);
-    _waveSteps -= _waveSteps.floor();
+    final cells = _waveSpeed * dt;
+    final steps = (cells / _maxCourant).ceil().clamp(1, _maxSteps);
+    final courant = math.min(cells / steps, _maxCourant);
     // A ring fades out over its life; the field's waves, which spread and
-    // cross, over twice that.
+    // cross, over twice that: to 5 % in that time.
     final damping = math
-        .pow(
-          0.05,
-          1 / (2 * ripples.lifeSec * rate),
-        )
+        .pow(0.05, dt / steps / (2 * ripples.lifeSec))
         .toDouble();
-    waves.step(steps, damping: damping);
+    waves.step(steps, damping: damping, courant: courant);
   }
 
   /// Whether [worldPoint] lies on the water.
@@ -1049,6 +1055,9 @@ class WaterSurface extends PositionComponent
 
   @override
   void onRemove() {
+    _waves?.dispose();
+    _waves = null;
+    _wavesAsked = false;
     _sceneSlot.dispose();
     _lightSlot.dispose();
     super.onRemove();

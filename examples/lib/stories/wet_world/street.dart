@@ -330,6 +330,9 @@ WaterSurface puddle({
   // Still water: nearly a clear mirror.
   streak: 6,
   chopPerRain: 1.2,
+  // A pool: its waves cross and reflect off its rim, where the GPU runs
+  // them.
+  gpuWaves: true,
 );
 
 /// A torch in a walker's hand: a narrow cool beam, a little down, the way the

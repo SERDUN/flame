@@ -1,8 +1,11 @@
 #version 320 es
 
 // One step of the wave equation over a water's surface: each cell's next
-// height is the mean of its neighbours' now, less its own a step ago, damped.
-// Drops landing this step push the surface down under them.
+// height from its own now and a step ago, pulled towards its neighbours by
+// the square of how far a wave goes in the step (in cells), damped. At the
+// largest step, 1/sqrt(2) of a cell, it is the mean of the neighbours less
+// its own a step ago. Drops landing this step push the surface down under
+// them.
 
 precision highp float;
 
@@ -13,6 +16,7 @@ uniform sampler2D curr_tex;
 
 uniform Params {
   vec4 texel_damping;      // texel x, texel y, damping, drops in use
+  vec4 wave;               // courant squared, unused
   vec4 drops[kMaxDrops];   // uv x, uv y, radius (in x texels), depth
 } params;
 
@@ -25,7 +29,10 @@ void main() {
             texture(curr_tex, v_uv - vec2(t.x, 0.0)).r +
             texture(curr_tex, v_uv + vec2(0.0, t.y)).r +
             texture(curr_tex, v_uv - vec2(0.0, t.y)).r;
-  float next = (n * 0.5 - texture(prev_tex, v_uv).r) * params.texel_damping.z;
+  float now = texture(curr_tex, v_uv).r;
+  float c2 = params.wave.x;
+  float next = (2.0 * now - texture(prev_tex, v_uv).r + c2 * (n - 4.0 * now)) *
+               params.texel_damping.z;
   int count = int(params.texel_damping.w);
   for (int i = 0; i < kMaxDrops; i++) {
     if (i >= count) {
