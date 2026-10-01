@@ -1,9 +1,11 @@
 import 'dart:math' as math;
+import 'dart:typed_data';
 import 'dart:ui';
 
 import 'package:flame/components.dart';
 import 'package:flame/extensions.dart';
 import 'package:flame_lighting/flame_lighting.dart';
+import 'package:flame_stage/flame_stage.dart';
 import 'package:flame_water/src/rain.dart';
 import 'package:flame_water/src/rain_catcher.dart';
 import 'package:flame_water/src/reflection_pass.dart';
@@ -49,15 +51,18 @@ enum WaterShape {
 ///
 /// Rain hitting it is [splash]ed into [ripples].
 ///
-/// Under a `Lighting` it is a [LightMirror]: the world's glow (lamps, lit
-/// windows, their halos) is mirrored in it through the same shader, so drops
-/// bend a lamp's reflection as they bend the street's, and a rough surface
-/// ([streak]) smears it down into a long broken streak, as a wet road does.
+/// Under a `Lighting` it is a [LightReflector]: every light of the stage's
+/// frame - bulbs, lit windows, tubes, their halos - is mirrored in it, over
+/// the night, through the same shader in its lights mode: worked out from
+/// the light's numbers where the mirror puts it, bent by the same drops as
+/// the street's reflection and smeared down into a long broken streak by a
+/// rough surface ([streak]), as a wet road does. A lamp is as bright in it
+/// as a lamp is ([glowGain]), not as bright as an image's white.
 ///
 /// The surface must not be rotated or scaled, nor its parents: it maps world
 /// coordinates to its own by its absolute top-left corner.
 class WaterSurface extends PositionComponent
-    with LightMirror, RainCatcher, Wettable {
+    with OnStage, RainCatcher, Wettable, LightReflector {
   WaterSurface({
     super.position,
     super.size,
@@ -99,8 +104,8 @@ class WaterSurface extends PositionComponent
   WaterShape shape;
 
   /// World y of the line the world is mirrored about; `null`: the line
-  /// things stand on - the top of the world's [Ground] - or, with no
-  /// ground, the surface's top edge. A puddle on a road lies below that
+  /// things stand on - the street line of the stage's projection - or, with
+  /// no ground, the surface's top edge. A puddle on a road lies below that
   /// line and still mirrors about it, so feet meet their reflection;
   /// something standing elsewhere says so itself
   /// (`Reflectable.reflectionBase`).
@@ -108,9 +113,10 @@ class WaterSurface extends PositionComponent
 
   /// The line the world is mirrored about now, world y.
   double get _line =>
-      waterLine ??
-      Ground.of(this)?.groundBand().top ??
-      absoluteTopLeftPosition.y;
+      waterLine ?? _projection?.line ?? absoluteTopLeftPosition.y;
+
+  /// The street's projection now, if the stage has a ground.
+  StreetProjection? get _projection => stage?.projection;
 
   /// The water under its reflection.
   Color color;
@@ -118,8 +124,8 @@ class WaterSurface extends PositionComponent
   /// How much of it is clear water, `0..1`: 1 still water, less a film
   /// broken by the asphalt poking through. How much clear water mirrors is
   /// water's own - most of the light seen low across it, little seen from
-  /// above (Fresnel) - and follows from the world's [Ground], the angle each
-  /// row of it is seen at.
+  /// above ([fresnel]) - and follows from the stage's projection, the angle
+  /// each row of it is seen at.
   double reflectivity;
 
   /// How tall a reflection is against what it reflects: 1 is a true mirror;
@@ -224,8 +230,7 @@ class WaterSurface extends PositionComponent
     // Where a drop at its depth meets the ground: the world's projection, or
     // with no ground, across this water from its top to its bottom.
     final origin = absoluteTopLeftPosition;
-    final y =
-        Ground.of(this)?.yAt(depth) ?? origin.y + depth.clamp(0, 1) * size.y;
+    final y = _projection?.yAt(depth) ?? origin.y + depth.clamp(0, 1) * size.y;
     if (y <= fromY || y > toY || !covers(Vector2(x, y))) {
       return null;
     }
@@ -240,112 +245,303 @@ class WaterSurface extends PositionComponent
 
   double _time = 0;
 
-  /// How much brighter than the screen's white a light's source is. The
-  /// glow is mirrored through an image that stops at white, so a lamp
-  /// smeared thin over a rough surface would fade to nothing; this gives it
-  /// back its real brightness. A property of the lights, the same for every
-  /// surface: a still puddle shows the lamp burnt out white, a rough road a
-  /// bright streak. Only the sources: the light the haze scatters round
-  /// them comes back as bright as it is.
+  /// How much brighter than the screen's white a light's source is: a
+  /// still puddle shows a lamp burnt out white, a rough road smears it
+  /// into a streak that is still bright, as a real lamp's is. Only the
+  /// sources: the light the haze scatters round them comes back as bright
+  /// as it is.
   double glowGain;
 
-  /// How the eye sees this water, from the world's [Ground]: the sine of
+  /// Water's reflectance seen at an angle whose sine above the surface is
+  /// [sinElevation] (Fresnel, Schlick's approximation for water): most of
+  /// the light far off, where the eye looks along it, little near, where
+  /// it looks down. The shader works it out the same way.
+  static double fresnel(double sinElevation) {
+    const f0 = 0.02;
+    final c = 1 - sinElevation.clamp(0.0, 1.0);
+    return f0 + (1 - f0) * c * c * c * c * c;
+  }
+
+  /// How the eye sees this water, from the stage's projection: the sine of
   /// the angle it looks down at its top and bottom rows. `null` without a
   /// ground: then it mirrors evenly, as much as [reflectivity] says.
   ({double top, double bottom})? _view() {
-    final ground = Ground.of(this);
-    if (ground == null) {
+    final projection = _projection;
+    if (projection == null) {
       return null;
     }
     final origin = absoluteTopLeftPosition;
     return (
-      top: ground.sinElevation(ground.depthAt(origin.y)),
-      bottom: ground.sinElevation(ground.depthAt(origin.y + size.y)),
+      top: projection.sinElevation(projection.depthAt(origin.y)),
+      bottom: projection.sinElevation(projection.depthAt(origin.y + size.y)),
     );
   }
 
   /// Water's reflectance where it is seen at its middle: what a surface
   /// drawn without the shader mirrors all over.
   double _meanReflectance(({double top, double bottom})? view) =>
-      view == null ? 1 : Ground.fresnel((view.top + view.bottom) / 2);
+      view == null ? 1 : fresnel((view.top + view.bottom) / 2);
 
   @override
-  void renderMirroredGlow(
-    Canvas canvas,
-    void Function(
-      Canvas canvas,
-      double headroom, [
-      double Function(double base)? shift,
-    ])
-    glow,
-  ) {
+  void renderReflectedLights(Canvas canvas, StageFrame frame) {
     final strength = _shown.clamp(0.0, 1.0);
     if (strength <= 0 || _dry) {
       return;
     }
+    final field = frame.light;
     final rect = size.toRect();
     final origin = absoluteTopLeftPosition;
-    final line = _line - origin.y;
     canvas
       ..save()
       ..translate(origin.x, origin.y);
+    final count = _gatherLights(field, origin);
     final program = WaterShader.program;
-    final shaded = quality == WaterQuality.rippled && program != null;
-    if (shaded) {
-      // The shader smears it, fades it at the rim and adds it: no layers.
-      _throughShader(
-        canvas,
-        _glowSlot,
-        program,
-        rect,
-        (c) => _mirror(c, line, origin, () => glow(c, glowGain, mirrorShift)),
-        gain: strength * glowGain,
-        paint: _glowPaint,
-      );
-      canvas.clipPath(outline());
-    } else {
-      _openArea(canvas, rect, _glowArea);
-      canvas.saveLayer(
-        rect,
-        _glowLayer
-          ..color = Color.fromRGBO(
-            0,
-            0,
-            0,
-            strength * _meanReflectance(_view()),
-          ),
-      );
-      _smeared(
-        canvas,
-        streak,
-        () => _mirror(canvas, line, origin, () => glow(canvas, 1, mirrorShift)),
-      );
-      canvas.restore();
+    if (count > 0) {
+      if (quality == WaterQuality.rippled && program != null) {
+        _drawLights(canvas, program, rect, count, strength, field);
+      } else {
+        _drawLightsPlain(canvas, count, strength, field.haze);
+      }
     }
     // The rings' crests glint with the light round them - bright by a lamp,
-    // faint but there in the dark, lit by the sky.
-    final lighting = Lighting.current;
-    // The field's crests glint in the water shader instead.
+    // faint but there in the dark, lit by the sky. The field's crests glint
+    // in the water shader instead.
     if (_waves?.heights == null) {
+      canvas
+        ..save()
+        ..clipPath(outline());
       ripples.render(
         canvas,
         _ringPaint(),
-        lightAt: lighting == null
-            ? null
-            : (x, y) =>
-                  0.35 +
-                  lighting.lightAt(Vector2(origin.x + x, origin.y + y)).light,
+        lightAt: (x, y) {
+          field.sample(origin.x + x, origin.y + y, _sample);
+          return 0.35 + _sample.light;
+        },
       );
-    }
-    _litLastFrame = true;
-    if (!shaded) {
-      _closeArea(canvas, rect);
+      canvas.restore();
     }
     canvas.restore();
   }
 
-  /// Whether a Lighting drew the rings with the glow last frame.
-  bool _litLastFrame = false;
+  final LightSample _sample = LightSample();
+
+  /// Whether the lighting draws the rings this frame, glinting with the
+  /// light, over the night ([renderReflectedLights]); otherwise [render]
+  /// draws them plain.
+  bool get _ringsLit {
+    final stage = this.stage;
+    return stage != null &&
+        stage.frame.light.isLit &&
+        stage.members<Lighting>().isNotEmpty;
+  }
+
+  /// The mirrored lights for the shader, [WaterShader.lightFloats] each.
+  final Float32List _lights = Float32List(
+    WaterShader.maxLights * WaterShader.lightFloats,
+  );
+  final List<int> _candidates = [];
+
+  /// Picks the strongest lights of [field] whose mirror image, or the light
+  /// they cast, can reach the water, and writes them into [_lights] as the
+  /// shader reads them (see `lights` in water.frag): their images mirrored
+  /// into local units, and as they are, for the light they cast. Returns
+  /// how many.
+  int _gatherLights(LightField field, Vector2 origin) {
+    _candidates.clear();
+    final line = _line;
+    for (var i = 0; i < field.count; i++) {
+      if (field.shapeOf(i) == LightShape.directional) {
+        continue;
+      }
+      // What it casts reaches its radius round it; the mirror shows that
+      // much round its image.
+      final x = field.xOf(i) - origin.x;
+      final out = field.radiusOf(i) + field.haloRadiusOf(i) + streak;
+      if (x < -out || x > size.x + out) {
+        continue;
+      }
+      final base = field.standsAtOf(i) ?? line;
+      final y = base + (base - field.yOf(i)) * squash - origin.y;
+      if (y < -out * squash || y > size.y + out * squash) {
+        continue;
+      }
+      _candidates.add(i);
+    }
+    if (_candidates.length > WaterShader.maxLights) {
+      _candidates.sort(
+        (a, b) => field.strengthOf(b).compareTo(field.strengthOf(a)),
+      );
+    }
+    final n = math.min(_candidates.length, WaterShader.maxLights);
+    for (var k = 0; k < n; k++) {
+      final i = _candidates[k];
+      final o = k * WaterShader.lightFloats;
+      final shape = field.shapeOf(i);
+      final base = field.standsAtOf(i) ?? line;
+      final color = field.colorOf(i);
+      final angle = field.directionOf(i);
+      var halfX = 0.0;
+      var halfY = 0.0;
+      var dirX = 0.0;
+      var dirY = 0.0;
+      // A bulb as a Gaussian as bright through its middle as the disc its
+      // light source draws (full to 0.55 of 1.6 radii, then fading): a sigma
+      // of one source radius.
+      var body = field.sourceRadiusOf(i);
+      // A bulb is brighter than white; a window or a tube is drawn as
+      // bright as it is.
+      var headroom = glowGain;
+      // A cone's outer edge; a tube's half length instead.
+      var spreadOrLength = math.cos(field.halfSpreadOf(i));
+      switch (shape) {
+        case LightShape.area:
+          halfX = field.extentXOf(i) / 2;
+          halfY = field.extentYOf(i) / 2 * squash;
+          body = 0.04 * math.min(field.extentXOf(i), field.extentYOf(i)) + 0.5;
+          headroom = 1;
+        case LightShape.line:
+          // Its direction mirrored and squeezed: y flips, by squash.
+          final mx = math.cos(angle);
+          final my = -math.sin(angle) * squash;
+          final length = math.sqrt(mx * mx + my * my);
+          dirX = mx / length;
+          dirY = my / length;
+          halfX = field.extentXOf(i) / 2 * length;
+          body = 0.5 * math.max(field.sourceRadiusOf(i), 2);
+          headroom = 1;
+          spreadOrLength = field.extentXOf(i) / 2;
+        case LightShape.point:
+        case LightShape.cone:
+        case LightShape.directional:
+          break;
+      }
+      _lights
+        ..[o] = field.xOf(i) - origin.x
+        ..[o + 1] = base + (base - field.yOf(i)) * squash - origin.y
+        ..[o + 2] = shape.index.toDouble()
+        ..[o + 3] = math.max(body, 0.5)
+        ..[o + 4] = color.r
+        ..[o + 5] = color.g
+        ..[o + 6] = color.b
+        ..[o + 7] = field.strengthOf(i)
+        ..[o + 8] = halfX
+        ..[o + 9] = halfY
+        ..[o + 10] = dirX
+        ..[o + 11] = dirY
+        ..[o + 12] = base - origin.y
+        ..[o + 13] = field.radiusOf(i)
+        ..[o + 14] = math.cos(angle)
+        ..[o + 15] = math.sin(angle)
+        ..[o + 16] = math.cos(field.halfSpreadOf(i) - field.edgeOf(i))
+        ..[o + 17] = spreadOrLength
+        ..[o + 18] = field.isPhysicalOf(i) ? 1 : 0
+        ..[o + 19] = headroom;
+    }
+    return n;
+  }
+
+  /// The [count] gathered lights through the water shader, bent and
+  /// smeared as the street's reflection is.
+  void _drawLights(
+    Canvas canvas,
+    FragmentProgram program,
+    Rect rect,
+    int count,
+    double strength,
+    LightField field,
+  ) {
+    final shader = _lightSlot.shader ??= program.fragmentShader();
+    final haze = field.haze;
+    final glow = field.glow;
+    final f =
+        _uniforms(
+            _lightSlot,
+            gain: strength,
+            line: _line - absoluteTopLeftPosition.y,
+          )
+          ..[WaterShader.lightMode] = 1
+          ..[WaterShader.lightCount] = count.toDouble()
+          ..[WaterShader.haze] = haze
+          ..[WaterShader.air] = glow * (0.2 + 0.5 * haze)
+          ..setRange(
+            WaterShader.lights,
+            WaterShader.lights + count * WaterShader.lightFloats,
+            _lights,
+          );
+    WaterShader.upload(shader, f);
+    final blank = _blank ??= _makeBlank();
+    shader
+      ..setImageSampler(0, blank)
+      ..setImageSampler(1, _waves?.heights ?? blank);
+    canvas.drawRect(rect, _glowPaint..shader = shader);
+  }
+
+  /// The [count] gathered lights as soft ellipses, for water drawn without
+  /// the shader: smeared, not bent.
+  void _drawLightsPlain(
+    Canvas canvas,
+    int count,
+    double strength,
+    double haze,
+  ) {
+    final view = _view();
+    final s = view == null ? 1.0 : (view.top + view.bottom) / 2;
+    final gain = strength * _meanReflectance(view);
+    final down = streak / 3;
+    final across = down * s;
+    canvas
+      ..save()
+      ..clipPath(outline());
+    for (var k = 0; k < count; k++) {
+      final o = k * WaterShader.lightFloats;
+      final body = _lights[o + 3];
+      final sx = math.sqrt(body * body + across * across) + _lights[o + 8];
+      final sy =
+          math.sqrt(body * body * squash * squash + down * down) +
+          _lights[o + 9];
+      final wide = body * body * squash / (sx * sy);
+      final a = (gain * _lights[o + 7] * _lights[o + 19] * wide).clamp(
+        0.0,
+        1.0,
+      );
+      final color = Color.from(
+        alpha: 1,
+        red: _lights[o + 4],
+        green: _lights[o + 5],
+        blue: _lights[o + 6],
+      );
+      _plainLight.shader = Gradient.radial(
+        Offset.zero,
+        1,
+        [
+          color.withValues(alpha: a),
+          color.withValues(alpha: a * (0.2 + 0.4 * haze)),
+          color.withValues(alpha: 0),
+        ],
+        const [0, 0.4, 1],
+      );
+      canvas
+        ..save()
+        ..translate(_lights[o], _lights[o + 1])
+        ..scale(2.5 * sx, 2.5 * sy)
+        ..drawCircle(Offset.zero, 1, _plainLight)
+        ..restore();
+    }
+    canvas.restore();
+  }
+
+  final Paint _plainLight = Paint()..blendMode = BlendMode.plus;
+
+  /// A 1x1 image for the sampler the lights mode does not read.
+  static Image? _blank;
+  static Image _makeBlank() {
+    final recorder = PictureRecorder();
+    Canvas(recorder).drawRect(const Rect.fromLTWH(0, 0, 1, 1), Paint());
+    final picture = recorder.endRecording();
+    final image = picture.toImageSync(1, 1);
+    picture.dispose();
+    return image;
+  }
 
   /// The rings' paint: [rippleColor], plainer the more water there is - and
   /// the wetter it is (barely wet asphalt hardly shows a ring).
@@ -380,13 +576,11 @@ class WaterSurface extends PositionComponent
   }
 
   final _ShaderSlot _sceneSlot = _ShaderSlot();
-  final _ShaderSlot _glowSlot = _ShaderSlot();
+  final _ShaderSlot _lightSlot = _ShaderSlot();
   final Paint _shaderPaint = Paint();
   final Paint _glowPaint = Paint()..blendMode = BlendMode.plus;
-  final Paint _glowLayer = Paint()..blendMode = BlendMode.plus;
   final Paint _smear = Paint();
   final Paint _area = Paint();
-  final Paint _glowArea = Paint()..blendMode = BlendMode.plus;
   final Paint _edgeMask = Paint()..blendMode = BlendMode.dstIn;
 
   final Paint _water = Paint();
@@ -575,11 +769,8 @@ class WaterSurface extends PositionComponent
         tint: tint,
         fade: fade.clamp(0.0, 1.0),
         line: line,
-        glints: true,
       );
-      final lit = _litLastFrame;
-      _litLastFrame = false;
-      if (!lit && _waves?.heights == null) {
+      if (!_ringsLit && _waves?.heights == null) {
         canvas
           ..save()
           ..clipPath(outline);
@@ -641,10 +832,8 @@ class WaterSurface extends PositionComponent
       canvas.drawRect(rect, _tintPaint..color = tint);
     }
     // Under a Lighting the rings are glints over the night, drawn with the
-    // glow; without one they are drawn here.
-    final lit = _litLastFrame;
-    _litLastFrame = false;
-    if (!lit) {
+    // lights; without one they are drawn here.
+    if (!_ringsLit) {
       ripples.render(canvas, _ringPaint());
     }
     _closeArea(canvas, rect);
@@ -714,7 +903,7 @@ class WaterSurface extends PositionComponent
       return base;
     }
     final depth = thing.groundDepth;
-    return depth == null ? null : Ground.of(this)?.yAt(depth);
+    return depth == null ? null : _projection?.yAt(depth);
   }
 
   /// What of the world this water can show, world coordinates: everything
@@ -761,7 +950,7 @@ class WaterSurface extends PositionComponent
   /// newest rings, smeared as rough as the surface is, mirrored as much as
   /// water does at the angle each row is seen at, at [gain] brightness,
   /// over [base], under [tint], faded by [fade] below [line] and eased out
-  /// at the rim.
+  /// at the rim; the crests glint.
   void _throughShader(
     Canvas canvas,
     _ShaderSlot slot,
@@ -770,18 +959,15 @@ class WaterSurface extends PositionComponent
     void Function(Canvas canvas) record, {
     required double gain,
     required Paint paint,
-    Color base = const Color(0x00000000),
-    Color tint = const Color(0x00000000),
-    double fade = 0,
-    double line = 0,
-    bool glints = false,
+    required Color base,
+    required Color tint,
+    required double fade,
+    required double line,
   }) {
-    final heights = _waves?.heights;
     // The smear is done in the shader: the image need be no finer than it.
-    final sigma = streak / 3;
     // Under half a pixel of smear is none; above, the image need be no finer
     // than a few pixels a sigma.
-    final pixels = sigma * resolution;
+    final pixels = streak / 3 * resolution;
     final scale =
         resolution * (pixels < 0.5 ? 1 : (2.5 / pixels).clamp(0.25, 1));
     final width = (size.x * scale).ceil();
@@ -797,74 +983,74 @@ class WaterSurface extends PositionComponent
     picture.dispose();
 
     final shader = slot.shader ??= program.fragmentShader();
-    final view = _view();
-    final pool = outline().getBounds();
-    var count = 0;
-    void color(UniformsSetter u, Color c) => u
-      ..setFloat(c.r * c.a)
-      ..setFloat(c.g * c.a)
-      ..setFloat(c.b * c.a)
-      ..setFloat(c.a);
-    shader.setFloatUniforms((u) {
-      u
-        ..setVector(size)
-        ..setFloat(0) // the ring count, set below
-        ..setFloat(ripples.flatten)
-        ..setFloat(wavelength)
-        ..setFloat(gain)
-        ..setFloat(_time)
-        ..setFloat(chop)
-        ..setFloat(view?.top ?? 0)
-        ..setFloat(view?.bottom ?? 0)
-        ..setFloat(view == null ? 0 : 1)
-        ..setFloat(sigma);
-      color(u, base);
-      color(u, tint);
-      u
-        ..setFloat(fade)
-        ..setFloat(line)
-        ..setFloat(pool.center.dx)
-        ..setFloat(pool.center.dy)
-        ..setFloat(pool.width / 2)
-        ..setFloat(pool.height / 2)
-        ..setFloat(_softEdge ? edgeSoftness.clamp(0.0, 1.0) : 0)
-        ..setFloat(shape == WaterShape.ellipse ? 1 : 0)
-        ..setFloat(scale)
-        // Padding: the rings start on a 16-byte boundary (see the shader).
-        ..setFloat(0)
-        ..setFloat(0)
-        ..setFloat(0);
-      ripples.forEachNewest(WaterShader.maxRings, (x, y, radius, opacity) {
-        u.setFloats([x, y, radius, waveAmplitude * opacity]);
-        count++;
-      });
-      for (var i = count; i < WaterShader.maxRings; i++) {
-        u.setFloats(const [0, 0, 0, 0]);
-      }
-      final waves = _waves;
-      final glint = glints ? _ringPaint().color : const Color(0x00000000);
-      // uWave, then uGlint.
-      u
-        ..setFloat(heights == null ? 0 : 1)
-        ..setFloat(waves == null ? 0 : 1 / waves.columns)
-        ..setFloat(waves == null ? 0 : 1 / waves.rows)
-        ..setFloat(waveAmplitude * waveGain);
-      color(u, glint);
-    });
+    final f = _uniforms(slot, gain: gain, line: line)
+      ..[WaterShader.fade] = fade
+      ..[WaterShader.pixels] = scale;
+    WaterShader.color(f, WaterShader.base, base);
+    WaterShader.color(f, WaterShader.tint, tint);
+    WaterShader.color(f, WaterShader.glint, _ringPaint().color);
+    WaterShader.upload(shader, f);
     shader
-      ..setFloat(2, count.toDouble())
       ..setImageSampler(0, image, filterQuality: FilterQuality.low)
       // Unfiltered (the default): not every GPU filters a float texture.
       // With no field the slot still needs an image; the shader does not
       // read it.
-      ..setImageSampler(1, heights ?? image);
+      ..setImageSampler(1, _waves?.heights ?? image);
     canvas.drawRect(rect, paint..shader = shader);
+  }
+
+  /// The uniforms both modes share - the surface, its rings and field, how
+  /// it is seen, its outline - in [slot]'s array, the rest cleared.
+  Float32List _uniforms(
+    _ShaderSlot slot, {
+    required double gain,
+    required double line,
+  }) {
+    final f = slot.uniforms..fillRange(0, slot.uniforms.length, 0);
+    final view = _view();
+    final pool = outline().getBounds();
+    final waves = _waves;
+    f
+      ..[WaterShader.size] = size.x
+      ..[WaterShader.size + 1] = size.y
+      ..[WaterShader.flatten] = ripples.flatten
+      ..[WaterShader.wavelength] = wavelength
+      ..[WaterShader.gain] = gain
+      ..[WaterShader.time] = _time
+      ..[WaterShader.chop] = chop
+      ..[WaterShader.elevTop] = view?.top ?? 0
+      ..[WaterShader.elevBottom] = view?.bottom ?? 0
+      ..[WaterShader.fresnel] = view == null ? 0 : 1
+      ..[WaterShader.spread] = streak / 3
+      ..[WaterShader.line] = line
+      ..[WaterShader.pool] = pool.center.dx
+      ..[WaterShader.pool + 1] = pool.center.dy
+      ..[WaterShader.poolHalf] = pool.width / 2
+      ..[WaterShader.poolHalf + 1] = pool.height / 2
+      ..[WaterShader.soft] = _softEdge ? edgeSoftness.clamp(0.0, 1.0) : 0
+      ..[WaterShader.round] = shape == WaterShape.ellipse ? 1 : 0
+      ..[WaterShader.wave] = waves?.heights == null ? 0 : 1
+      ..[WaterShader.wave + 1] = waves == null ? 0 : 1 / waves.columns
+      ..[WaterShader.wave + 2] = waves == null ? 0 : 1 / waves.rows
+      ..[WaterShader.wave + 3] = waveAmplitude * waveGain
+      ..[WaterShader.squash] = squash;
+    var count = 0;
+    ripples.forEachNewest(WaterShader.maxRings, (x, y, radius, opacity) {
+      f
+        ..[WaterShader.rings + count * 4] = x
+        ..[WaterShader.rings + count * 4 + 1] = y
+        ..[WaterShader.rings + count * 4 + 2] = radius
+        ..[WaterShader.rings + count * 4 + 3] = waveAmplitude * opacity;
+      count++;
+    });
+    f[WaterShader.count] = count.toDouble();
+    return f;
   }
 
   @override
   void onRemove() {
     _sceneSlot.dispose();
-    _glowSlot.dispose();
+    _lightSlot.dispose();
     super.onRemove();
   }
 
@@ -935,6 +1121,7 @@ class WaterSurface extends PositionComponent
 class _ShaderSlot {
   Image? image;
   FragmentShader? shader;
+  final Float32List uniforms = Float32List(WaterShader.floats);
 
   void dispose() {
     image?.dispose();

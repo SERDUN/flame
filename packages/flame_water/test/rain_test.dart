@@ -4,19 +4,20 @@ import 'dart:ui';
 import 'package:flame/components.dart';
 import 'package:flame/game.dart';
 import 'package:flame_lighting/flame_lighting.dart';
+import 'package:flame_stage/flame_stage.dart';
 import 'package:flame_test/flame_test.dart';
 import 'package:flame_water/flame_water.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// The ground from y 400 down to 520.
-class _Ground extends Component with Ground {
+class _Ground extends Component with OnStage, Ground {
   @override
   Rect groundBand() => const Rect.fromLTWH(0, 400, 800, 120);
 }
 
 /// A roof at y 200 across x 100..300: it catches the rain behind the street
 /// line.
-class _Roof extends Component with RainCatcher {
+class _Roof extends Component with OnStage, RainCatcher {
   final List<double> depths = [];
 
   @override
@@ -38,7 +39,7 @@ class _Wall extends Component with Wettable {
 
 /// An umbrella's canopy at depth 0: a dome over (400, 300), 80 wide, 30 tall,
 /// meeting only the drops falling within [thickness] of the street line.
-class _Canopy extends Component with RainDeflector {
+class _Canopy extends Component with OnStage, RainDeflector {
   _Canopy({this.thickness = 0.1});
 
   final double thickness;
@@ -64,6 +65,7 @@ Future<void> _rainFor(FlameGame game, double seconds) async {
 }
 
 void main() {
+  _nightTests();
   testWithFlameGame('rain lands in the puddle over the road, on the road '
       'beside it and on a roof by the far drops', (game) async {
     game.camera.viewfinder.anchor = Anchor.topLeft;
@@ -429,4 +431,44 @@ void main() {
       expect(above, 0);
     },
   );
+}
+
+/// How bright the whole frame is, the red channel summed.
+Future<int> _brightness(FlameGame game) async {
+  final recorder = PictureRecorder();
+  game.render(Canvas(recorder));
+  final image = await recorder.endRecording().toImage(800, 600);
+  final bytes = (await image.toByteData())!;
+  var sum = 0;
+  for (var i = 0; i < bytes.lengthInBytes; i += 4) {
+    sum += bytes.getUint8(i);
+  }
+  return sum;
+}
+
+void _nightTests() {
+  testWithFlameGame('rain is as bright under the night as over it', (
+    game,
+  ) async {
+    game.camera.viewfinder.anchor = Anchor.topLeft;
+    final rain = Rain()..drawsItself = false;
+    final slice = RainSlice(rain, priority: 500);
+    game.world.addAll([
+      _Ground(),
+      rain,
+      slice,
+      Lighting(ambient: const Color(0xFF000000), darkness: 0.5, haze: 0),
+    ]);
+    await game.ready();
+    await _rainFor(game, 1);
+    // Under the night layer the night darkens the drops; over it, the
+    // drops carry the night's darkness themselves. The same drops, as
+    // bright either way - not darker for being under it.
+    final under = await _brightness(game);
+    slice.priority = 1500;
+    game.update(0);
+    final over = await _brightness(game);
+    expect(over, greaterThan(0));
+    expect(under / over, closeTo(1, 0.08));
+  });
 }

@@ -2,184 +2,199 @@ import 'dart:math' as math;
 import 'dart:ui';
 
 import 'package:flame/components.dart';
-import 'package:flame_lighting/src/light_mirror.dart';
-import 'package:flame_lighting/src/lighting.dart';
+import 'package:flame_stage/flame_stage.dart';
 
-/// A light in the world: a lamp, a lit window, a headlight.
+/// A light in the world as a component: a lamp's bulb, a lit window, a neon
+/// tube, a headlight - any [Light], where this component is.
 ///
-/// It shines from its position out to [radius], fading with distance, all
-/// around or - with a [coneAngle] - in a cone along [coneDirection] (a
-/// street lamp shines down). A `Lighting` layer cuts it out of the night and
-/// adds its glow; as an [Emissive] it draws its own source - a disc
-/// [sourceRadius] across - and the halo the air's haze makes round it, which
-/// water then mirrors like anything else.
-class LightSource extends PositionComponent with Emissive {
+/// It carries its [light] onto the stage (so the lighting cuts it out of the
+/// night, rain shines in it, water mirrors it) and draws what glows itself
+/// in place: a bulb's disc, a window's pane, a tube - with the halo the air's
+/// haze makes round it. Whatever stands in front of it hides them.
+///
+/// Any other component can carry lights too ([LightCarrier]); this is the
+/// one that also draws them.
+class LightSource extends PositionComponent with OnStage, LightCarrier {
+  /// A bulb, or with [coneAngle] a cone along [coneDirection] (y down, so
+  /// pi / 2 is straight down).
   LightSource({
     super.position,
-    this.color = const Color(0xFFFFD9A0),
-    this.intensity = 1,
-    this.radius = 120,
-    this.coneAngle,
-    this.coneDirection = math.pi / 2,
-    this.flicker = 0,
-    this.sourceRadius = 6,
+    Color color = const Color(0xFFFFD9A0),
+    double intensity = 1,
+    double radius = 120,
+    double? coneAngle,
+    double coneDirection = math.pi / 2,
+    double flicker = 0,
+    double sourceRadius = 6,
+    double depth = 0,
+    Falloff falloff = Falloff.smooth,
+    double? onAtDarkness,
     int seed = 0,
-  }) : _phase = seed * 1.618;
+  }) : light = coneAngle == null
+           ? Light.point(
+               color: color,
+               intensity: intensity,
+               radius: radius,
+               flicker: flicker,
+               sourceRadius: sourceRadius,
+               depth: depth,
+               falloff: falloff,
+               onAtDarkness: onAtDarkness,
+               seed: seed,
+             )
+           : Light.cone(
+               color: color,
+               intensity: intensity,
+               radius: radius,
+               spread: coneAngle,
+               direction: coneDirection,
+               flicker: flicker,
+               sourceRadius: sourceRadius,
+               depth: depth,
+               falloff: falloff,
+               onAtDarkness: onAtDarkness,
+               seed: seed,
+             );
 
-  /// The light's colour.
-  Color color;
+  /// Any [light], at [position].
+  LightSource.of(this.light, {super.position});
 
-  /// How bright it is: 1 fully lifts the night at its centre.
-  double intensity;
-
-  /// How far it reaches, world units.
-  double radius;
-
-  /// Full angle of the cone, radians; `null` shines all around.
-  double? coneAngle;
-
-  /// The cone's axis, radians from +x (y down, so pi / 2 is straight down).
-  double coneDirection;
-
-  /// How much it flickers, `0..1`: a failing tube, a candle.
-  double flicker;
-
-  /// Radius of what glows itself - a bulb, a tube - world units. Water
-  /// mirrors this as a bright spot, not only the light it casts.
-  double sourceRadius;
-
-  /// Share of the cone, on each side, over which the light eases to
-  /// nothing at its edge, `0..1`.
-  static const double softEdge = 0.65;
-
-  final double _phase;
-  double _time = 0;
-
-  /// Its brightness now, flicker included.
-  double get strength {
-    if (flicker <= 0) {
-      return intensity;
-    }
-    final t = _time * 9 + _phase;
-    final wobble = 0.5 + 0.25 * math.sin(t) + 0.25 * math.sin(t * 2.7 + 1.3);
-    return intensity * (1 - flicker * wobble);
-  }
+  /// The light it gives.
+  final Light light;
 
   @override
-  void update(double dt) {
-    super.update(dt);
-    _time += dt;
-  }
-
-  /// How much of this light reaches [point] (world coordinates), `0..1` times
-  /// [strength]: a smooth fall to nothing at [radius], and nothing outside
-  /// the cone. A point [inFront] world units nearer the eye than the light
-  /// (rain between it and the eye) is that much farther from it.
-  double lightAt(Vector2 point, {double inFront = 0}) {
-    final origin = absolutePosition;
-    final dx = point.x - origin.x;
-    final dy = point.y - origin.y;
-    final distance = math.sqrt(dx * dx + dy * dy + inFront * inFront);
-    if (distance >= radius) {
-      return 0;
-    }
-    final falloff = math.pow(1 - distance / radius, 2).toDouble();
-    return strength * falloff * _coneFactor(dx, dy, distance);
-  }
-
-  double _coneFactor(double dx, double dy, double distance) {
-    final cone = coneAngle;
-    if (cone == null || distance < 1e-6) {
-      return 1;
-    }
-    var off = (math.atan2(dy, dx) - coneDirection).abs() % (2 * math.pi);
-    if (off > math.pi) {
-      off = 2 * math.pi - off;
-    }
-    final half = cone / 2;
-    // Full along the middle, easing to nothing over the outer part on each
-    // side - light has no edge, as the lighting draws it.
-    final edge = half * softEdge;
-    if (off <= half - edge) {
-      return 1;
-    }
-    if (off >= half) {
-      return 0;
-    }
-    final t = (half - off) / edge;
-    return t * t * (3 - 2 * t);
-  }
-
-  /// The area the light covers, world coordinates: a disc, or the cone's
-  /// wedge.
-  Path shape() {
-    final origin = absolutePosition.toOffset();
-    final cone = coneAngle;
-    if (cone == null) {
-      return Path()..addOval(Rect.fromCircle(center: origin, radius: radius));
-    }
-    return Path()
-      ..moveTo(origin.dx, origin.dy)
-      ..arcTo(
-        Rect.fromCircle(center: origin, radius: radius),
-        coneDirection - cone / 2,
-        cone,
-        false,
-      )
-      ..close();
-  }
+  Iterable<Light> get lights => [light];
 
   final Paint _glow = Paint();
 
-  /// World y of the ground it stands on, if not the line water mirrors
-  /// about (see [Emissive.standsAt]).
-  @override
-  double? standsAt;
-
-  /// Radius of the halo [haze] makes round the source.
-  double haloRadius(double haze) => sourceRadius * (6 + 24 * haze);
-
-  /// The source and its halo, drawn in place: whatever stands in front of
-  /// the light hides them.
-  @override
-  void render(Canvas canvas) => renderEmissive(canvas);
+  /// How bright it is now.
+  double get strength {
+    final frame = stage?.frame;
+    return light.strengthAt(frame?.time ?? 0, frame?.light.darkness ?? 0);
+  }
 
   @override
-  void renderEmissive(Canvas canvas) {
-    final s = strength.clamp(0.0, 1.0);
-    if (s <= 0 || sourceRadius <= 0) {
+  void render(Canvas canvas) {
+    final s = strength;
+    if (s <= 0) {
       return;
     }
-    final haze = (Lighting.current ?? Lighting.of(this))?.haze ?? 0;
+    final haze = stage?.frame.light.haze ?? 0;
+    final glow = s.clamp(0.0, 1.0);
+    final at = light.offset.toOffset();
+    switch (light.shape) {
+      case LightShape.point:
+      case LightShape.cone:
+        _bulb(canvas, at, glow, haze);
+      case LightShape.area:
+        _pane(canvas, at, glow, haze);
+      case LightShape.line:
+        _tube(canvas, at, glow, haze);
+      case LightShape.directional:
+        break;
+    }
+  }
+
+  void _bulb(Canvas canvas, Offset at, double s, double haze) {
+    final r = light.sourceRadius;
+    if (r <= 0) {
+      return;
+    }
     if (haze > 0) {
       // Wet air scatters the light into a wide soft halo round the source.
-      // Scattered light, as bright as it is even in a mirror that brings
-      // the source back brighter than white.
-      final a = haze * s * 0.6 / Lighting.headroom;
-      final halo = haloRadius(haze);
+      final halo = r * (6 + 24 * haze);
+      final a = haze * s * 0.6;
       _glow.shader = Gradient.radial(
-        Offset.zero,
+        at,
         halo,
         [
-          color.withValues(alpha: a),
-          color.withValues(alpha: a * 0.35),
-          color.withValues(alpha: 0),
+          light.color.withValues(alpha: a),
+          light.color.withValues(alpha: a * 0.35),
+          light.color.withValues(alpha: 0),
         ],
         const [0, 0.25, 1],
       );
-      canvas.drawCircle(Offset.zero, halo, _glow);
+      canvas.drawCircle(at, halo, _glow);
     }
     // The source itself: nearly white at its heart.
     _glow.shader = Gradient.radial(
-      Offset.zero,
-      sourceRadius * 1.6,
+      at,
+      r * 1.6,
       [
-        Color.lerp(color, const Color(0xFFFFFFFF), 0.6)!.withValues(alpha: s),
-        color.withValues(alpha: s),
-        color.withValues(alpha: 0),
+        Color.lerp(light.color, const Color(0xFFFFFFFF), 0.6)!.withValues(
+          alpha: s,
+        ),
+        light.color.withValues(alpha: s),
+        light.color.withValues(alpha: 0),
       ],
       const [0, 0.55, 1],
     );
-    canvas.drawCircle(Offset.zero, sourceRadius * 1.6, _glow);
+    canvas.drawCircle(at, r * 1.6, _glow);
+  }
+
+  void _pane(Canvas canvas, Offset at, double s, double haze) {
+    final rect = Rect.fromCenter(
+      center: at,
+      width: light.extent.x,
+      height: light.extent.y,
+    );
+    if (haze > 0) {
+      // The air before a lit window glows a little past its frame: a few
+      // fainter frames out, not a blur - blurs in a picture that a mirror
+      // snapshots exhaust Impeller Metal's command queue.
+      final spill = math.min(rect.width, rect.height) * (0.3 + 1.2 * haze);
+      _glow.shader = null;
+      for (var k = 3; k >= 1; k--) {
+        _glow.color = light.color.withValues(alpha: haze * s * 0.08);
+        canvas.drawRRect(
+          RRect.fromRectAndRadius(
+            rect.inflate(spill * k / 3),
+            Radius.circular(spill * k / 3),
+          ),
+          _glow,
+        );
+      }
+    }
+    _glow
+      ..shader = null
+      ..color = Color.lerp(
+        light.color,
+        const Color(0xFFFFFFFF),
+        0.25,
+      )!.withValues(alpha: s);
+    canvas.drawRect(rect, _glow);
+  }
+
+  void _tube(Canvas canvas, Offset at, double s, double haze) {
+    final half = light.extent.x / 2;
+    final dir = Offset(math.cos(light.direction), math.sin(light.direction));
+    final a = at - dir * half;
+    final b = at + dir * half;
+    final width = math.max(light.sourceRadius, 2.0);
+    if (haze > 0) {
+      // Wider, fainter strokes round the tube: its glow in the wet air.
+      _glow
+        ..shader = null
+        ..style = PaintingStyle.stroke
+        ..strokeCap = StrokeCap.round;
+      for (var k = 3; k >= 1; k--) {
+        _glow
+          ..strokeWidth = width * (1 + (2 + 8 * haze) * k / 3)
+          ..color = light.color.withValues(alpha: haze * s * 0.1);
+        canvas.drawLine(a, b, _glow);
+      }
+    }
+    _glow
+      ..shader = null
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round
+      ..strokeWidth = width
+      ..color = Color.lerp(
+        light.color,
+        const Color(0xFFFFFFFF),
+        0.5,
+      )!.withValues(alpha: s);
+    canvas.drawLine(a, b, _glow);
+    _glow.style = PaintingStyle.fill;
   }
 }

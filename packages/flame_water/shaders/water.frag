@@ -1,64 +1,70 @@
 #version 460 core
 
-// A reflection in a stretch of water, bent by the rings rain makes on it.
+// A stretch of water: the world mirrored in it, or the lights mirrored in
+// it, bent by the rings rain makes on it.
 //
-// uReflection is the mirrored world (or its glow), rendered into an image the
-// size of the water's rectangle - already smeared by how rough the surface
-// is. Each ring is a travelling bump on the surface: where it passes, the
-// surface tilts, and the reflection there is looked up a little to one side,
-// so the mirrored world wobbles around every drop, and a lamp's streak on a
-// wet road breaks where drops land.
+// In the scene mode uReflection is the mirrored world, rendered into an
+// image the size of the water's rectangle. Each ring is a travelling bump on
+// the surface: where it passes, the surface tilts, and the reflection there
+// is looked up a little to one side, so the mirrored world wobbles around
+// every drop.
 //
-// Rain keeps the whole surface astir besides: uChop is that chop, a small
-// restless wave everywhere, changing fastest from row to row, so a lamp's
-// reflection breaks into wavering horizontal bands, as it does on a road
-// in the rain.
+// In the lights mode no image is read: each light of the frame is worked out
+// where it is mirrored - a bulb, a lit window, a tube, with the halo the
+// haze makes round it - at the same bent point, smeared as rough as the
+// surface is. A lamp's streak on a wet road breaks where drops land, as the
+// street's reflection does, and is as bright as the lamp is, not as bright
+// as an image's white.
+//
+// Rain keeps the whole surface astir besides: the chop, a small restless
+// wave everywhere, changing fastest from row to row, so a lamp's reflection
+// breaks into wavering horizontal bands, as it does on a road in the rain.
 
 precision highp float;
 
 #include <flutter/runtime_effect.glsl>
 
 const int kMaxRings = 32;
+const int kMaxLights = 8;
+const int kHeader = 11;
+const int kRings = kHeader;
+const int kLights = kRings + kMaxRings;
 
-uniform vec2 uSize;           // the water's rectangle, local units
-uniform float uCount;         // rings in use
-uniform float uFlatten;       // ring height over width: water seen low
-uniform float uWavelength;    // length of a ring's wave, local units
-uniform float uGain;          // how bright the result comes out
-uniform float uTime;          // seconds, for the chop
-uniform float uChop;          // how far the chop shifts the mirror, local units
-uniform float uElevTop;       // sine of the angle the eye looks down, top row
-uniform float uElevBottom;    // ... and bottom row
-uniform float uFresnel;       // 1: mirror as much as water does at that angle
-uniform float uSpread;        // how long a rough surface smears a point, units
-// A vector after a lone float is laid out on its own boundary on Vulkan, not
-// where the floats are set in order, and the frame is lost: the colours are
-// vectors only because they start 12 and 16 floats in, on 16-byte
-// boundaries. Metal binds each uniform on its own, at most 31.
-uniform vec4 uBase;           // the water (or the wet ground) under it,
-                              // premultiplied
-uniform vec4 uTint;           // laid over the reflection, premultiplied
-uniform float uFade;          // how much it fades from the line down, 0..1
-uniform float uLine;          // the water line, local y
-uniform float uPoolX;         // the water's outline: its centre ...
-uniform float uPoolY;
-uniform float uPoolW;         // ... and half extents
-uniform float uPoolH;
-uniform float uSoft;          // share of an ellipse's radius its rim fades
-uniform float uRound;         // 1 an ellipse, 0 a rectangle
-uniform float uPixels;        // pixels of the image per local unit
-// Three floats of padding: the rings start 32 floats in, on a 16-byte
-// boundary, wherever a vector array is laid out.
-uniform float uPad0;
-uniform float uPad1;
-uniform float uPad2;
-uniform vec4 uRings[kMaxRings]; // centre x, centre y, radius, amplitude
-// The surface's heights from the wave equation (flutter_gpu), when there is
-// a field: then they bend the mirror instead of the rings. Two vectors after
-// the ring array, which ends on a 16-byte boundary: Metal binds each uniform
-// on its own, and there are no more than 31 to bind.
-uniform vec4 uWave;   // on (1) or not, a cell across and down, slope gain
-uniform vec4 uGlint;  // what a crest catches, premultiplied
+// One array of vectors, named below: a lone float before a vector is laid
+// out differently on Vulkan than the floats are set, and Metal binds each
+// uniform on its own, 31 at most. The Dart side (WaterShader) writes the
+// same layout.
+uniform vec4 u[kLights + kMaxLights * 5];
+
+#define uSize        u[0].xy   // the water's rectangle, local units
+#define uCount       u[0].z    // rings in use
+#define uFlatten     u[0].w    // ring height over width: water seen low
+#define uWavelength  u[1].x    // length of a ring's wave, local units
+#define uGain        u[1].y    // how much of the mirror comes out
+#define uTime        u[1].z    // seconds, for the chop
+#define uChop        u[1].w    // how far the chop shifts the mirror, units
+#define uElevTop     u[2].x    // sine of the angle the eye looks down, top
+#define uElevBottom  u[2].y    // ... and bottom row
+#define uFresnel     u[2].z    // 1: mirror as much as water does at that angle
+#define uSpread      u[2].w    // how long a rough surface smears a point
+#define uBase        u[3]      // the water (or wet ground) under it, premult.
+#define uTint        u[4]      // laid over the reflection, premultiplied
+#define uFade        u[5].x    // how much it fades from the line down, 0..1
+#define uLine        u[5].y    // the water line, local y
+#define uPool        u[5].zw   // the water's outline: its centre ...
+#define uPoolHalf    u[6].xy   // ... and half extents
+#define uSoft        u[6].z    // share of an ellipse's radius its rim fades
+#define uRound       u[6].w    // 1 an ellipse, 0 a rectangle
+#define uPixels      u[7].x    // pixels of the image per local unit
+#define uLightMode   u[7].y    // 1: the lights, not the image
+#define uLightCount  u[7].z    // lights in use
+#define uHaze        u[7].w    // the air's haze, 0..1: halos round lights
+#define uWave        u[8]      // field on (1), a cell across and down, gain
+#define uGlint       u[9]      // what a crest catches, premultiplied
+#define uSquash      u[10].y   // the mirror's height over the thing's
+#define uAir         u[10].z   // how much of the light cast on what stands
+                               // on the street (walls, the air) is mirrored
+
 uniform sampler2D uReflection;
 uniform sampler2D uHeights;
 
@@ -98,7 +104,7 @@ vec2 ripple(vec2 p) {
         if (float(i) >= uCount) {
             break;
         }
-        vec4 ring = uRings[i];
+        vec4 ring = u[kRings + i];
         // In ring space the ring is a circle: undo the flattening.
         vec2 d = p - ring.xy;
         d.y /= uFlatten;
@@ -161,7 +167,7 @@ vec4 mirrored(vec2 uv) {
 // How much water there is at p: 1 inside the outline, easing to nothing
 // over an ellipse's soft rim.
 float pool(vec2 p) {
-    vec2 d = (p - vec2(uPoolX, uPoolY)) / max(vec2(uPoolW, uPoolH), vec2(1e-3));
+    vec2 d = (p - uPool) / max(uPoolHalf, vec2(1e-3));
     if (uRound < 0.5) {
         return (abs(d.x) <= 1.0 && abs(d.y) <= 1.0) ? 1.0 : 0.0;
     }
@@ -170,6 +176,108 @@ float pool(vec2 p) {
         return r <= 1.0 ? 1.0 : 0.0;
     }
     return clamp((1.0 - r) / uSoft, 0.0, 1.0);
+}
+
+// How far light reaches at dist from its source, by its falloff (as the
+// lighting's light.frag has it).
+float falloff(float dist, float radius, float physical) {
+    float t = 1.0 - dist / radius;
+    if (physical < 0.5) {
+        return t * t;
+    }
+    return 1.0 / (1.0 + 16.0 * dist * dist / (radius * radius)) *
+        min(1.0, t * 4.0);
+}
+
+// The lights mirrored at p (local units), seen at an angle whose sine is
+// s. Each light is five vectors:
+//   (x, y, shape, body sigma) of its image in the mirror;
+//   (r, g, b, strength);
+//   (half across, half down, direction x, y) of its image's glowing part;
+//   (the y it stands on, radius, direction x, y) as it is, unmirrored - a
+//   cone's way, a tube's length;
+//   (cos full, cos edge or a tube's half length, physical, headroom).
+// Its glowing body and the halo the haze makes round it are smeared up and
+// down by the surface's roughness and across by that times s; the light it
+// casts on what stands on the street (walls, the air) is mirrored too,
+// worked out where the mirror puts the point back in the street.
+vec3 lights(vec2 p, float s) {
+    vec3 sum = vec3(0.0);
+    float across = uSpread * s;
+    float down = uSpread;
+    for (int i = 0; i < kMaxLights; i++) {
+        if (float(i) >= uLightCount) {
+            break;
+        }
+        // Indexed by the loop's own counter: SkSL takes no other index.
+        vec4 a = u[kLights + i * 5];
+        vec4 c = u[kLights + i * 5 + 1];
+        vec4 e = u[kLights + i * 5 + 2];
+        vec4 g = u[kLights + i * 5 + 3];
+        vec4 h = u[kLights + i * 5 + 4];
+        vec2 d = p - a.xy;
+        vec2 half_;
+        if (a.z > 2.5) {
+            // A tube: from its nearest point along it.
+            float t = clamp(dot(d, e.zw), -e.x, e.x);
+            d -= e.zw * t;
+            half_ = abs(e.zw) * e.x;
+        } else if (a.z > 1.5) {
+            // A window: from its nearest point, nothing inside it.
+            d -= clamp(d, -e.xy, e.xy);
+            half_ = e.xy;
+        } else {
+            half_ = vec2(0.0);
+        }
+        float bx = a.w;
+        float by = a.w * uSquash;
+        float sx2 = bx * bx + across * across;
+        float sy2 = by * by + down * down;
+        // A smear spreads the light out: dimmer by as much as wider, each
+        // way.
+        float wide = (half_.x + bx) / (half_.x + sqrt(sx2)) *
+            ((half_.y + by) / (half_.y + sqrt(sy2)));
+        float q = d.x * d.x / sx2 + d.y * d.y / sy2;
+        float body = exp(-0.5 * q) * wide * h.w;
+        // Nearly white at its heart, as the source itself is drawn.
+        vec3 color = mix(c.rgb, vec3(1.0), 0.6 * exp(-q));
+        // The halo: the source's glow in the wet air, as wide as the haze
+        // makes it, and smeared the same.
+        float hs = a.w * (6.0 + 24.0 * uHaze) / 2.5;
+        float hx2 = hs * hs + across * across;
+        float hy2 = hs * hs * uSquash * uSquash + down * down;
+        float halo = uHaze * 0.6 *
+            exp(-0.5 * (d.x * d.x / hx2 + d.y * d.y / hy2)) *
+            (hs * hs * uSquash / sqrt(hx2 * hy2));
+        sum += (color * body + c.rgb * halo) * c.w;
+
+        // What it casts on the street, seen in the mirror: the point the
+        // mirror shows here, back where it is, and the light reaching it.
+        if (uAir > 0.0) {
+            float base = g.x;
+            vec2 w = vec2(p.x, base - (p.y - base) / uSquash);
+            vec2 l = vec2(a.x, base - (a.y - base) / uSquash);
+            vec2 v = w - l;
+            if (a.z > 2.5) {
+                v -= g.zw * clamp(dot(v, g.zw), -h.y, h.y);
+            } else if (a.z > 1.5) {
+                vec2 box = vec2(e.x, e.y / uSquash);
+                v -= clamp(v, -box, box);
+            }
+            float dist = length(v);
+            if (dist < g.y) {
+                float cone = 1.0;
+                if (a.z > 0.5 && a.z < 1.5 && dist > 1e-6) {
+                    float off = acos(clamp(dot(v, g.zw) / dist, -1.0, 1.0));
+                    float full = acos(clamp(h.x, -1.0, 1.0));
+                    float edge = acos(clamp(h.y, -1.0, 1.0));
+                    cone = 1.0 - smoothstep(full, max(edge, full + 1e-4), off);
+                }
+                sum += c.rgb * (uAir * c.w * falloff(dist, g.y, h.z) * cone);
+            }
+        }
+    }
+    return sum;
 }
 
 void main() {
@@ -195,6 +303,15 @@ void main() {
     }
     vec2 at = p + bend + chop(p);
     float s = mix(uElevTop, uElevBottom, clamp(p.y / uSize.y, 0.0, 1.0));
+    float reflectance = uFresnel > 0.5 ? fresnel(s) : 1.0;
+    float below = clamp((p.y - uLine) / max(uSize.y - uLine, 1.0), 0.0, 1.0);
+    float shown = uGain * reflectance * (1.0 - uFade * below);
+    if (uLightMode > 0.5) {
+        vec3 light = lights(at, s) * shown * water;
+        float most = max(light.r, max(light.g, light.b));
+        fragColor = vec4(light, clamp(most, 0.0, 1.0));
+        return;
+    }
     // A rough surface smears a point into a column: down by uSpread (a
     // sigma), and across that times the sine of the angle it is seen at -
     // a thin streak far off, where the eye looks along the water, rounder
@@ -225,9 +342,7 @@ void main() {
         }
         color = sum / total;
     }
-    float reflectance = uFresnel > 0.5 ? fresnel(s) : 1.0;
-    float below = clamp((p.y - uLine) / max(uSize.y - uLine, 1.0), 0.0, 1.0);
-    vec4 mirror = color * uGain * reflectance * (1.0 - uFade * below);
+    vec4 mirror = color * shown;
     // The mirror over the water, the tint over both; all premultiplied.
     vec4 base = uBase;
     vec4 tint = uTint;

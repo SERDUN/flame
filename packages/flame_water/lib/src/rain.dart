@@ -5,6 +5,7 @@ import 'dart:ui';
 import 'package:flame/components.dart';
 import 'package:flame/game.dart';
 import 'package:flame_lighting/flame_lighting.dart';
+import 'package:flame_stage/flame_stage.dart';
 import 'package:flame_water/src/rain_catcher.dart';
 import 'package:flame_water/src/rain_deflector.dart';
 import 'package:flame_water/src/rain_drops.dart';
@@ -20,17 +21,20 @@ import 'package:flutter/foundation.dart' show visibleForTesting;
 /// a metre.
 ///
 /// Seen from the side, each drop falls at its own depth: it would land on
-/// the world's [Ground] that far towards the viewer - a far one on the line
+/// the street's ground that far towards the viewer - a far one on the line
 /// things stand on, a near one low in the view - and a near drop looks
 /// longer, brighter and faster. On its way it may be caught by a
 /// [RainCatcher] (a roof, a puddle, the road): the first one it reaches
 /// takes it, and it bursts into droplets there if the catcher splashes.
 ///
-/// Under a `Lighting` a drop is as bright as the light where it is and takes
-/// its colour, so rain shines in a lamp's cone; keep the rain's priority
-/// above the lighting's for that. [Rain.of] finds the rain over a world, for
-/// what depends on it (water astir, things getting wet and drying).
-class Rain extends Component with Reflectable {
+/// It reads everything from the stage's frame: the view, the street's
+/// projection, the light. Under a `Lighting` a drop is as bright as the
+/// light where it is and takes its colour, so rain shines in a lamp's cone.
+/// Drawn over the night, a drop carries the night's darkness itself; drawn
+/// under it ([RainSlice] below the lighting), the night darkens it, and it
+/// carries only the light. [Rain.of] finds the rain over a world, for what
+/// depends on it (water astir, things getting wet and drying).
+class Rain extends Component with OnStage, Reflectable {
   Rain({
     this.intensity = 1,
     Vector2? wind,
@@ -104,7 +108,7 @@ class Rain extends Component with Reflectable {
   /// drops: so much of it so far off that each drop is a fine faint streak
   /// and the air turns pale. Drawn from a formula, not simulated - each streak
   /// falls on its own phase and wraps round the view - as big, as fast and as
-  /// far across as its depth on the world's `Ground` makes it, slanted by the
+  /// far across as its depth on the street makes it, slanted by the
   /// wind, with the haze that much rain lays over what is behind it; at the
   /// nearest veil, in heavy rain, the spray the drops kick up along the
   /// ground. Each is drawn by the [RainSlice] whose depths hold it.
@@ -135,8 +139,8 @@ class Rain extends Component with Reflectable {
   double aperture = 0;
 
   /// The rain over the world [component] is in, if there is one.
-  static Rain? of(Component component) => _lookup.of(component);
-  static final WorldLookup<Rain> _lookup = WorldLookup();
+  static Rain? of(Component component) =>
+      Stage.maybeOf(component)?.members<Rain>().firstOrNull;
 
   /// Drops in the air now, and droplets of bursts.
   @visibleForTesting
@@ -172,23 +176,28 @@ class Rain extends Component with Reflectable {
     double Function(double depth) scale,
   })?
   _frame() {
+    final stage = this.stage;
+    if (stage == null) {
+      return null;
+    }
+    // Before the stage has made its first frame, the camera's view.
     final game = findGame();
-    final view =
-        CameraComponent.currentCamera?.visibleWorldRect ??
-        (game is FlameGame ? game.camera.visibleWorldRect : null) ??
-        _lastView;
+    final view = stage.frame.index > 0
+        ? stage.frame.view
+        : (game is FlameGame ? game.camera.visibleWorldRect : _lastView);
     if (view == null) {
       return null;
     }
     _lastView = view;
-    final ground = Ground.of(this);
+    final projection = stage.projection;
     return (
       view: view,
       // Where a drop at its depth meets the ground, and how much faster than
-      // on the street line it crosses the view: the world's projection. Behind
-      // the street line it ends at the line, behind whatever stands there.
-      land: ground == null ? (_) => view.bottom : ground.yAt,
-      scale: ground == null ? _plainScale : ground.scaleAt,
+      // on the street line it crosses the view: the street's projection.
+      // Behind the street line it ends at the line, behind whatever stands
+      // there.
+      land: projection == null ? (_) => view.bottom : projection.yAt,
+      scale: projection == null ? _plainScale : projection.scaleAt,
     );
   }
 
@@ -431,9 +440,8 @@ class Rain extends Component with Reflectable {
         _drops.add(drop);
       }
     }
-    final world = _world();
-    final catchers = world.descendants().whereType<RainCatcher>().toList();
-    final deflectors = world.descendants().whereType<RainDeflector>().toList();
+    final catchers = stage!.members<RainCatcher>();
+    final deflectors = stage!.members<RainDeflector>();
     for (final d in _drops) {
       final from = d.at.y;
       _from.setFrom(d.at);
@@ -539,17 +547,6 @@ class Rain extends Component with Reflectable {
     return true;
   }
 
-  Component _world() {
-    Component top = this;
-    for (final a in ancestors()) {
-      top = a;
-      if (a is World) {
-        break;
-      }
-    }
-    return top;
-  }
-
   /// How hard a drop of [diameterMm] hits at [speed] m/s, as the number
   /// that tells whether it splashes: K = We^0.5 * Re^0.25, from its inertia
   /// against the water's surface tension and viscosity.
@@ -606,12 +603,15 @@ class Rain extends Component with Reflectable {
   static final double _referenceExposure = 2 / RainDrops.terminalSpeed(2);
 
   /// Works out how every drop and droplet looks this frame, once: the rain
-  /// is drawn again in every water's reflection.
+  /// is drawn again in every water's reflection, and in every slice. Each
+  /// gets two looks: over the night, carrying its darkness, and under it,
+  /// where the night darkens it and it carries only the light.
   void _shade() {
-    final lighting = Lighting.of(this);
-    final ground = Ground.of(this);
-    final span = ground?.depthSpan ?? 0;
-    final scale = ground == null ? _plainScale : ground.scaleAt;
+    final stage = this.stage;
+    final projection = stage?.projection;
+    final field = stage?.frame.light;
+    final lit = field != null && field.isLit;
+    final scale = projection == null ? _plainScale : projection.scaleAt;
     final focus = scale(focusDepth);
     // How much of a sharp streak's light is left per unit of its width once
     // it is blurred to [width].
@@ -625,6 +625,9 @@ class Rain extends Component with Reflectable {
       return blurred <= 0 ? 1 : sharp / blurred;
     }
 
+    // What the night takes from a drop with no light on it: under the
+    // night it is taken by the night layer, so the drop gives it back.
+    final night = lit ? field.darkness : 0.0;
     for (final d in _drops) {
       final focusShare = sharpShare(
         _sharpWidth(d),
@@ -639,24 +642,28 @@ class Rain extends Component with Reflectable {
       // heavy fast one come out alike; a fast small one is a faint line.
       final trueSpeed = math.max(speed / (metre * d.perspective), 0.5);
       final exposure = d.diameter / trueSpeed / _referenceExposure;
-      if (lighting == null) {
-        d.color = _water.withValues(
-          alpha: (visibility * exposure * focusShare).clamp(0, 1),
+      final share = visibility * exposure * focusShare;
+      if (!lit) {
+        d.color = d.colorUnder = _water.withValues(
+          alpha: share.clamp(0, 1),
         );
         continue;
       }
-      final lit = lighting.dropLightAt(d.at, d.depth * span);
-      d.color =
-          Color.lerp(
-            _water,
-            lit.color,
-            (lit.light - (1 - lighting.darkness)) * 0.8,
-          )!.withValues(
-            alpha: (visibility * lit.scattered * exposure * focusShare).clamp(
-              0,
-              1,
-            ),
-          );
+      field.sample(
+        d.at.x,
+        d.at.y,
+        _sample,
+        inFront: projection?.ahead(d.depth) ?? 0,
+        forwardScatter: 0.7,
+      );
+      final tinted = Color.lerp(_water, _sample.color, _sample.added * 0.8)!;
+      d
+        ..color = tinted.withValues(
+          alpha: (share * _sample.scattered).clamp(0, 1),
+        )
+        ..colorUnder = tinted.withValues(
+          alpha: (share * (_sample.scattered + night)).clamp(0, 1),
+        );
     }
     for (final p in _droplets) {
       final focusShare = sharpShare(
@@ -664,17 +671,39 @@ class Rain extends Component with Reflectable {
         scale(p.depth),
         (w) => p.drawnWidth = w,
       );
-      if (lighting == null) {
-        p.color = _water.withValues(alpha: (0.9 * focusShare).clamp(0, 1));
+      if (!lit) {
+        p.color = p.colorUnder = _water.withValues(
+          alpha: (0.9 * focusShare).clamp(0, 1),
+        );
         continue;
       }
-      final (:light, :color) = lighting.lightAt(p.at);
-      p.color = Color.lerp(
-        _water,
-        color,
-        (light - (1 - lighting.darkness)) * 0.8,
-      )!.withValues(alpha: (0.9 * light * focusShare).clamp(0, 1));
+      field.sample(
+        p.at.x,
+        p.at.y,
+        _sample,
+        inFront: projection?.ahead(p.depth) ?? 0,
+      );
+      final light = _sample.light.clamp(0.0, 1.0);
+      final tinted = Color.lerp(_water, _sample.color, _sample.added * 0.8)!;
+      p
+        ..color = tinted.withValues(
+          alpha: (0.9 * light * focusShare).clamp(0, 1),
+        )
+        ..colorUnder = tinted.withValues(
+          alpha: (0.9 * math.min(light + night, 1) * focusShare).clamp(0, 1),
+        );
     }
+  }
+
+  final LightSample _sample = LightSample();
+
+  /// Whether what [drawer] draws lies under the night: it is below the
+  /// stage's lighting among its siblings.
+  bool _underNight(Component drawer) {
+    final lighting = stage?.members<Lighting>().firstOrNull;
+    return lighting != null &&
+        lighting.parent == drawer.parent &&
+        drawer.priority < lighting.priority;
   }
 
   // The streaks and droplets as triangles: one draw for the whole rain.
@@ -685,12 +714,12 @@ class Rain extends Component with Reflectable {
   /// The veil at [depth]: haze, streaks, and at the nearest veil the spray.
   void _renderVeil(Canvas canvas, double depth) {
     final view = _lastView;
-    final ground = Ground.of(this);
+    final projection = stage?.projection;
     final rain = intensity.clamp(0.0, 2.5);
-    if (view == null || ground == null || rain <= 0.01) {
+    if (view == null || projection == null || rain <= 0.01) {
       return;
     }
-    final scale = ground.scaleAt(depth);
+    final scale = projection.scaleAt(depth);
     // The rain between the eye and what is behind the veil pales it: the
     // more, the harder it rains and the farther off.
     final haze = (0.15 * rain * (1 - scale)).clamp(0.0, 0.3);
@@ -744,7 +773,7 @@ class Rain extends Component with Reflectable {
     if (depth == veils.reduce(math.max)) {
       final spray = (0.35 * (rain - 0.8)).clamp(0.0, 0.35);
       if (spray > 0) {
-        final line = ground.yAt(0);
+        final line = projection.yAt(0);
         final top = line - 0.7 * metre;
         _veilSpray.shader = Gradient.linear(Offset(0, line), Offset(0, top), [
           color.withValues(alpha: color.a * spray),
@@ -765,18 +794,21 @@ class Rain extends Component with Reflectable {
   @override
   void render(Canvas canvas) {
     if (drawsItself) {
-      renderDepths(canvas);
+      renderDepths(canvas, underNight: _underNight(this));
     }
   }
 
   /// Draws the drops and droplets falling at depths from [from] up to (not
-  /// including) [to].
+  /// including) [to]; [underNight] when the night is drawn over them.
   void renderDepths(
     Canvas canvas, {
     double from = double.negativeInfinity,
     double to = double.infinity,
+    bool underNight = false,
   }) {
     final mirror = ReflectionPass.current;
+    // In water, the rain is as dark as the water it is mirrored in.
+    final dark = mirror == null ? underNight : _underNight(mirror);
     if (mirror == null) {
       // A veil is far behind; water does not need it.
       for (final depth in veils) {
@@ -877,7 +909,7 @@ class Rain extends Component with Reflectable {
         hx - bx,
         hy - by,
         d.width,
-        d.color.toARGB32(),
+        (dark ? d.colorUnder : d.color).toARGB32(),
         blur: d.width - _sharpWidth(d),
       );
     }
@@ -893,7 +925,7 @@ class Rain extends Component with Reflectable {
         p.at.x,
         y + p.drawnWidth / 2,
         p.drawnWidth,
-        p.color.toARGB32(),
+        (dark ? p.colorUnder : p.color).toARGB32(),
       );
     }
     final vertices = Vertices.raw(
@@ -953,8 +985,9 @@ class _Drop {
   /// Whether it has bounced off a deflector already.
   bool bounced = false;
 
-  /// How it looks this frame.
+  /// How it looks this frame, over the night and under it.
   Color color = const Color(0x00000000);
+  Color colorUnder = const Color(0x00000000);
 
   /// Its streak's width this frame, blurred as far as it is out of focus.
   double width = 0;
@@ -978,17 +1011,20 @@ class _Droplet {
   final double depth;
   double age = 0;
 
-  /// How it looks this frame.
   /// Its width as drawn this frame, blurred as far as it is out of focus.
   double drawnWidth = 0;
 
+  /// How it looks this frame, over the night and under it.
   Color color = const Color(0x00000000);
+  Color colorUnder = const Color(0x00000000);
 }
 
 /// The rain falling in a range of depths, drawn where this sits among the
 /// components: rain behind the street line under what stands on it, the
 /// rest over it. Set the rain's `drawsItself` off and give it one slice for
-/// each range. Water mirrors a slice as it mirrors the rain.
+/// each range. Water mirrors a slice as it mirrors the rain. A slice below
+/// the lighting among its siblings is under the night, and its drops are
+/// drawn for that.
 class RainSlice extends Component with Reflectable {
   RainSlice(
     this.rain, {
@@ -1004,5 +1040,10 @@ class RainSlice extends Component with Reflectable {
   final double to;
 
   @override
-  void render(Canvas canvas) => rain.renderDepths(canvas, from: from, to: to);
+  void render(Canvas canvas) => rain.renderDepths(
+    canvas,
+    from: from,
+    to: to,
+    underNight: rain._underNight(this),
+  );
 }

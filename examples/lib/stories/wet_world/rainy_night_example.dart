@@ -67,7 +67,7 @@ class RainyNightExample extends FlameGame {
   @override
   Future<void> onLoad() async {
     await WaterShader.load();
-    await LightingShader.load();
+    await LightShader.load();
     camera.viewfinder.anchor = Anchor.topLeft;
     world.addAll([
       ...street(lit: true),

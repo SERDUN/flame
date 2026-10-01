@@ -3,12 +3,15 @@ import 'dart:ui';
 import 'package:flame/components.dart';
 import 'package:flame/game.dart';
 import 'package:flame_lighting/flame_lighting.dart';
+import 'package:flame_stage/flame_stage.dart';
 import 'package:flame_test/flame_test.dart';
 import 'package:flame_water/flame_water.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// Brightness (red channel) of the rendered game at a pixel.
 Future<int Function(int x, int y)> _render(FlameGame game) async {
+  // The stage makes the frame's light.
+  game.update(0);
   final recorder = PictureRecorder();
   game.render(Canvas(recorder));
   final image = await recorder.endRecording().toImage(800, 600);
@@ -16,8 +19,20 @@ Future<int Function(int x, int y)> _render(FlameGame game) async {
   return (int x, int y) => bytes.getUint8((y * 800 + x) * 4);
 }
 
-/// A lamp at (400, 300) over water from the line 400 down, in a black night.
-Future<WaterSurface> _scene(FlameGame game, {double streak = 0}) async {
+/// The ground from y 400 down.
+class _Road extends Component with OnStage, Ground {
+  @override
+  Rect groundBand() => const Rect.fromLTWH(0, 400, 800, 200);
+}
+
+/// A lamp at (400, 300) over water from the line 400 down, in a black night;
+/// or [light] instead of the lamp.
+Future<WaterSurface> _scene(
+  FlameGame game, {
+  double streak = 0,
+  Component? light,
+  bool road = false,
+}) async {
   await WaterShader.load(asset: 'shaders/water.frag');
   game.camera.viewfinder.anchor = Anchor.topLeft;
   final water = WaterSurface(
@@ -32,8 +47,9 @@ Future<WaterSurface> _scene(FlameGame game, {double streak = 0}) async {
     glowGain: 1,
   );
   game.world.addAll([
+    if (road) _Road(),
     water,
-    LightSource(position: Vector2(400, 300), radius: 60),
+    light ?? LightSource(position: Vector2(400, 300), radius: 60),
     Lighting(ambient: const Color(0xFF000000), darkness: 1, glow: 0, haze: 0),
   ]);
   await game.ready();
@@ -82,5 +98,40 @@ void main() {
         reason: '$column',
       );
     }
+  });
+
+  testWithFlameGame('a lit window is mirrored whole, not as a point', (
+    game,
+  ) async {
+    await _scene(
+      game,
+      light: LightSource.of(
+        Light.area(size: Vector2(160, 40), radius: 60),
+        position: Vector2(400, 340),
+      ),
+    );
+    final at = await _render(game);
+    // Mirrored about the line at 400: from 440 to 480, x 320 to 480.
+    expect(at(400, 460), greaterThan(200));
+    expect(at(470, 460), greaterThan(200), reason: 'its corner as bright');
+    expect(at(540, 460), lessThan(20), reason: 'nothing past its frame');
+  });
+
+  testWithFlameGame('a lamp nearer the eye is mirrored about where it stands', (
+    game,
+  ) async {
+    await _scene(
+      game,
+      road: true,
+      // At depth 0.5 it stands at y 500, its bulb 50 above that: its
+      // reflection 50 below it, at 550 - not about the street line.
+      light: LightSource(position: Vector2(400, 450), radius: 60, depth: 0.5),
+    );
+    final at = await _render(game);
+    // Seen from above there, water mirrors little of it (Fresnel), but the
+    // brightest spot is there.
+    expect(at(400, 550), greaterThan(30));
+    expect(at(400, 525), lessThan(at(400, 550) ~/ 2));
+    expect(at(400, 575), lessThan(at(400, 550) ~/ 2));
   });
 }

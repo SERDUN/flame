@@ -1,17 +1,19 @@
 import 'dart:math' as math;
 
 import 'package:flame/components.dart';
+import 'package:flame_stage/flame_stage.dart';
 
 /// Something rain bounces off rather than soaks into: an umbrella's canopy,
 /// a car roof, a tin awning.
 ///
 /// The rain asks every deflector, for every drop each step, whether the drop
 /// met it on its way from where it was to where it is now, at its depth (a
-/// deflector stands at a depth of the world's `Ground` and only meets the
+/// deflector stands at a depth of the street and only meets the
 /// drops falling there). One that did moves the drop back onto its surface
 /// and turns its velocity, and the drop flies on from there; the rain counts
-/// the bounce (`Rain.takeBounces`), which is what a game sounds it by.
-mixin RainDeflector on Component {
+/// the bounce (`Rain.takeBounces`), which is what a game sounds it by. It
+/// is on the stage ([OnStage]) for the rain to find it.
+mixin RainDeflector on OnStage {
   /// Whether a drop at [depth] that moved from [from] to [to] (world
   /// coordinates) met this; if so, [to] is put back on the surface and
   /// [velocity] (world units per second) turned off it.
