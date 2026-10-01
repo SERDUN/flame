@@ -469,7 +469,7 @@ void main() {
   });
 
   testWithFlameGame(
-    'the sun lays a post\'s shadow along the road, away from it',
+    "the sun lays a post's shadow along the road, away from it",
     (
       game,
     ) async {
@@ -481,7 +481,6 @@ void main() {
           _Sun(Vector3(1, 1, 0.2)),
           _Post(470, 330, 415, depth: 0.1),
         ],
-        wall: const Color(0xFFFFFFFF),
       );
       final at = await _render(game);
       // The road at the post's row: lit to its left, shaded to its right.

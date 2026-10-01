@@ -64,11 +64,12 @@ mixin Glossy on Component {
   /// Where it is wet, world coordinates.
   Path glossArea();
 
-  /// How far apart the rivulets run across it, world units: about a hand
-  /// apart on a wall in a world measured in pixels. A world in metres says
-  /// so (0.2).
+  /// How far apart the rivulets run across it, world units. The default,
+  /// 11, is about a hand apart in a world of 50 units a metre; a world in
+  /// other units says its own (0.2 in metres).
   double get rivuletSpacing => 11;
 
-  /// How wide a rivulet's damp trail is, world units.
+  /// How wide a rivulet's damp trail is, world units (the default, 10, in a
+  /// world of 50 units a metre; 0.2 in metres).
   double get rivuletWidth => 10;
 }
