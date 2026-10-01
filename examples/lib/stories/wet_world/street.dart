@@ -297,7 +297,7 @@ WaterSurface wetRoad({double reflectivity = 0.85}) => WaterSurface(
   fade: 0.9,
   tint: const Color(0x2219202A),
   // A film of water: drops break on it into small quick rings.
-  depth: 0.1,
+  waterDepth: 0.1,
   rippleColor: const Color(0xCCFFFFFF),
   // Rough asphalt under the water: everything it mirrors runs down it.
   streak: 45,
