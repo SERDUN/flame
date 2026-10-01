@@ -269,6 +269,6 @@ class Stage extends Component {
         field.add(light, _at.x, _at.y, angle, frame.time, projection);
       }
     }
-    field.finish(frame.dt);
+    field.finish(frame.dt, frame.view, projection);
   }
 }

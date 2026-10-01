@@ -193,4 +193,31 @@ void main() {
       expect(share(40, 40), greaterThan(share(1, 40) + 0.1));
     });
   });
+
+  test('the eye adapts to the lamplight in view, not a speck of it', () {
+    const view = Rect.fromLTWH(0, 0, 400, 300);
+    LightField under(double radius) {
+      final field = LightField()
+        ..beginUnder(
+          sky: const Color(0xFFFFFFFF),
+          skyLight: 0.05,
+          adaptation: 0.01,
+        )
+        ..add(Light.point(radius: radius, intensity: 2), 200, 150, 0, 0, null);
+      return field..finish(0, view);
+    }
+
+    final dark = LightField()
+      ..beginUnder(
+        sky: const Color(0xFFFFFFFF),
+        skyLight: 0.05,
+        adaptation: 0.01,
+      )
+      ..finish(0, view);
+    expect(dark.exposure, closeTo(20, 1e-6), reason: 'the sky alone');
+    // A pool filling the view: the eye takes it in, as on a lit street.
+    expect(under(400).exposure, lessThan(dark.exposure / 4));
+    // A distant bulb: next to nothing.
+    expect(under(20).exposure, greaterThan(dark.exposure * 0.8));
+  });
 }
