@@ -2,7 +2,7 @@
 /// them, ripples from rain, wet ground.
 library;
 
-export 'src/rain.dart' show Rain;
+export 'src/rain.dart' show Rain, RainSlice;
 export 'src/rain_catcher.dart' show RainCatcher;
 export 'src/rain_deflector.dart' show RainBounce, RainDeflector;
 export 'src/rain_drops.dart' show RainDrops;

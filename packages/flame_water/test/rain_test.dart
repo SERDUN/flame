@@ -286,4 +286,34 @@ void main() {
     await _rainFor(game, 2);
     expect(rain.dropVelocities.where((v) => v.x > 50), isNotEmpty);
   });
+
+  testWithFlameGame('a slice draws only the rain at its depths', (game) async {
+    game.camera.viewfinder.anchor = Anchor.topLeft;
+    final rain = Rain(intensity: 2)..drawsItself = false;
+    await game.world.addAll([_Ground(), rain]);
+    await game.ready();
+    await _rainFor(game, 1);
+    Future<int> lit(void Function(Canvas) draw) async {
+      final recorder = PictureRecorder();
+      draw(Canvas(recorder));
+      final image = await recorder.endRecording().toImage(800, 600);
+      final bytes = (await image.toByteData())!;
+      var n = 0;
+      for (var i = 3; i < bytes.lengthInBytes; i += 4) {
+        if (bytes.getUint8(i) > 0) {
+          n++;
+        }
+      }
+      return n;
+    }
+
+    expect(await lit(rain.render), 0, reason: 'it does not draw itself');
+    final all = await lit((c) => RainSlice(rain).render(c));
+    final behind = await lit((c) => RainSlice(rain, to: 0).render(c));
+    final front = await lit((c) => RainSlice(rain, from: 0).render(c));
+    expect(all, greaterThan(0));
+    expect(behind, greaterThan(0));
+    expect(front, greaterThan(behind), reason: 'more, and bigger, in front');
+    expect(behind + front, greaterThanOrEqualTo(all));
+  });
 }

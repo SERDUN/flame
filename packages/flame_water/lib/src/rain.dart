@@ -100,6 +100,11 @@ class Rain extends Component with Reflectable {
   /// (a roof) catches and the ground never sees.
   double behind = -0.25;
 
+  /// The nearest depth rain falls at: 1 down to the nearest ground in view.
+  /// With [behind] 0 and this 0 all of it falls on the street line - flat
+  /// rain, for a scene looking at one thing up close.
+  double nearest = 1;
+
   /// The rain over the world [component] is in, if there is one.
   static Rain? of(Component component) => _lookup.of(component);
   static final WorldLookup<Rain> _lookup = WorldLookup();
@@ -185,7 +190,7 @@ class Rain extends Component with Reflectable {
   ) {
     // A share of the rain falls behind the street line (negative depth):
     // onto roofs and behind the houses, never onto the road.
-    final depth = behind + (1 - behind) * _random.nextDouble();
+    final depth = behind + (nearest - behind) * _random.nextDouble();
     final diameter = RainDrops.diameterMm(_random.nextDouble(), intensity);
     final terminal = RainDrops.terminalSpeed(diameter);
     // Seen nearer, a drop crosses the view faster: its speed on the screen
@@ -229,8 +234,12 @@ class Rain extends Component with Reflectable {
     final (:view, :land, :scale) = frame;
     if (!_started) {
       _started = true;
-      // The rain is already falling when the scene opens.
-      final inAir = (density * view.width / metre * intensity * 0.6).round();
+      // The rain is already falling when the scene opens: as many drops as
+      // fall over a whole way down from the cloud, spread along it.
+      final top = cloudTop?.call() ?? view.top - _margin;
+      final way =
+          math.max(land(0) - top, 0) / (RainDrops.terminalSpeed(2) * metre);
+      final inAir = (density * view.width / metre * intensity * way).round();
       for (var i = 0; i < inAir; i++) {
         final drop = _newDrop(view, land, scale, 0);
         // Somewhere along its way down already.
@@ -275,11 +284,14 @@ class Rain extends Component with Reflectable {
       }
       d.caught = _catch(d, from, catchers);
     }
+    // A drop goes once it has crossed the view with the wind; one still on
+    // its way into it - born upwind, far off in a strong wind - stays.
     _drops.removeWhere(
       (d) =>
           d.caught ||
-          d.at.x < view.left - 4 * _margin ||
-          d.at.x > view.right + 4 * _margin,
+          (d.velocity.x >= 0
+              ? d.at.x > view.right + 4 * _margin
+              : d.at.x < view.left - 4 * _margin),
     );
     for (final p in _droplets) {
       p.age += dt;
@@ -407,6 +419,7 @@ class Rain extends Component with Reflectable {
           floor: at.y + 0.02 * metre,
           life: 0.35,
           width: (0.02 + 0.03 * d.depth) * metre,
+          depth: d.depth,
         ),
       );
     }
@@ -465,8 +478,24 @@ class Rain extends Component with Reflectable {
   Int32List _colors = Int32List(0);
   final Paint _paint = Paint();
 
+  /// Whether it draws itself; off when [RainSlice]s draw it by depth, each
+  /// in its own place among the components.
+  bool drawsItself = true;
+
   @override
   void render(Canvas canvas) {
+    if (drawsItself) {
+      renderDepths(canvas);
+    }
+  }
+
+  /// Draws the drops and droplets falling at depths from [from] up to (not
+  /// including) [to].
+  void renderDepths(
+    Canvas canvas, {
+    double from = double.negativeInfinity,
+    double to = double.infinity,
+  }) {
     final mirror = ReflectionPass.current;
     final quads = _drops.length + _droplets.length;
     if (quads == 0) {
@@ -512,6 +541,9 @@ class Rain extends Component with Reflectable {
     }
 
     for (final d in _drops) {
+      if (d.depth < from || d.depth >= to) {
+        continue;
+      }
       final speed = d.velocity.length;
       final length = RainDrops.streakLength(speed / metre) * metre;
       // In water a drop is mirrored about the spot it falls to.
@@ -530,6 +562,9 @@ class Rain extends Component with Reflectable {
       );
     }
     for (final p in _droplets) {
+      if (p.depth < from || p.depth >= to) {
+        continue;
+      }
       final shift = mirror?.mirrorShift(p.floor) ?? 0;
       final y = p.at.y + shift;
       quad(
@@ -605,6 +640,7 @@ class _Droplet {
     required this.floor,
     required this.life,
     required this.width,
+    required this.depth,
   });
 
   final Vector2 at;
@@ -612,8 +648,31 @@ class _Droplet {
   final double floor;
   final double life;
   final double width;
+  final double depth;
   double age = 0;
 
   /// How it looks this frame.
   Color color = const Color(0x00000000);
+}
+
+/// The rain falling in a range of depths, drawn where this sits among the
+/// components: rain behind the street line under what stands on it, the
+/// rest over it. Set the rain's `drawsItself` off and give it one slice for
+/// each range. Water mirrors a slice as it mirrors the rain.
+class RainSlice extends Component with Reflectable {
+  RainSlice(
+    this.rain, {
+    this.from = double.negativeInfinity,
+    this.to = double.infinity,
+    super.priority,
+  });
+
+  final Rain rain;
+
+  /// The depths it draws, from [from] up to (not including) [to].
+  final double from;
+  final double to;
+
+  @override
+  void render(Canvas canvas) => rain.renderDepths(canvas, from: from, to: to);
 }
