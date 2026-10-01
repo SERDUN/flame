@@ -1,5 +1,7 @@
 ## 0.1.0
 
-- `LightSource`: a point or cone light with colour, intensity, radius and flicker, and `lightAt`.
-- `Lighting`: the night over a world - darkness cut by every light with a soft falloff, plus the lights' glow; `lightAt` for things that shine in the light, like rain.
-- `LightMirror`: a surface (water, a wet road) the lighting shows the lights above it in, as streaks.
+- `Lighting`: the stage's night - darkness cut by every light of the frame on the wall plane and as the pool it lays on the ground, halos in the haze, the moon lifting the dark - with the shadows of whatever stands in a light's way.
+- `LightSource`: a component carrying any `Light` (bulb, cone, window, tube) and drawing its glowing part.
+- `Glossy`: a wet surface the lights glint off, with damp trails where light falls.
+- `LightReflector`: a surface (water, a wet road) that mirrors the frame's lights over the night.
+- `LightShader`: the one shader every light is drawn with.

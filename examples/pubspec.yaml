@@ -21,6 +21,7 @@ dependencies:
   flame_lottie: ^0.5.0-dev.0+24
   flame_noise: ^0.3.4-dev.0+24
   flame_spine: ^0.4.0-dev.0+7
+  flame_stage: ^0.1.0
   flame_svg: ^3.0.0-dev.0
   flame_test: ^3.0.0-dev.0
   flame_tiled: ^4.0.0-dev.0

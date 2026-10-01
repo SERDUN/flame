@@ -15,6 +15,7 @@ environment:
 dependencies:
   flame: ^2.0.0-dev.0
   flame_lighting: ^0.1.0
+  flame_stage: ^0.1.0
   flutter:
     sdk: flutter
   flutter_gpu:

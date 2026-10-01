@@ -1,7 +1,7 @@
 import 'dart:ui';
 
 import 'package:flame/components.dart';
-import 'package:flame_lighting/flame_lighting.dart';
+import 'package:flame_stage/flame_stage.dart';
 import 'package:flame_test/flame_test.dart';
 import 'package:flame_water/flame_water.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -23,7 +23,7 @@ class _Block extends RectangleComponent with Reflectable {
 }
 
 /// The ground from y 100 down, 40 deep.
-class _Road extends Component with Ground {
+class _Road extends Component with OnStage, Ground {
   @override
   Rect groundBand() => const Rect.fromLTWH(0, 100, 100, 40);
 }

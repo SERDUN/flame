@@ -3,6 +3,7 @@ import 'dart:ui';
 
 import 'package:flame/components.dart';
 import 'package:flame_lighting/flame_lighting.dart';
+import 'package:flame_stage/flame_stage.dart';
 import 'package:flame_water/flame_water.dart';
 
 /// The line the street stands on, in the samples' 800x450 world.
@@ -23,14 +24,15 @@ class Sky extends PositionComponent with Reflectable {
 }
 
 /// A row of house fronts against the sky, with a few lit windows. With
-/// `lit` each lit window gives a little warm light, one of them flickering.
+/// `lit` each lit window is a light the size of its pane ([Light.area]),
+/// giving a little warm light from all of it, one of them flickering.
 ///
 /// What the rain does to them is theirs: they get wet ([Wettable]), and as
 /// wet as they are they darken and the lamps glint off their fronts
 /// ([Glossy], [WetSheen]); rain behind the street line breaks on their
 /// roofs and window sills ([RainCatcher]).
 class Houses extends PositionComponent
-    with Reflectable, Glossy, Wettable, WetSheen, RainCatcher {
+    with OnStage, Reflectable, Glossy, Wettable, WetSheen, RainCatcher {
   Houses({bool lit = false})
     : super(position: Vector2(0, 170), size: Vector2(800, 160)) {
     // The scene opens in the rain: the houses are wet already. Upright,
@@ -47,14 +49,16 @@ class Houses extends PositionComponent
       for (var j = 0; j < 3; j++) {
         if ((i + j).isEven) {
           add(
-            LightSource(
+            LightSource.of(
+              Light.area(
+                size: Vector2(14, 18),
+                radius: 46,
+                intensity: 0.55,
+                color: const Color(0xFFFFC870),
+                flicker: i == 3 && j == 1 ? 0.6 : 0,
+                seed: i * 3 + j,
+              ),
               position: Vector2(i * w + 25 + j * 28, size.y - _heights[i] + 31),
-              radius: 46,
-              intensity: 0.55,
-              color: const Color(0xFFFFC870),
-              flicker: i == 3 && j == 1 ? 0.6 : 0,
-              sourceRadius: 2.5,
-              seed: i * 3 + j,
             ),
           );
         }
@@ -176,7 +180,11 @@ class Lamp extends PositionComponent with Reflectable {
 ///
 /// With `lit` the walker carries a torch: a narrow cool beam from the hand,
 /// forward and a little down onto the road, turning round with the walker.
-class Walker extends PositionComponent with Reflectable, Facing {
+/// The walker and the umbrella stand in the lights' way ([ShadowCaster]):
+/// on the pavement, a step in front of the house fronts ([depth]), so
+/// passing a lamp their shadows swing across the road in front of them.
+class Walker extends PositionComponent
+    with OnStage, Reflectable, ShadowCaster {
   Walker({this.speed = 60, bool lit = false})
     : super(
         position: Vector2(120, groundLine),
@@ -185,12 +193,16 @@ class Walker extends PositionComponent with Reflectable, Facing {
       ) {
     if (lit) {
       // By the hip, in the leading hand; it turns with the walker itself.
-      add(Torch(hold: Vector2(28, 50)));
+      add(Torch(hold: Vector2(28, 50), depth: depth));
     }
   }
 
-  @override
+  /// 1 going right (+x), -1 left.
   double get facing => _direction;
+
+  /// How far in front of the house fronts the walker goes, as a street
+  /// depth: a step out on the pavement.
+  static const double depth = 0.03;
 
   final double speed;
   double _direction = 1;
@@ -208,6 +220,24 @@ class Walker extends PositionComponent with Reflectable, Facing {
       _direction = -_direction;
       position.x = position.x.clamp(100, 700);
     }
+  }
+
+  // The body and the canopy, as two capsules.
+  @override
+  void castShadow(ShadowSet shadows) {
+    final origin = absoluteTopLeftPosition;
+    final ahead = stage?.projection?.ahead(depth) ?? 0;
+    shadows
+      ..upright(absolutePosition, height: 82, width: 12, ahead: ahead)
+      ..capsule(
+        origin.x + 4,
+        origin.y + 9,
+        origin.x + 50,
+        origin.y + 9,
+        radius: 5,
+        ahead: ahead,
+        thickness: 54,
+      );
   }
 
   @override
@@ -231,7 +261,7 @@ class Walker extends PositionComponent with Reflectable, Facing {
 
 /// The road from the ground line down: dark asphalt, not a mirror itself -
 /// the ground ([Ground]) lights lay pools on and rain lands on.
-class Road extends PositionComponent with Ground {
+class Road extends PositionComponent with OnStage, Ground {
   Road() : super(position: Vector2(0, groundLine), size: Vector2(800, 120));
 
   final Paint _paint = Paint()..color = const Color(0xFF191C22);
@@ -301,3 +331,46 @@ WaterSurface puddle({
   streak: 6,
   chopPerRain: 1.2,
 );
+
+/// A torch in a walker's hand: a narrow cool beam, a little down, the way the
+/// walker faces, held at [hold] - mirrored across the walker when it turns
+/// round. Everything else it does is a [LightSource]'s: it cuts the night,
+/// lights the rain in its beam, lays a pool on the road ahead, glints off
+/// wet walls and shows in water.
+class Torch extends LightSource {
+  Torch({required this.hold, this.tilt = 0.28, super.depth})
+    : super(
+        color: const Color(0xFFE6EEFF),
+        intensity: 0.9,
+        radius: 380,
+        coneAngle: 0.62,
+        sourceRadius: 1.6,
+      );
+
+  /// Where it is held, the walker facing right: in the walker's own
+  /// coordinates.
+  final Vector2 hold;
+
+  /// How far below level it points, radians.
+  final double tilt;
+
+  @override
+  void onMount() {
+    super.onMount();
+    _aim();
+  }
+
+  @override
+  void update(double dt) {
+    super.update(dt);
+    _aim();
+  }
+
+  void _aim() {
+    final walker = parent;
+    final facing = walker is Walker && walker.facing < 0 ? -1.0 : 1.0;
+    final width = walker is PositionComponent ? walker.size.x : 0.0;
+    position.setValues(facing > 0 ? hold.x : width - hold.x, hold.y);
+    light.direction = facing > 0 ? tilt : math.pi - tilt;
+  }
+}
