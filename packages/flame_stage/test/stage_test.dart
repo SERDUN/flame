@@ -51,7 +51,44 @@ class _Reader extends Component with OnStage {
   }
 }
 
+/// Writes into [log] when the frame is prepared.
+class _Step extends Component with OnStage, FrameStep {
+  _Step(this.log);
+
+  final List<String> log;
+
+  @override
+  void prepareFrame(Canvas canvas, StageFrame frame) =>
+      log.add('prepared ${frame.index}');
+}
+
+/// Writes into [log] when it draws.
+class _Drawer extends Component {
+  _Drawer(this.log) : super(priority: -100);
+
+  final List<String> log;
+
+  @override
+  void render(Canvas canvas) => log.add('drawn');
+}
+
 void main() {
+  testWithFlameGame('a world is its own world', (game) async {
+    expect(Stage.worldOf(game.world), same(game.world));
+  });
+
+  testWithFlameGame('a frame step runs before anything in the world draws', (
+    game,
+  ) async {
+    final log = <String>[];
+    // The drawer has the lower priority, and is added first.
+    game.world.addAll([_Drawer(log), _Step(log)]);
+    await game.ready();
+    game.update(1 / 60);
+    game.render(Canvas(PictureRecorder()));
+    expect(log, ['prepared 1', 'drawn']);
+  });
+
   testWithFlameGame('one stage a world, made when first asked for', (
     game,
   ) async {
