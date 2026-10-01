@@ -410,4 +410,23 @@ void main() {
       expect(quarter(3), greaterThan(0.6 * quarter(0)));
     },
   );
+
+  testWithFlameGame(
+    'rain under a high cloud is simulated only over the view',
+    (game) async {
+      game.onGameResize(Vector2(800, 600));
+      game.camera.viewfinder.anchor = Anchor.topLeft;
+      // A cloud 20 m over a view 12 m tall, at 50 units a metre.
+      final rain = Rain(seed: 3, cloudTop: () => -1000 + 400);
+      game.world.addAll([_Ground(), rain]);
+      await game.ready();
+      await _rainFor(game, 3);
+      final top = game.camera.visibleWorldRect.top;
+      final ys = rain.dropYs.toList();
+      // A metre of margin over the view, and a step's spread over that.
+      final above = ys.where((y) => y < top - 2 * rain.metre).length;
+      expect(ys, isNotEmpty);
+      expect(above, 0);
+    },
+  );
 }

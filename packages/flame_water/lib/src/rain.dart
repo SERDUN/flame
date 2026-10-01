@@ -231,11 +231,18 @@ class Rain extends Component with Reflectable {
   double _viewReach(Rect view, double Function(double) land) {
     final top = cloudTop?.call() ?? view.top - _margin;
     final fall = RainDrops.terminalSpeed(2) * metre;
-    final way = math.max(land(0) - top, 0) / fall;
+    final way = math.max(land(0) - _start(view, top), 0) / fall;
     final through = _inViewTime(view, top, land(0), fall);
     return _viewSpeed.abs() * way +
         (_windX(_viewCenter(view)) * metre * through).abs();
   }
+
+  /// Where drops start: over the view, not at the cloud. Above the view a
+  /// drop is unseen, and a cloud is far higher than a view is tall, so most
+  /// of a drop's way down would be simulated for nothing; a drop instead
+  /// starts a margin over the view, where and as fast as it would be had it
+  /// fallen from the cloud.
+  double _start(Rect view, double top) => math.max(top, view.top - _margin);
 
   /// How long a drop falling at [fall] from [top] to [landing] is inside the
   /// view's height.
@@ -280,10 +287,11 @@ class Rain extends Component with Reflectable {
     final top = cloudTop?.call() ?? view.top - _margin;
     final landing = land(depth);
     final fallTime = math.max(landing - top, 0) / fall;
+    final start = _start(view, top);
     // It lands over the view as it is now or as it will be by then: a view
-    // following someone has moved on while the drop fell, and rain aimed
-    // only where it is now would leave its leading side dry.
-    final ahead = _viewSpeed * fallTime;
+    // following someone moves on while the drop falls, and rain aimed only
+    // where it is now would leave its leading side dry.
+    final ahead = _viewSpeed * math.max(landing - start, 0) / fall;
     // And a drop seen in the view now may still have far to go downwind:
     // one that lands past the view's downwind edge crosses it on the way
     // down, as far in as the wind carries it while it falls through the view.
@@ -299,12 +307,15 @@ class Rain extends Component with Reflectable {
     final target = from + _random.nextDouble() * (to - from);
     final windX = _windX(Vector2(target, (top + landing) / 2)) * metre;
     final born = target - windX * perspective * fallTime;
+    // Where it is as it reaches the start over the view.
+    final drift = windX * perspective * math.max(start - top, 0) / fall;
     return _Drop(
+      source: born,
       at: Vector2(
-        born,
+        born + drift,
         // Spread over the way it falls in this step: drops born in one step
         // at one height would fall as a line.
-        top - _random.nextDouble() * fall * lead,
+        start - _random.nextDouble() * fall * lead,
       ),
       velocity: Vector2(windX * perspective, fall),
       land: landing,
@@ -360,7 +371,8 @@ class Rain extends Component with Reflectable {
       // fall over a whole way down from the cloud, spread along it.
       final top = cloudTop?.call() ?? view.top - _margin;
       final way =
-          math.max(land(0) - top, 0) / (RainDrops.terminalSpeed(2) * metre);
+          math.max(land(0) - _start(view, top), 0) /
+          (RainDrops.terminalSpeed(2) * metre);
       final inAir = (density * view.width / metre * intensity * way).round();
       for (var i = 0; i < inAir; i++) {
         final drop = _newDrop(view, land, scale, 0);
@@ -434,9 +446,10 @@ class Rain extends Component with Reflectable {
   final Vector2 _from = Vector2.zero();
 
   /// Whether the cloud lets [d] fall where it was born.
+  /// Whether the cloud lets [d] go, judged where it left the cloud.
   bool _released(_Drop d) {
     final share = releaseShare;
-    return share == null || _random.nextDouble() < share(d.at.x);
+    return share == null || _random.nextDouble() < share(d.source);
   }
 
   /// Whether a deflector on its way turned [d] back (moving it and its
@@ -866,6 +879,7 @@ class Rain extends Component with Reflectable {
 
 class _Drop {
   _Drop({
+    required this.source,
     required this.at,
     required this.velocity,
     required this.land,
@@ -876,6 +890,9 @@ class _Drop {
     required this.diameter,
     required this.strength,
   });
+
+  /// World x where it left the cloud.
+  final double source;
 
   final Vector2 at;
   final Vector2 velocity;
