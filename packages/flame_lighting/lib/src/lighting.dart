@@ -454,7 +454,8 @@ class Lighting extends Component with OnStage, Ambience, FrameStep {
         _cast(canvas, frame, i, _sheen, amount, clip: bounds);
       }
     }
-    final every = math.max(wet.rivuletSpacing, 1e-3);
+    // No closer than a two-hundredth of the wet area, whatever its units.
+    final every = math.max(wet.rivuletSpacing, bounds.width / 200);
     var k = 0;
     for (var x = bounds.left + every / 2; x < bounds.right; x += every) {
       k++;
