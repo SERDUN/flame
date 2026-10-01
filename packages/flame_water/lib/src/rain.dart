@@ -32,10 +32,11 @@ import 'package:flutter/foundation.dart' show visibleForTesting;
 /// It reads everything from the stage's frame: the view, the street's
 /// projection, the light. Under a `Lighting` a drop is as bright as the
 /// light where it is and takes its colour, so rain shines in a lamp's cone.
-/// Drawn over the night, a drop carries the night's darkness itself; drawn
-/// under it ([RainSlice] below the lighting), the night darkens it, and it
-/// carries only the light. [Rain.of] finds the rain over a world, for what
-/// depends on it (water astir, things getting wet and drying).
+/// Drawn over the lighting, a drop shows as lit as it is; drawn under it
+/// ([RainSlice] below the lighting), the light where it is is laid over it,
+/// so it carries no more than that light leaves out. [Rain.of] finds the
+/// rain over a world, for what depends on it (water astir, things getting
+/// wet and drying).
 class Rain extends Component with OnStage, Reflectable {
   Rain({
     this.intensity = 1,
@@ -612,9 +613,9 @@ class Rain extends Component with OnStage, Reflectable {
 
   /// Works out how every drop and droplet looks this frame, once: the rain
   /// is drawn again in every water's reflection, and in every slice. Each
-  /// gets two looks: over the night, carrying its darkness, and under it,
-  /// where the night darkens it and it carries only the light. Then sorts
-  /// them into the slices that draw them.
+  /// gets two looks: over the lighting, as lit as it is, and under it, where
+  /// the light there is laid over it and it carries only the rest. Then
+  /// sorts them into the slices that draw them.
   void _shade() {
     final stage = this.stage;
     final projection = stage?.projection;
@@ -623,9 +624,6 @@ class Rain extends Component with OnStage, Reflectable {
     final scale = projection == null ? _plainScale : projection.scaleAt;
     final focus = scale(focusDepth);
     final water = _water;
-    // What the night takes from a drop with no light on it: under the
-    // night it is taken by the night layer, so the drop gives it back.
-    final night = lit ? field.darkness : 0.0;
     final drops = _drops;
     for (var i = 0; i < drops.length; i++) {
       // How much of a sharp streak's light is left per unit of its width
@@ -659,12 +657,15 @@ class Rain extends Component with OnStage, Reflectable {
         forwardScatter: 0.7,
       );
       final tint = _sample.added * 0.8;
+      // Under the lighting it is multiplied by the light there (as the eye
+      // sees it, no brighter than white): it carries the rest.
+      final under = math.max(math.min(_sample.light, 1.0), 0.02);
       drops
         ..color[i] = _tinted(water, tint, share * _sample.scattered)
         ..colorUnder[i] = _tinted(
           water,
           tint,
-          share * (_sample.scattered + night),
+          share * _sample.scattered / under,
         );
     }
     final droplets = _droplets;
@@ -691,11 +692,7 @@ class Rain extends Component with OnStage, Reflectable {
       final tint = _sample.added * 0.8;
       droplets
         ..color[i] = _tinted(water, tint, 0.9 * light * focusShare)
-        ..colorUnder[i] = _tinted(
-          water,
-          tint,
-          0.9 * math.min(light + night, 1) * focusShare,
-        );
+        ..colorUnder[i] = _tinted(water, tint, 0.9 * focusShare);
     }
     _sort();
   }
@@ -749,9 +746,9 @@ class Rain extends Component with OnStage, Reflectable {
     }
   }
 
-  /// Whether what [drawer] draws lies under the night: it is below the
+  /// Whether what [drawer] draws lies under the lighting: it is below the
   /// stage's lighting among its siblings.
-  bool _underNight(Component drawer) {
+  bool _underLighting(Component drawer) {
     final lighting = stage?.members<Lighting>().firstOrNull;
     return lighting != null &&
         lighting.parent == drawer.parent &&
@@ -768,30 +765,30 @@ class Rain extends Component with OnStage, Reflectable {
   @override
   void render(Canvas canvas) {
     if (drawsItself) {
-      renderDepths(canvas, underNight: _underNight(this));
+      renderDepths(canvas, underLighting: _underLighting(this));
     }
   }
 
   /// Draws the drops and droplets falling at depths from [from] up to (not
-  /// including) [to], and the veils there; [underNight] when the night is
-  /// drawn over them.
+  /// including) [to], and the veils there; [underLighting] when the
+  /// lighting is laid over them.
   void renderDepths(
     Canvas canvas, {
     double from = double.negativeInfinity,
     double to = double.infinity,
-    bool underNight = false,
-  }) => _render(canvas, from, to, underNight, null);
+    bool underLighting = false,
+  }) => _render(canvas, from, to, underLighting, null);
 
   void _render(
     Canvas canvas,
     double from,
     double to,
-    bool underNight,
+    bool underLighting,
     RainSlice? slice,
   ) {
     final mirror = ReflectionPass.current;
     // In water, the rain is as dark as the water it is mirrored in.
-    final dark = mirror == null ? underNight : _underNight(mirror.drawer);
+    final dark = mirror == null ? underLighting : _underLighting(mirror.drawer);
     final view = _lastView;
     final projection = stage?.projection;
     if (mirror == null && view != null && projection != null) {
@@ -829,8 +826,8 @@ class Rain extends Component with OnStage, Reflectable {
 /// components: rain behind the street line under what stands on it, the
 /// rest over it. Set the rain's `drawsItself` off and give it one slice for
 /// each range. Water mirrors a slice as it mirrors the rain. A slice below
-/// the lighting among its siblings is under the night, and its drops are
-/// drawn for that.
+/// the lighting among its siblings has the lighting laid over it, and its
+/// drops are drawn for that.
 class RainSlice extends Component with Reflectable {
   RainSlice(
     this.rain, {
@@ -867,7 +864,7 @@ class RainSlice extends Component with Reflectable {
     canvas,
     from,
     to,
-    rain._underNight(this),
+    rain._underLighting(this),
     isMounted ? this : null,
   );
 }

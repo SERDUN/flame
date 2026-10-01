@@ -6,15 +6,18 @@ import 'package:flame/components.dart';
 import 'package:flame_stage/flame_stage.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+/// [lights] under a night sky: a little blue light, the eye adapted to a
+/// lamp's worth.
 LightField _field(
   List<(Light, double, double)> lights, {
-  double darkness = 0.8,
+  double skyLight = 0.2,
 }) {
-  final field = LightField()..darkness = darkness;
+  final field = LightField()
+    ..beginUnder(sky: const Color(0xFFFFFFFF), skyLight: skyLight);
   for (final (light, x, y) in lights) {
     field.add(light, x, y, 0, 0, null);
   }
-  return field;
+  return field..finish();
 }
 
 void main() {
@@ -58,19 +61,42 @@ void main() {
     expect(field.reach(1, 300, 30, 0), greaterThan(field.reach(1, 400, 30, 0)));
   });
 
-  test('the moon is the same everywhere', () {
-    final field = _field([(Light.directional(intensity: 0.3), 0, 0)]);
-    expect(field.reach(0, -500, 9000, 40), closeTo(0.3, 1e-6));
+  test('the moon adds to the sky, the same everywhere', () {
+    final field = _field([
+      (Light.directional(color: const Color(0xFFFFFFFF), intensity: 0.3), 0, 0),
+    ]);
+    expect(field.count, 0, reason: 'not a light of the field');
+    expect(field.skyLevel, closeTo(0.5, 1e-6));
+    final out = LightSample();
+    field.sample(-500, 9000, out);
+    expect(out.light, closeTo(0.5, 1e-6));
   });
 
-  test('a lamp that lights itself comes on with the night', () {
-    final lamp = Light.point(onAtDarkness: 0.4);
-    expect(lamp.strengthAt(0, 0), 0, reason: 'day');
-    expect(lamp.strengthAt(0, 0.2), closeTo(0.5, 1e-9));
-    expect(lamp.strengthAt(0, 0.6), 1);
-    final day = LightField()..darkness = 0;
+  test('a lamp with a sensor comes on as the sky darkens', () {
+    final lamp = Light.point(switchOnBelow: 2);
+    expect(lamp.strengthAt(0, 30), 0, reason: 'day');
+    expect(lamp.strengthAt(0, 3), closeTo(0.5, 1e-9), reason: 'dusk');
+    expect(lamp.strengthAt(0, 0.1), 1, reason: 'night');
+    final day = LightField()
+      ..beginUnder(sky: const Color(0xFFFFFFFF), skyLight: 30);
     day.add(lamp, 0, 0, 0, 0, null);
     expect(day.count, 0, reason: 'an unlit light is left out');
+  });
+
+  test('the eye adapts to the sky: by day a lamp is a speck', () {
+    final lamp = Light.point(radius: 100);
+    final night = _field([(lamp, 0, 0)]);
+    final day = _field([(lamp, 0, 0)], skyLight: 40);
+    final atNight = LightSample();
+    final byDay = LightSample();
+    night.sample(10, 0, atNight);
+    day.sample(10, 0, byDay);
+    expect(night.exposure, 1, reason: 'no brighter than a lamp adapts to');
+    expect(day.exposure, closeTo(1 / 40, 1e-9));
+    expect(atNight.added, greaterThan(0.5));
+    expect(byDay.added, lessThan(0.03));
+    expect(byDay.light, closeTo(1, 0.03), reason: 'the sky, as white');
+    expect(atNight.light - atNight.added, closeTo(0.2, 1e-6));
   });
 
   test('a light is brighter than white when it is', () {

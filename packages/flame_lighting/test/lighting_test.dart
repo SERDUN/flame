@@ -59,7 +59,9 @@ class _Moon extends Component with OnStage, LightCarrier {
   final double intensity;
 
   @override
-  Iterable<Light> get lights => [Light.directional(intensity: intensity)];
+  Iterable<Light> get lights => [
+    Light.directional(color: const Color(0xFFFFFFFF), intensity: intensity),
+  ];
 }
 
 /// Brightness (red channel, 0..255) of the rendered game at a pixel.
@@ -75,7 +77,7 @@ Future<int Function(int x, int y)> _render(FlameGame game) async {
 Future<void> _setUp(
   FlameGame game,
   List<Component> extra, {
-  double darkness = 1,
+  double skyLight = 0,
   double haze = 0,
   double glow = 0,
   Color wall = const Color(0xFFFFFFFF),
@@ -85,19 +87,14 @@ Future<void> _setUp(
   game.camera.viewfinder.anchor = Anchor.topLeft;
   game.world.addAll([
     _Wall(wall),
-    Lighting(
-      ambient: const Color(0xFF000000),
-      darkness: darkness,
-      glow: glow,
-      haze: haze,
-    ),
+    Lighting(skyLight: skyLight, glow: glow, haze: haze),
     ...extra,
   ]);
   await game.ready();
 }
 
 void main() {
-  testWithFlameGame('the night is dark except where a light falls', (
+  testWithFlameGame('under a dark sky only what a light falls on shows', (
     game,
   ) async {
     await _setUp(game, [LightSource(position: Vector2(400, 300))]);
@@ -107,13 +104,16 @@ void main() {
     expect(at(100, 100), lessThan(10), reason: 'out of reach');
   });
 
-  testWithFlameGame('by day with no light on it draws nothing', (game) async {
+  testWithFlameGame('under the noon sky with no lamp on it draws nothing', (
+    game,
+  ) async {
     await _setUp(
       game,
       [
-        LightSource(position: Vector2(400, 300), onAtDarkness: 0.3),
+        // Its sensor switches it on below a sky of 2: noon is 40.
+        LightSource(position: Vector2(400, 300), switchOnBelow: 2),
       ],
-      darkness: 0,
+      skyLight: 40,
       wall: const Color(0xFF808080),
     );
     final at = await _render(game);
@@ -268,7 +268,7 @@ void main() {
     expect(at(400, 360), greaterThan(40));
   });
 
-  testWithFlameGame('the moon lifts the dark everywhere', (game) async {
+  testWithFlameGame('the moon lights everything alike', (game) async {
     await _setUp(game, [_Moon(0.5)]);
     final at = await _render(game);
     expect(at(100, 100), inInclusiveRange(110, 145));
@@ -301,7 +301,6 @@ void main() {
         ),
       ],
       wall: const Color(0xFF000000),
-      darkness: 0,
       glow: 1,
     );
     final at = await _renderRgb(game);
@@ -326,7 +325,6 @@ void main() {
       game,
       [lamp],
       wall: const Color(0xFF000000),
-      darkness: 0,
       glow: 1,
     );
     final at = await _render(game);
@@ -360,7 +358,6 @@ void main() {
       game,
       [lamp],
       wall: const Color(0xFF000000),
-      darkness: 0,
       glow: 1,
     );
     final at = await _render(game);
@@ -388,7 +385,7 @@ void main() {
       ..position = Vector2(300, 200);
     game.world.addAll([
       _Wall(const Color(0xFFFFFFFF)),
-      Lighting(ambient: const Color(0xFF000000), darkness: 1, glow: 0, haze: 0),
+      Lighting(skyLight: 0, glow: 0, haze: 0),
       LightSource(position: Vector2(400, 300), radius: 60),
     ]);
     await game.ready();
@@ -406,7 +403,7 @@ void main() {
     game.camera.viewfinder.anchor = Anchor.topLeft;
     game.world.addAll([
       _Wall(const Color(0xFFFFFFFF)),
-      Lighting(ambient: const Color(0xFF000000), darkness: 1, glow: 0, haze: 0),
+      Lighting(skyLight: 0, glow: 0, haze: 0),
       LightSource(position: Vector2(400, 300)),
     ]);
     await game.ready();
@@ -429,6 +426,34 @@ void main() {
     ], wall: const Color(0xFF808080));
     final at = await _render(game);
     expect(at(440, 340), greaterThan(at(360, 340) + 5), reason: 'glinting');
+  });
+
+  testWithFlameGame('under a warm dusk sky a white wall takes its colour', (
+    game,
+  ) async {
+    await _setUp(game, [], skyLight: 3);
+    game.world.children.whereType<Lighting>().single.sky = const Color(
+      0xFFFF9A4D,
+    );
+    final at = await _renderRgb(game);
+    final wall = at(400, 300);
+    expect(wall.r, greaterThan(wall.g));
+    expect(wall.g, greaterThan(wall.b));
+    expect(wall.r, greaterThan(200), reason: 'the eye adapts: not dark');
+  });
+
+  testWithFlameGame('a lamp carries the night and vanishes in the day', (
+    game,
+  ) async {
+    await _setUp(game, [LightSource(position: Vector2(400, 300), radius: 200)]);
+    final lighting = game.world.children.whereType<Lighting>().single;
+    var at = await _render(game);
+    final night = at(400, 380) - at(100, 100);
+    lighting.skyLight = 40;
+    at = await _render(game);
+    final day = at(400, 380) - at(100, 100);
+    expect(night, greaterThan(60));
+    expect(day, lessThan(8), reason: 'a speck against the sky');
   });
 }
 

@@ -29,7 +29,7 @@ class LightSource extends PositionComponent with OnStage, LightCarrier {
     double sourceRadius = 6,
     double depth = 0,
     Falloff falloff = Falloff.smooth,
-    double? onAtDarkness,
+    double? switchOnBelow,
     int seed = 0,
     double spill = 0,
     double spillRadius = 0,
@@ -42,7 +42,7 @@ class LightSource extends PositionComponent with OnStage, LightCarrier {
                sourceRadius: sourceRadius,
                depth: depth,
                falloff: falloff,
-               onAtDarkness: onAtDarkness,
+               switchOnBelow: switchOnBelow,
                seed: seed,
              )
            : Light.cone(
@@ -55,7 +55,7 @@ class LightSource extends PositionComponent with OnStage, LightCarrier {
                sourceRadius: sourceRadius,
                depth: depth,
                falloff: falloff,
-               onAtDarkness: onAtDarkness,
+               switchOnBelow: switchOnBelow,
                seed: seed,
                spill: spill,
                spillRadius: spillRadius,
@@ -71,6 +71,7 @@ class LightSource extends PositionComponent with OnStage, LightCarrier {
   Iterable<Light> get lights => [light];
 
   final Paint _glow = Paint();
+  double _air = 1;
 
   /// The halo the haze makes round a source at [center], [radius] wide, in
   /// [color] at [alpha]: one profile for the halo a light draws and the
@@ -95,7 +96,7 @@ class LightSource extends PositionComponent with OnStage, LightCarrier {
   /// How bright it is now.
   double get strength {
     final frame = stage?.frame;
-    return light.strengthAt(frame?.time ?? 0, frame?.light.darkness ?? 0);
+    return light.strengthAt(frame?.time ?? 0, frame?.light.sensorLevel ?? 1);
   }
 
   @override
@@ -105,6 +106,9 @@ class LightSource extends PositionComponent with OnStage, LightCarrier {
       return;
     }
     final haze = stage?.frame.light.haze ?? 0;
+    // The glow in the air is light, as much as the eye adapted to the sky
+    // makes of it; the source itself shows as bright as it is drawn.
+    _air = stage?.frame.light.exposure ?? 1;
     final glow = s.clamp(0.0, 1.0);
     final at = light.offset.toOffset();
     switch (light.shape) {
@@ -128,7 +132,12 @@ class LightSource extends PositionComponent with OnStage, LightCarrier {
     if (haze > 0) {
       // Wet air scatters the light into a wide soft halo round the source.
       final halo = r * (6 + 24 * haze);
-      _glow.shader = LightSource.halo(at, halo, light.color, haze * s * 0.6);
+      _glow.shader = LightSource.halo(
+        at,
+        halo,
+        light.color,
+        haze * s * 0.6 * _air,
+      );
       canvas.drawCircle(at, halo, _glow);
     }
     // The source itself: nearly white at its heart.
@@ -160,7 +169,7 @@ class LightSource extends PositionComponent with OnStage, LightCarrier {
       final spill = math.min(rect.width, rect.height) * (0.3 + 1.2 * haze);
       _glow.shader = null;
       for (var k = 3; k >= 1; k--) {
-        _glow.color = light.color.withValues(alpha: haze * s * 0.08);
+        _glow.color = light.color.withValues(alpha: haze * s * 0.08 * _air);
         canvas.drawRRect(
           RRect.fromRectAndRadius(
             rect.inflate(spill * k / 3),
@@ -195,7 +204,7 @@ class LightSource extends PositionComponent with OnStage, LightCarrier {
       for (var k = 3; k >= 1; k--) {
         _glow
           ..strokeWidth = width * (1 + (2 + 8 * haze) * k / 3)
-          ..color = light.color.withValues(alpha: haze * s * 0.1);
+          ..color = light.color.withValues(alpha: haze * s * 0.1 * _air);
         canvas.drawLine(a, b, _glow);
       }
     }

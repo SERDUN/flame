@@ -37,7 +37,7 @@ abstract interface class Mirror {
   Rect get area;
 
   /// The component the reflection is drawn into: whatever looks different
-  /// over the night and under it goes by where this one is.
+  /// over the lighting and under it goes by where this one is.
   Component get drawer;
 }
 

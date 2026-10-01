@@ -22,7 +22,8 @@ class RainStreaks {
 
   /// Draws the drops of [drops] - those listed in [dropRows], or with none
   /// listed every one falling from [from] up to [to] - and likewise the
-  /// droplets of [droplets], in their colour [under] the night or over it.
+  /// droplets of [droplets], in their colour [under] the lighting or over
+  /// it.
   /// In [mirror] each is mirrored about where it lands, and only those
   /// across from the mirror are drawn.
   void draw(

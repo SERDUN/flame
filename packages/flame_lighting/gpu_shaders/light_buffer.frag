@@ -1,15 +1,15 @@
 #version 320 es
 
 // Every light of a frame, added up once into a float target: what each
-// pixel of the view gets of them, brighter than white where it is, and how
-// much of the night they lift there.
+// pixel of the view gets of them, brighter than white where it is.
 //
 // rgb: the light cast, each light's colour times how much of it arrives
 // (shape, falloff, cone, the spill round a cone's source, on the ground
 // the angle it comes in at, the shadows on its way).
-// a: how much of the night is left: each light, and the halo the haze makes
-// round its source, takes its share away - as the canvas path cuts one
-// light after another out of the night layer.
+// a: what glows there itself, as white light: the halo the haze makes
+// round each source, and the source itself - a bulb, a lit pane, a tube -
+// at as much as lets it show as bright as it is drawn once the eye's
+// exposure is applied.
 //
 // The same light as light.frag works out for one light on the canvas path,
 // and LightField.reach on the CPU.
@@ -27,6 +27,7 @@ uniform Params {
   vec4 view;      // the world rect the target covers: left, top, width, height
   vec4 street;    // band top, band height, near distance, far distance
   vec4 info;      // eye height, lights in use, capsules in use, haze
+  vec4 look;      // the eye's exposure, unused
   vec4 lights[kMaxLights * 5];   // LightField.writeLight's five vectors each
   vec4 capsules[kMaxShadows * 2];
 } params;
@@ -144,7 +145,8 @@ void main() {
     p.z = aheadAt(depth);
   }
   vec3 sum = vec3(0.0);
-  float left = 1.0;
+  float glows = 0.0;
+  float exposure = max(params.look.x, 1e-6);
   int count = int(params.info.y);
   float haze = params.info.w;
   for (int i = 0; i < kMaxLights; i++) {
@@ -206,15 +208,28 @@ void main() {
       float shade = params.info.z > 0.5 ? through(l, p, max(h.w, 1.0)) : 1.0;
       float amount = strength * reach * incidence * shade;
       sum += c.rgb * amount;
-      left *= 1.0 - clamp(amount, 0.0, 1.0);
     }
-    // The halo the haze makes round its source lets the night through
-    // too, round the source as it is seen.
+    // What glows itself shows as bright as it is drawn.
     float source = h.w;
+    float itself = 0.0;
+    if (abs(shape - kArea) < 0.5) {
+      vec2 d = abs(frag - pos) - h.yz * 0.5;
+      itself = (d.x <= 0.0 && d.y <= 0.0) ? 1.0 : 0.0;
+    } else if (abs(shape - kLine) < 0.5) {
+      float along = clamp(dot(frag - pos, g.yz), -h.y * 0.5, h.y * 0.5);
+      float width = max(source, h.y * 0.02);
+      itself = length(frag - (pos + g.yz * along)) <= width * 0.5 ? 1.0 : 0.0;
+    } else if (source > 0.0) {
+      // As the bulb is drawn: full to 0.55 of 1.6 source radii.
+      float r = length(frag - pos) / (source * 1.6);
+      itself = 1.0 - smoothstep(0.55, 1.0, r);
+    }
+    glows += itself / exposure;
+    // The halo the haze makes round its source.
     if (haze > 0.0 && source > 0.0) {
       float r = length(frag - pos) / (source * (6.0 + 24.0 * haze));
-      left *= 1.0 - clamp(haze * strength * 0.6, 0.0, 1.0) * halo(r);
+      glows += haze * strength * 0.6 * halo(r);
     }
   }
-  frag_color = vec4(sum, left);
+  frag_color = vec4(sum, glows);
 }

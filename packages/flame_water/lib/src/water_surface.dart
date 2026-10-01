@@ -54,8 +54,9 @@ enum WaterShape {
 ///
 /// Under a `Lighting` it is a [LightReflector]: every light of the stage's
 /// frame - bulbs, lit windows, tubes, their halos - is mirrored in it, over
-/// the night, through the same shader in its lights mode: worked out from
-/// the light's numbers where the mirror puts it, bent by the same drops as
+/// the lighting, as the eye's exposure makes it, through the same shader
+/// in its lights mode: worked out from the light's numbers where the mirror
+/// puts it, bent by the same drops as
 /// the street's reflection and smeared down into a long broken streak by a
 /// rough surface ([streak]), as a wet road does. A lamp is as bright in it
 /// as a lamp is ([glowGain]), not as bright as an image's white.
@@ -359,7 +360,7 @@ class WaterSurface extends PositionComponent
   final LightSample _sample = LightSample();
 
   /// Whether the lighting draws the rings this frame, glinting with the
-  /// light, over the night ([renderReflectedLights]); otherwise [render]
+  /// light, over the lighting ([renderReflectedLights]); otherwise [render]
   /// draws them plain.
   bool get _ringsLit {
     final stage = this.stage;
@@ -463,7 +464,8 @@ class WaterSurface extends PositionComponent
         ..[o + 4] = color.r
         ..[o + 5] = color.g
         ..[o + 6] = color.b
-        ..[o + 7] = field.strengthOf(i)
+        // As much light as the eye, adapted to the sky, makes of it.
+        ..[o + 7] = field.strengthOf(i) * field.exposure
         ..[o + 8] = halfX
         ..[o + 9] = halfY
         ..[o + 10] = dirX
@@ -893,7 +895,7 @@ class WaterSurface extends PositionComponent
     if (tint.a > 0) {
       canvas.drawRect(rect, _tintPaint..color = tint);
     }
-    // Under a Lighting the rings are glints over the night, drawn with the
+    // Under a Lighting the rings are glints over the lighting, drawn with the
     // lights; without one they are drawn here.
     if (!_ringsLit) {
       ripples.render(canvas, _ringPaint());

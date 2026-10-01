@@ -179,8 +179,7 @@ class Lamp extends PositionComponent with Reflectable {
 /// The walker and the umbrella stand in the lights' way ([ShadowCaster]):
 /// on the pavement, a step in front of the house fronts ([depth]), so
 /// passing a lamp their shadows swing across the road in front of them.
-class Walker extends PositionComponent
-    with OnStage, Reflectable, ShadowCaster {
+class Walker extends PositionComponent with OnStage, Reflectable, ShadowCaster {
   Walker({this.speed = 60, bool lit = false})
     : super(
         position: Vector2(120, groundLine),

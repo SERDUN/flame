@@ -1,8 +1,9 @@
 #version 460 core
 
-// The light buffer laid over the scene: the night (what of it the lights
-// left, in the ambient colour), the light cast, or a wet wall's sheen of
-// it. One draw each, however many lights there are.
+// The light buffer laid over the scene: the illumination, as the eye's
+// exposure makes it (to multiply the scene by), or the light in the air,
+// or a wet wall's sheen of it. One draw each, however many lights there
+// are.
 
 precision highp float;
 
@@ -12,8 +13,9 @@ precision highp float;
 uniform vec4 u[3];
 
 #define uArea    u[0]      // the world rect the buffer covers
-#define uNight   u[1]      // the ambient colour, and how dark it is
-#define uMode    u[2].x    // 0 the night, 1 the light cast (a sheen too)
+#define uSky     u[1].rgb  // the sky's light, in lights' units
+#define uExpose  u[1].a    // the eye's exposure
+#define uMode    u[2].x    // 0 the illumination, 1 the light cast (a sheen)
 #define uAmount  u[2].y    // how much of the light cast
 
 uniform sampler2D uLight;
@@ -24,8 +26,8 @@ void main() {
     vec2 p = FlutterFragCoord().xy;
     vec4 light = texture(uLight, (p - uArea.xy) / uArea.zw);
     if (uMode < 0.5) {
-        float a = uNight.a * clamp(light.a, 0.0, 1.0);
-        fragColor = vec4(uNight.rgb * a, a);
+        vec3 seen = min((uSky + light.rgb + vec3(light.a)) * uExpose, vec3(1.0));
+        fragColor = vec4(seen, 1.0);
         return;
     }
     vec3 given = light.rgb * uAmount;
