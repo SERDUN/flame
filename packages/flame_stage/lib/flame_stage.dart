@@ -14,5 +14,5 @@ export 'src/light_field.dart'
         LightSample,
         LightShape;
 export 'src/shadow.dart' show ShadowCaster, ShadowSet, UprightShadow;
-export 'src/stage.dart' show Ground, OnStage, Stage, StageFrame;
+export 'src/stage.dart' show FrameStep, Ground, OnStage, Stage, StageFrame;
 export 'src/street_projection.dart' show DepthCamera, StreetProjection;

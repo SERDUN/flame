@@ -63,15 +63,35 @@ mixin Ground on OnStage {
   DepthCamera get depthCamera => DepthCamera.street;
 }
 
+/// A step of a frame's drawing that comes before anything is drawn: a
+/// resource made once a frame for everything drawn after it - the light of
+/// every lamp added up, say, which a wet wall reads as it draws itself,
+/// before the lighting draws the night.
+///
+/// The stage draws first in its world and runs every step on the stage
+/// then, in the order they joined, with the canvas as the world's
+/// components get it.
+mixin FrameStep on OnStage {
+  /// Makes what this frame needs from [frame], drawing nothing onto
+  /// [canvas] (it is there for its transform).
+  void prepareFrame(Canvas canvas, StageFrame frame);
+}
+
 /// The stage a side-view scene plays on: who is on it, and what each frame
 /// of it holds.
 ///
-/// One a world. It updates before everything else in the world (the lowest
-/// priority) and builds the [frame]: the view, the street's projection from
-/// its [Ground], every light its [LightCarrier]s carry and the night its
-/// [Ambience] makes. Components that light, mirror, catch rain or need the
-/// depth read the frame and the registry, and never walk the tree or ask the
-/// camera themselves.
+/// One a world. A frame runs in a fixed order:
+/// 1. it updates before everything else in the world (the lowest priority)
+///    and builds the [frame]: the view, the street's projection from its
+///    [Ground], what stands in the light's way ([ShadowCaster]), every
+///    light its [LightCarrier]s carry and the night its [Ambience] makes;
+/// 2. the rest of the world updates, reading the frame;
+/// 3. it draws before everything else and runs the [FrameStep]s: what the
+///    frame's drawing needs made once;
+/// 4. the rest of the world draws.
+/// Components that light, mirror, catch rain or need the depth read the
+/// frame and the registry, and never walk the tree or ask the camera
+/// themselves.
 ///
 /// A world gets one when the first component asks for it; a scene can also
 /// add its own, with [viewOf] when its view is not the game camera's.
@@ -125,6 +145,9 @@ class Stage extends Component {
 
   /// The world [component] is in: its nearest [World], or its root.
   static Component worldOf(Component component) {
+    if (component is World) {
+      return component;
+    }
     var top = component;
     for (final a in component.ancestors()) {
       top = a;
@@ -191,6 +214,13 @@ class Stage extends Component {
       ..view = _view() ?? frame.view
       ..projection = _currentProjection();
     _gatherLight();
+  }
+
+  @override
+  void render(Canvas canvas) {
+    for (final step in members<FrameStep>()) {
+      step.prepareFrame(canvas, frame);
+    }
   }
 
   Rect? _view() {

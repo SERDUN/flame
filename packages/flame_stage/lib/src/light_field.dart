@@ -458,12 +458,14 @@ class LightField {
   double extentXOf(int i) => data[i * stride + _extentX];
   double extentYOf(int i) => data[i * stride + _extentY];
   double sourceRadiusOf(int i) => data[i * stride + _source];
+
   /// World y of the ground light [i] stands on: as it says, or where its
   /// depth meets the street's ground; `null` with neither (no street).
   double? standsAtOf(int i) {
     final y = data[i * stride + _stands];
     return y.isNaN ? null : y;
   }
+
   Color colorOf(int i) => Color.from(
     alpha: 1,
     red: data[i * stride + _r],
@@ -483,7 +485,8 @@ class LightField {
 
   /// Writes light [i] for a shader as five vec4 at [at]: (x, y, ahead,
   /// shape), (r, g, b, strength), (radius, dirX, dirY, cosFull), (cosEdge,
-  /// extentX, extentY, source), (spill, spill radius, 0, 0).
+  /// extentX, extentY, source), (spill, spill radius, physical, 0) -
+  /// physical 1 for [Falloff.physical].
   void writeLight(int i, Float32List into, int at) {
     final o = i * stride;
     into
@@ -505,7 +508,7 @@ class LightField {
       ..[at + 15] = data[o + _source]
       ..[at + 16] = data[o + _spill]
       ..[at + 17] = data[o + _spillRadius]
-      ..[at + 18] = 0
+      ..[at + 18] = data[o + _falloff]
       ..[at + 19] = 0;
   }
 
