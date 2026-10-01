@@ -9,34 +9,39 @@ import 'package:flame_lighting/src/light_shader.dart';
 import 'package:flame_lighting/src/light_source.dart';
 import 'package:flame_stage/flame_stage.dart';
 
-/// The night over a world, and how its lights cut it.
+/// The light a world is seen in: the sky's and its lamps', laid over
+/// everything below its priority.
 ///
-/// It is the stage's [Ambience]: how dark it is, the colour of the dark, the
-/// haze, how much colour lights add. It draws, over everything below its
-/// priority:
-/// - the night: the view covered with [ambient] at [darkness], every light
-///   of the stage's frame cutting its shape out of that dark - on the wall
-///   plane and as the pool it lays on the ground - with the halo the haze
-///   makes round its source, and the moon or sky ([LightShape.directional])
-///   lifting the dark everywhere;
-/// - the light cast: each light's colour added on top at [glow].
+/// It is the stage's [Ambience]: the [sky]'s colour and how much light it
+/// gives ([skyLight]), the haze, how much colour lights add in the air.
+/// Everything drawn under it is a surface, and it shows as much as light
+/// falls on it: it is multiplied by the illumination there, as the eye has
+/// adapted to it ([LightField.exposure]) - the sky's light, every light of
+/// the stage's frame on the wall plane and as the pool it lays on the
+/// ground, what glows itself (a bulb, a lit pane, a tube) and the halo the
+/// haze makes round it. Then each light's colour is added in the air, at
+/// [glow].
 ///
-/// Whatever stands in a light's way on the stage ([ShadowCaster]) cuts it
-/// there: the walker's shadow on the road under a lamp, the umbrella's on
-/// the house front behind. Wet walls ([Glossy]) catch every light as a
+/// There is no night mode and no day mode: under a bright sky the eye
+/// adapts down and the lamps vanish against it; under a dark one the
+/// lamps carry the scene. By day with no light on, it draws nothing at
+/// all.
+///
+/// Whatever stands in a light's way on the stage ([ShadowCaster]) shades
+/// it there: the walker's shadow on the road under a lamp, the umbrella's
+/// on the house front behind. Wet walls ([Glossy]) catch every light as a
 /// sheen. Surfaces that mirror ([LightReflector]) draw the lights in them
-/// last, over the night.
+/// last.
 ///
 /// Where flutter_gpu is on, every light is added up once a frame into a
 /// float image of the view ([LightBuffer]) before anything draws, and the
-/// night, the light cast and every sheen are each one draw of it; elsewhere
-/// (the web, tests) each light is drawn on the canvas.
-///
-/// By day with no light on, it draws nothing at all.
+/// illumination, the light in the air and every sheen are each one draw of
+/// it; elsewhere (the web, tests) each light is drawn on the canvas.
 class Lighting extends Component with OnStage, Ambience, FrameStep {
   Lighting({
-    this.ambient = const Color(0xFF060A16),
-    this.darkness = 0.65,
+    this.sky = const Color(0xFFFFFFFF),
+    this.skyLight = 40,
+    this.adaptation = 1,
     this.glow = 0.35,
     this.haze = 0.4,
     this.useBuffer = true,
@@ -45,10 +50,13 @@ class Lighting extends Component with OnStage, Ambience, FrameStep {
   });
 
   @override
-  Color ambient;
+  Color sky;
 
   @override
-  double darkness;
+  double skyLight;
+
+  @override
+  double adaptation;
 
   @override
   double glow;
@@ -118,17 +126,15 @@ class Lighting extends Component with OnStage, Ambience, FrameStep {
     );
   }
 
-  final Paint _compose = Paint();
-  final Paint _composeAdd = Paint()..blendMode = BlendMode.plus;
-
-  /// Lays the light buffer over [area] with [paint]: the night at [dark]
-  /// (mode 0), or the light cast at [amount] (mode 1).
+  /// Lays the light buffer over [area] with [paint]: the illumination as
+  /// seen under [field]'s sky (mode 0, to multiply), or the light in the
+  /// air at [amount] (mode 1, to add).
   void _drawBuffer(
     Canvas canvas,
     Rect area,
-    Paint paint, {
+    Paint paint,
+    LightField field, {
     required int mode,
-    double dark = 0,
     double amount = 0,
   }) {
     final shader = LightShader.compose!;
@@ -139,10 +145,10 @@ class Lighting extends Component with OnStage, Ambience, FrameStep {
       ..setFloat(1, a.top)
       ..setFloat(2, a.width)
       ..setFloat(3, a.height)
-      ..setFloat(4, ambient.r)
-      ..setFloat(5, ambient.g)
-      ..setFloat(6, ambient.b)
-      ..setFloat(7, dark)
+      ..setFloat(4, field.skyRed)
+      ..setFloat(5, field.skyGreen)
+      ..setFloat(6, field.skyBlue)
+      ..setFloat(7, field.exposure)
       ..setFloat(8, mode.toDouble())
       ..setFloat(9, amount)
       ..setFloat(10, 0)
@@ -156,11 +162,10 @@ class Lighting extends Component with OnStage, Ambience, FrameStep {
   static Lighting? of(Component component) =>
       Stage.maybeOf(component)?.members<Lighting>().firstOrNull;
 
-  final Paint _layer = Paint();
-  final Paint _dark = Paint();
-  final Paint _cut = Paint()..blendMode = BlendMode.dstOut;
+  final Paint _illumination = Paint()..blendMode = BlendMode.modulate;
+  final Paint _sky = Paint();
   final Paint _add = Paint()..blendMode = BlendMode.plus;
-  final Paint _halo = Paint()..blendMode = BlendMode.dstOut;
+  final Paint _emit = Paint()..blendMode = BlendMode.plus;
 
   @override
   void render(Canvas canvas) {
@@ -174,51 +179,46 @@ class Lighting extends Component with OnStage, Ambience, FrameStep {
     }
     // A little past the view, so nothing shows at its edge.
     final view = frame.view.inflate(frame.view.width * 0.01);
-    var lift = 0.0;
-    for (var i = 0; i < field.count; i++) {
-      if (field.shapeOf(i) == LightShape.directional) {
-        lift += field.strengthOf(i);
-      }
-    }
-    final dark = field.darkness * (1 - lift.clamp(0.0, 1.0));
-
+    final e = field.exposure;
     if (_lightImage != null) {
-      if (dark > 0) {
-        _drawBuffer(canvas, view, _compose, mode: 0, dark: dark);
-      }
+      _drawBuffer(canvas, view, _illumination, field, mode: 0);
       if (field.glow > 0) {
-        _drawBuffer(canvas, view, _composeAdd, mode: 1, amount: field.glow);
+        _drawBuffer(canvas, view, _add, field, mode: 1, amount: field.glow * e);
       }
     } else {
-      _castAll(canvas, frame, view, dark);
+      _lightAll(canvas, frame, view);
     }
     for (final mirror in stage!.members<LightReflector>()) {
       mirror.renderReflectedLights(canvas, frame);
     }
   }
 
-  /// The canvas path: every light cut out of the night layer, and its light
-  /// cast added, one draw a light and plane.
-  void _castAll(Canvas canvas, StageFrame frame, Rect view, double dark) {
+  /// The canvas path: the illumination built in a layer - the sky's light,
+  /// every light added on each plane, what glows itself and its halo - and
+  /// multiplied onto the scene; then each light added in the air.
+  void _lightAll(Canvas canvas, StageFrame frame, Rect view) {
     final field = frame.light;
-    if (dark > 0) {
-      canvas
-        ..saveLayer(view, _layer)
-        ..drawRect(view, _dark..color = ambient.withValues(alpha: dark));
-      for (var i = 0; i < field.count; i++) {
-        if (field.shapeOf(i) == LightShape.directional) {
-          continue;
-        }
-        _cast(canvas, frame, i, _cut, 1);
-        _cutHalo(canvas, field, i);
-      }
-      canvas.restore();
+    final e = field.exposure;
+    canvas
+      ..saveLayer(view, _illumination)
+      ..drawRect(
+        view,
+        _sky
+          ..color = Color.from(
+            alpha: 1,
+            red: math.min(field.skyRed * e, 1),
+            green: math.min(field.skyGreen * e, 1),
+            blue: math.min(field.skyBlue * e, 1),
+          ),
+      );
+    for (var i = 0; i < field.count; i++) {
+      _cast(canvas, frame, i, _add, e);
+      _glowItself(canvas, field, i, e);
     }
+    canvas.restore();
     if (field.glow > 0) {
       for (var i = 0; i < field.count; i++) {
-        if (field.shapeOf(i) != LightShape.directional) {
-          _cast(canvas, frame, i, _add, field.glow);
-        }
+        _cast(canvas, frame, i, _add, field.glow * e);
       }
     }
   }
@@ -333,23 +333,69 @@ class Lighting extends Component with OnStage, Ambience, FrameStep {
     paint.shader = null;
   }
 
-  /// Cuts light [i]'s halo out of the night, as the haze makes it.
-  void _cutHalo(Canvas canvas, LightField field, int i) {
-    final a = (field.haze * field.strengthOf(i) * 0.6).clamp(0.0, 1.0);
-    final source = field.sourceRadiusOf(i);
-    if (a <= 0 || source <= 0) {
-      return;
-    }
+  /// Into the illumination: what of light [i] glows itself - a bulb, a lit
+  /// pane, a tube - fully, so it shows as bright as it is drawn, and the
+  /// halo the haze makes round it, as much light as it is ([exposure]).
+  void _glowItself(Canvas canvas, LightField field, int i, double exposure) {
     final center = Offset(field.xOf(i), field.yOf(i));
-    final radius = field.haloRadiusOf(i);
-    // The same profile as the halo the light draws, or a ring would show.
-    _halo.shader = LightSource.halo(
-      center,
-      radius,
-      const Color(0xFFFFFFFF),
-      a,
+    final source = field.sourceRadiusOf(i);
+    switch (field.shapeOf(i)) {
+      case LightShape.area:
+        canvas.drawRect(
+          Rect.fromCenter(
+            center: center,
+            width: field.extentXOf(i),
+            height: field.extentYOf(i),
+          ),
+          _emit
+            ..shader = null
+            ..color = const Color(0xFFFFFFFF),
+        );
+      case LightShape.line:
+        final half = field.extentXOf(i) / 2;
+        final angle = field.directionOf(i);
+        final along = Offset(math.cos(angle), math.sin(angle)) * half;
+        canvas.drawLine(
+          center - along,
+          center + along,
+          _emit
+            ..shader = null
+            ..color = const Color(0xFFFFFFFF)
+            ..style = PaintingStyle.stroke
+            ..strokeCap = StrokeCap.round
+            ..strokeWidth = math.max(source, field.extentXOf(i) * 0.02),
+        );
+        _emit.style = PaintingStyle.fill;
+      case LightShape.point:
+      case LightShape.cone:
+      case LightShape.directional:
+        if (source > 0) {
+          // As the bulb is drawn: full to 0.55 of 1.6 source radii.
+          _emit.shader = Gradient.radial(
+            center,
+            source * 1.6,
+            const [Color(0xFFFFFFFF), Color(0xFFFFFFFF), Color(0x00FFFFFF)],
+            const [0, 0.55, 1],
+          );
+          canvas.drawCircle(center, source * 1.6, _emit);
+        }
+    }
+    final a = (field.haze * field.strengthOf(i) * 0.6 * exposure).clamp(
+      0.0,
+      1.0,
     );
-    canvas.drawCircle(center, radius, _halo);
+    if (a > 0 && source > 0) {
+      final radius = field.haloRadiusOf(i);
+      // The same profile as the halo the light draws, or a ring would show.
+      _emit.shader = LightSource.halo(
+        center,
+        radius,
+        const Color(0xFFFFFFFF),
+        a,
+      );
+      canvas.drawCircle(center, radius, _emit);
+    }
+    _emit.shader = null;
   }
 
   final Paint _sheen = Paint()..blendMode = BlendMode.plus;
@@ -378,13 +424,12 @@ class Lighting extends Component with OnStage, Ambience, FrameStep {
     canvas
       ..save()
       ..clipPath(area);
+    final amount = gloss * 0.45 * field.exposure;
     if (_lightImage != null) {
-      _drawBuffer(canvas, bounds, _sheen, mode: 1, amount: gloss * 0.45);
+      _drawBuffer(canvas, bounds, _sheen, field, mode: 1, amount: amount);
     } else {
       for (var i = 0; i < field.count; i++) {
-        if (field.shapeOf(i) != LightShape.directional) {
-          _cast(canvas, frame, i, _sheen, gloss * 0.45, clip: bounds);
-        }
+        _cast(canvas, frame, i, _sheen, amount, clip: bounds);
       }
     }
     final every = math.max(wet.rivuletSpacing, 1e-3);

@@ -478,7 +478,7 @@ void _nightTests() {
       _Ground(),
       rain,
       slice,
-      Lighting(ambient: const Color(0xFF000000), darkness: 0.5, haze: 0),
+      Lighting(skyLight: 0.5, haze: 0),
     ]);
     await game.ready();
     await _rainFor(game, 1);

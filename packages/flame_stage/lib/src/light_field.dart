@@ -24,6 +24,7 @@ enum LightShape {
   line,
 
   /// The moon, an overcast sky: from no place in view, the same everywhere.
+  /// It is added to the sky's light, not kept as a light of the field.
   directional,
 }
 
@@ -61,7 +62,7 @@ class Light {
     this.flicker = 0,
     this.seed = 0,
     this.dimmer = 1,
-    this.onAtDarkness,
+    this.switchOnBelow,
     this.standsAt,
     this.spill = 0,
     this.spillRadius = 0,
@@ -79,7 +80,7 @@ class Light {
     double sourceRadius = 6,
     double flicker = 0,
     int seed = 0,
-    double? onAtDarkness,
+    double? switchOnBelow,
   }) : this(
          offset: offset,
          depth: depth,
@@ -90,7 +91,7 @@ class Light {
          sourceRadius: sourceRadius,
          flicker: flicker,
          seed: seed,
-         onAtDarkness: onAtDarkness,
+         switchOnBelow: switchOnBelow,
        );
 
   /// A street lamp shining down, a headlight, a torch: [spread] radians
@@ -108,7 +109,7 @@ class Light {
     double sourceRadius = 6,
     double flicker = 0,
     int seed = 0,
-    double? onAtDarkness,
+    double? switchOnBelow,
     double spill = 0,
     double spillRadius = 0,
   }) : this(
@@ -125,7 +126,7 @@ class Light {
          sourceRadius: sourceRadius,
          flicker: flicker,
          seed: seed,
-         onAtDarkness: onAtDarkness,
+         switchOnBelow: switchOnBelow,
          spill: spill,
          spillRadius: spillRadius,
        );
@@ -142,7 +143,7 @@ class Light {
     Falloff falloff = Falloff.smooth,
     double flicker = 0,
     int seed = 0,
-    double? onAtDarkness,
+    double? switchOnBelow,
   }) : this(
          shape: LightShape.area,
          offset: offset,
@@ -155,7 +156,7 @@ class Light {
          sourceRadius: 0,
          flicker: flicker,
          seed: seed,
-         onAtDarkness: onAtDarkness,
+         switchOnBelow: switchOnBelow,
        );
 
   /// A glowing tube [length] long along [direction] through [offset].
@@ -170,7 +171,7 @@ class Light {
     Falloff falloff = Falloff.smooth,
     double flicker = 0,
     int seed = 0,
-    double? onAtDarkness,
+    double? switchOnBelow,
   }) : this(
          shape: LightShape.line,
          offset: offset,
@@ -184,11 +185,11 @@ class Light {
          sourceRadius: 0,
          flicker: flicker,
          seed: seed,
-         onAtDarkness: onAtDarkness,
+         switchOnBelow: switchOnBelow,
        );
 
   /// Light from no place in view, the same everywhere: the moon, a glowing
-  /// overcast sky.
+  /// overcast sky. It adds to the sky's light (see [Ambience]).
   Light.directional({
     Color color = const Color(0xFFB8C8FF),
     double intensity = 0.2,
@@ -256,20 +257,24 @@ class Light {
   /// A switch and a dimmer for whoever runs it, `0..1`.
   double dimmer;
 
-  /// If set, it comes on as the night falls: off in the day, fully on once
-  /// the scene's darkness reaches this - lamps that light themselves.
-  double? onAtDarkness;
+  /// If set, a light sensor switches it: fully on while the sky's light
+  /// ([LightField.skyLevel]) is at or below this, off once it is twice
+  /// this, easing between - street lamps that light themselves at dusk.
+  double? switchOnBelow;
 
   /// World y of the ground it stands on, if water should mirror it about
   /// there rather than about its depth's ground line.
   double? standsAt;
 
-  /// How bright it is now, at [time] seconds and the scene's [darkness].
-  double strengthAt(double time, double darkness) {
+  /// How bright it is now, at [time] seconds under a sky giving [skyLevel].
+  double strengthAt(double time, double skyLevel) {
     var s = intensity * dimmer;
-    final on = onAtDarkness;
-    if (on != null) {
-      s *= on <= 0 ? 1 : (darkness / on).clamp(0.0, 1.0);
+    final below = switchOnBelow;
+    if (below != null) {
+      final t = below <= 0
+          ? (skyLevel <= 0 ? 1.0 : 0.0)
+          : (2 - skyLevel / below).clamp(0.0, 1.0);
+      s *= t * t * (3 - 2 * t);
     }
     if (flicker > 0) {
       final t = time * 9 + seed * 1.618;
@@ -289,20 +294,33 @@ mixin LightCarrier on OnStage {
   Iterable<Light> get lights;
 }
 
-/// What the night is like: the scene's darkness, the colour of the dark,
-/// the haze that haloes lights, how much colour lights add. One a scene
-/// (the lighting); none means day.
+/// The light a scene is under before any lamp: the sky's, and the air
+/// it comes through. One a scene (the lighting); none means the scene is
+/// drawn as it is, unlit.
+///
+/// There is no night and no day: the sky gives some light, of some colour -
+/// a great deal of white at noon, less and warm at dusk, a little blue from
+/// the moon at night - and lamps add theirs. The eye adapts to the sky
+/// ([LightField.exposure]): by day a lamp is a speck against it, at night
+/// it is most of what there is.
 mixin Ambience on OnStage {
-  /// How dark it is where no light falls, `0..1`: 0 day, 1 black night.
-  double get darkness;
+  /// The colour of the sky's light.
+  Color get sky;
 
-  /// The colour of the dark.
-  Color get ambient;
+  /// How much light the sky gives, in the units lights' intensities are
+  /// in: 1 as much as a street lamp gives at its heart; noon is tens of
+  /// times that, a moonlit night a few hundredths.
+  double get skyLight;
+
+  /// The dimmest sky the eye adapts to: under less, the scene is darker
+  /// than the sky's own colour. 1 (a lamp's worth) by default.
+  double get adaptation => 1;
 
   /// How thick the air is with rain and mist, `0..1`: it haloes every light.
   double get haze;
 
-  /// How much colour the lights add over what they reveal, `0..1`.
+  /// How much colour the lights add in the air over what they light,
+  /// `0..1`.
   double get glow;
 }
 
@@ -369,29 +387,98 @@ class LightField {
   /// What stands in the lights' way; null: nothing.
   ShadowSet? shadows;
 
-  /// The scene's darkness, `0..1`; 0 by day.
-  double darkness = 0;
+  /// The sky's light, each channel in lights' units: the ambience's sky
+  /// and every directional light (the moon) added to it.
+  double skyRed = 1;
+  double skyGreen = 1;
+  double skyBlue = 1;
 
-  /// The colour of the dark.
-  Color ambient = const Color(0xFF060A16);
+  /// How bright the sky's light is (its luminance), in lights' units.
+  double get skyLevel => 0.2126 * skyRed + 0.7152 * skyGreen + 0.0722 * skyBlue;
+
+  /// What the eye's adaptation makes of light: everything seen is light
+  /// times this. One over the sky's level, but no more than one over the
+  /// ambience's adaptation: by day a lamp is a speck against the sky, at
+  /// night the sky is dark and the lamps carry the scene. 1 with no
+  /// ambience.
+  double exposure = 1;
 
   /// The haze, `0..1`.
   double haze = 0;
 
-  /// The colour lights add, `0..1`.
+  /// The colour lights add in the air, `0..1`.
   double glow = 0;
 
-  /// Whether anything needs lighting at all: dark, or some light on.
-  bool get isLit => darkness > 0 || count > 0;
+  /// Whether there is an ambience: a scene without one is drawn unlit.
+  bool lit = false;
 
-  /// Starts a frame's field over: no lights, [ambience]'s night (day when
-  /// there is none).
+  /// Whether the lighting has anything to do: the sky, as seen, darker
+  /// than white in some channel, or some light on.
+  bool get isLit =>
+      lit &&
+      (count > 0 ||
+          skyRed * exposure < 0.999 ||
+          skyGreen * exposure < 0.999 ||
+          skyBlue * exposure < 0.999);
+
+  // The ambience's own sky level, which a lamp's sensor reads.
+  double _sensed = 1;
+
+  /// What a lamp's light sensor reads: the sky's level before the moon and
+  /// the like are added ([Light.switchOnBelow]).
+  double get sensorLevel => _sensed;
+
+  /// Starts a frame's field over: no lights, [ambience]'s sky (white and
+  /// unlit when there is none).
   void begin(Ambience? ambience) {
+    if (ambience == null) {
+      count = 0;
+      lit = false;
+      skyRed = skyGreen = skyBlue = 1;
+      _sensed = 1;
+      exposure = 1;
+      haze = 0;
+      glow = 0;
+      return;
+    }
+    beginUnder(
+      sky: ambience.sky,
+      skyLight: ambience.skyLight,
+      adaptation: ambience.adaptation,
+      haze: ambience.haze,
+      glow: ambience.glow,
+    );
+  }
+
+  /// Starts a frame's field over under a sky of [sky] colour giving
+  /// [skyLight] (see [Ambience]).
+  void beginUnder({
+    required Color sky,
+    required double skyLight,
+    double adaptation = 1,
+    double haze = 0,
+    double glow = 0,
+  }) {
     count = 0;
-    darkness = ambience?.darkness.clamp(0.0, 1.0) ?? 0;
-    ambient = ambience?.ambient ?? const Color(0xFF060A16);
-    haze = ambience?.haze.clamp(0.0, 1.0) ?? 0;
-    glow = ambience?.glow.clamp(0.0, 1.0) ?? 0;
+    lit = true;
+    final light = math.max(skyLight, 0.0);
+    skyRed = sky.r * light;
+    skyGreen = sky.g * light;
+    skyBlue = sky.b * light;
+    _sensed = skyLevel;
+    _adaptation = math.max(adaptation, 1e-6);
+    this.haze = haze.clamp(0.0, 1.0);
+    this.glow = glow.clamp(0.0, 1.0);
+  }
+
+  double _adaptation = 1;
+
+  /// Ends a frame's field: what the eye adapts to, now that every light is
+  /// in.
+  void finish() {
+    if (lit) {
+      exposure = 1 / math.max(skyLevel, _adaptation);
+    }
   }
 
   /// Adds [light] at world [x], [y] (its anchor on its carrier), turned by
@@ -405,8 +492,15 @@ class LightField {
     double time,
     StreetProjection? projection,
   ) {
-    final strength = light.strengthAt(time, darkness);
+    final strength = light.strengthAt(time, _sensed);
     if (strength <= 0) {
+      return;
+    }
+    if (light.shape == LightShape.directional) {
+      // From no place: it is part of the sky's light.
+      skyRed += light.color.r * strength;
+      skyGreen += light.color.g * strength;
+      skyBlue += light.color.b * strength;
       return;
     }
     if ((count + 1) * stride > data.length) {
@@ -533,13 +627,6 @@ class LightField {
     final o = i * stride;
     final shape = data[o + _shape].round();
     final strength = data[o + _strength];
-    if (shape == LightShape.directional.index) {
-      toward
-        ?..[0] = data[o + _dirX]
-        ..[1] = data[o + _dirY]
-        ..[2] = 0;
-      return strength;
-    }
     // The nearest point of what glows to the point.
     var lx = data[o + _x];
     var ly = data[o + _y];
@@ -634,12 +721,13 @@ class LightField {
 
   final Float32List _toward = Float32List(3);
 
-  /// How lit world [x], [y] is, [inFront] of the street line, into [out]:
-  /// the base left of the night plus every light reaching it, and their mean
-  /// colour; with [forwardScatter] above 0 also what a drop of water there
-  /// throws on toward the eye (Henyey-Greenstein, g [forwardScatter]): a
-  /// drop between the eye and a lamp flares, one beside it shows what
-  /// reaches it, one behind the lamp less.
+  /// How lit world [x], [y] is, [inFront] of the street line, into [out],
+  /// as the eye sees it ([exposure]): the sky's light plus every light
+  /// reaching it, and the lights' mean colour; with [forwardScatter] above
+  /// 0 also what a drop of water there throws on toward the eye
+  /// (Henyey-Greenstein, g [forwardScatter]): a drop between the eye and a
+  /// lamp flares, one beside it shows what reaches it, one behind the lamp
+  /// less.
   void sample(
     double x,
     double y,
@@ -647,7 +735,8 @@ class LightField {
     double inFront = 0,
     double forwardScatter = 0,
   }) {
-    final base = 1 - darkness;
+    final e = exposure;
+    final base = lit ? math.min(skyLevel * e, 1.0) : 1.0;
     final g = forwardScatter;
     var total = 0.0;
     var scattered = base;
@@ -666,7 +755,7 @@ class LightField {
         // Henyey-Greenstein, x^1.5 as x * sqrt(x).
         final q = (1 + g * g) / (1 + g * g - 2 * g * mu);
         final phase = q * math.sqrt(q);
-        scattered += amount * phase;
+        scattered += amount * e * phase;
       }
       final o = i * stride;
       total += amount;
@@ -675,9 +764,9 @@ class LightField {
       b += data[o + _b] * amount;
     }
     out
-      ..added = total
-      ..light = base + total
-      ..scattered = g > 0 ? scattered : base + total;
+      ..added = total * e
+      ..light = base + total * e
+      ..scattered = g > 0 ? scattered : base + total * e;
     if (total <= 0) {
       out
         ..red = 1

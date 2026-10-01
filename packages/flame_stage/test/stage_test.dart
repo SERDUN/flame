@@ -23,9 +23,9 @@ class _Lamp extends PositionComponent with OnStage, LightCarrier {
 
 class _Night extends Component with OnStage, Ambience {
   @override
-  double darkness = 0.7;
+  Color get sky => const Color(0xFF8090FF);
   @override
-  Color get ambient => const Color(0xFF000000);
+  double skyLight = 0.3;
   @override
   double get haze => 0.3;
   @override
@@ -130,7 +130,8 @@ void main() {
       expect(frame.light.count, 1);
       expect(frame.light.xOf(0), 100);
       expect(frame.light.yOf(0), 290, reason: 'its offset on the lamp');
-      expect(frame.light.darkness, 0.7);
+      expect(frame.light.skyBlue, closeTo(0.3, 1e-6));
+      expect(frame.light.exposure, 1);
       expect(frame.shadows.count, 1);
       lamp.position.x = 150;
       road.band = const Rect.fromLTWH(0, 380, 800, 100);
@@ -140,11 +141,12 @@ void main() {
     },
   );
 
-  testWithFlameGame('with no ambience it is day', (game) async {
+  testWithFlameGame('with no ambience the scene is drawn unlit', (game) async {
     game.world.add(_Lamp(Vector2(100, 300)));
     await game.ready();
     game.update(1 / 60);
     final frame = game.world.children.whereType<Stage>().single.frame;
-    expect(frame.light.darkness, 0);
+    expect(frame.light.lit, isFalse);
+    expect(frame.light.isLit, isFalse);
   });
 }

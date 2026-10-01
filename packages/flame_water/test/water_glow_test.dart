@@ -50,7 +50,7 @@ Future<WaterSurface> _scene(
     if (road) _Road(),
     water,
     light ?? LightSource(position: Vector2(400, 300), radius: 60),
-    Lighting(ambient: const Color(0xFF000000), darkness: 1, glow: 0, haze: 0),
+    Lighting(skyLight: 0, glow: 0, haze: 0),
   ]);
   await game.ready();
   return water;
@@ -153,7 +153,7 @@ void main() {
       ),
       // A bulb 5 cm across, a metre over the water.
       LightSource(position: Vector2(4, 3), radius: 1, sourceRadius: 0.05),
-      Lighting(ambient: const Color(0xFF000000), darkness: 1, glow: 0, haze: 0),
+      Lighting(skyLight: 0, glow: 0, haze: 0),
     ]);
     await game.ready();
     final at = await _render(game);

@@ -1,3 +1,5 @@
+import 'dart:ui';
+
 import 'package:examples/stories/wet_world/street.dart';
 import 'package:flame/components.dart';
 import 'package:flame/game.dart';
@@ -6,7 +8,7 @@ import 'package:flame_water/flame_water.dart';
 
 class RainyNightExample extends FlameGame {
   RainyNightExample({
-    this.darkness = 0.7,
+    this.skyLight = 0.15,
     this.glow = 0.35,
     this.haze = 0.5,
     this.rain = 1,
@@ -19,15 +21,19 @@ class RainyNightExample extends FlameGame {
   static const String description = '''
     A street at night in the rain, made only of elements - the road, its
     film of water, puddles, houses, lamps, a walker with a torch, the rain,
-    the night. Everything that happens between them is their own: the rain
+    the sky. Everything that happens between them is their own: the rain
     falls on whatever catches it, the water ripples and bends what it
-    mirrors, the houses get wet and glint, the lights cut the night, lay
-    pools on the road and show in the water. Stop the rain and the street
+    mirrors, the houses get wet and glint, the lights light the street, lay
+    pools on the road and show in the water. Raise the sky's light and the
+    same street comes into the day: the eye adapts, and the lamps fade
+    against the sky. Stop the rain and the street
     dries as fast as the weather dries it: the walls first, then the
     asphalt, the puddles last.
   ''';
 
-  final double darkness;
+  /// How much light the sky gives (lights' units): 0.15 a cloudy night
+  /// over a town, 40 noon.
+  final double skyLight;
   final double glow;
   final double haze;
   final double rain;
@@ -42,14 +48,14 @@ class RainyNightExample extends FlameGame {
 
   /// Changes the weather on the running street, keeping how wet it has got.
   void setWeather({
-    required double darkness,
+    required double skyLight,
     required double glow,
     required double haze,
     required double rain,
     required double drying,
   }) {
     _lighting
-      ?..darkness = darkness
+      ?..skyLight = skyLight
       ..glow = glow
       ..haze = haze;
     _rain
@@ -74,7 +80,13 @@ class RainyNightExample extends FlameGame {
       wetRoad(),
       puddle(left: 260, width: 320),
       puddle(left: 500, width: 130, top: 398, height: 44),
-      _lighting = Lighting(darkness: darkness, glow: glow, haze: haze),
+      _lighting = Lighting(
+        // A cloudy night's light, a little blue.
+        sky: const Color(0xFFB4C4FF),
+        skyLight: skyLight,
+        glow: glow,
+        haze: haze,
+      ),
       _rain = Rain(intensity: rain, drying: drying),
     ]);
     setWetness(wetness);

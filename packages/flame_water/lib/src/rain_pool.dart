@@ -70,7 +70,7 @@ class DropPool extends _Pool {
   static const int _bounced = 13;
   static const int _sharp = 14;
 
-  /// How it looks this frame, over the night and under it, ARGB.
+  /// How it looks this frame, over the lighting and under it, ARGB.
   Int32List color = Int32List(256);
   Int32List colorUnder = Int32List(256);
 
@@ -163,7 +163,7 @@ class DropletPool extends _Pool {
   static const int _age = 8;
   static const int _drawn = 9;
 
-  /// How it looks this frame, over the night and under it, ARGB.
+  /// How it looks this frame, over the lighting and under it, ARGB.
   Int32List color = Int32List(256);
   Int32List colorUnder = Int32List(256);
 

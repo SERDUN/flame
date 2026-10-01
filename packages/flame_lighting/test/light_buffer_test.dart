@@ -34,11 +34,15 @@ void main() {
     final into = Float32List(LightBuffer.floats);
     LightBuffer.write(into, frame, const Rect.fromLTWH(0, 0, 800, 600));
     expect(into.sublist(0, 4), [0, 0, 800, 600]);
-    expect(into[9], LightBuffer.maxLights, reason: 'capped, the sky left out');
+    expect(into[9], LightBuffer.maxLights, reason: 'capped');
+    expect(into[12], frame.light.exposure, reason: 'the eye adapts');
     // The strongest first: the 20th lamp, 19/20.
-    expect(into[12 + 7], closeTo(19 / 20, 1e-6));
+    expect(into[LightBuffer.lightsAt + 7], closeTo(19 / 20, 1e-6));
     for (var k = 0; k < LightBuffer.maxLights; k++) {
-      expect(into[12 + k * LightField.lightFloats], lessThan(1000));
+      expect(
+        into[LightBuffer.lightsAt + k * LightField.lightFloats],
+        lessThan(1000),
+      );
     }
   });
 
@@ -52,8 +56,8 @@ void main() {
       source,
       contains('const int kMaxShadows = ${LightBuffer.maxShadows};'),
     );
-    // view, street, info, then the lights' five vectors and the capsules'
-    // two.
+    // view, street, info, look, then the lights' five vectors and the
+    // capsules' two.
     expect(
       RegExp(
         r'uniform Params \{\s*vec4 view;[^}]*vec4 street;[^}]*vec4 info;'

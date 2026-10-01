@@ -9,7 +9,7 @@ import 'package:flame_stage/flame_stage.dart';
 
 /// Every light of a frame added up once, on the GPU, into a float image of
 /// the view: in each pixel the light cast there (rgb, brighter than white
-/// where it is) and how much of the night is left (a).
+/// where it is) and what glows there itself, as white light (a).
 ///
 /// It is the lighting's fast path: one pass for all the lights, where the
 /// canvas path draws each light on each plane, twice. The lighting then
@@ -34,18 +34,20 @@ abstract class LightBuffer {
   static const int maxShadows = 8;
 
   /// Floats of its parameters (`Params` in light_buffer.frag).
-  static const int floats = 4 * (3 + maxLights * 5 + maxShadows * 2);
+  static const int floats = 4 * (4 + maxLights * 5 + maxShadows * 2);
+
+  /// Where the lights start, in floats.
+  static const int lightsAt = 16;
 
   /// Adds up [frame]'s lights over [area] (world) into an image [width] by
-  /// [height] pixels: (r, g, b) the light cast, a the night left.
+  /// [height] pixels: (r, g, b) the light cast, a what glows itself.
   ui.Image? render(StageFrame frame, ui.Rect area, int width, int height);
 
   void dispose();
 
   /// Writes [frame]'s parameters over [area] into [into]: the area, the
-  /// street, the lights - the strongest [maxLights] that reach the area,
-  /// the moon and sky left out (they lift the dark everywhere, which the
-  /// lighting does itself) - and the shadows.
+  /// street, the lights - the strongest [maxLights] that reach the area -
+  /// the shadows, and the eye's exposure.
   static void write(Float32List into, StageFrame frame, ui.Rect area) {
     into.fillRange(0, into.length, 0);
     final field = frame.light;
@@ -70,9 +72,6 @@ abstract class LightBuffer {
     }
     final picked = _picked..clear();
     for (var i = 0; i < field.count; i++) {
-      if (field.shapeOf(i) == LightShape.directional) {
-        continue;
-      }
       final r = field.reachOf(i) + field.haloRadiusOf(i);
       final x = field.xOf(i);
       final y = field.yOf(i);
@@ -90,7 +89,7 @@ abstract class LightBuffer {
     }
     final n = math.min(picked.length, maxLights);
     for (var k = 0; k < n; k++) {
-      field.writeLight(picked[k], into, 12 + k * LightField.lightFloats);
+      field.writeLight(picked[k], into, lightsAt + k * LightField.lightFloats);
     }
     final shadows = frame.shadows;
     final capsules = math.min(shadows.count, maxShadows);
@@ -98,9 +97,12 @@ abstract class LightBuffer {
       ..[9] = n.toDouble()
       ..[10] = capsules.toDouble()
       ..[11] = field.haze
+      ..[12] = field.exposure
       ..setRange(
-        12 + maxLights * LightField.lightFloats,
-        12 + maxLights * LightField.lightFloats + capsules * ShadowSet.stride,
+        lightsAt + maxLights * LightField.lightFloats,
+        lightsAt +
+            maxLights * LightField.lightFloats +
+            capsules * ShadowSet.stride,
         shadows.data,
       );
   }

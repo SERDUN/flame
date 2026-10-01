@@ -20,7 +20,8 @@ WidgetbookComponent wetWorldStories() {
       ExampleUseCase(
         name: 'Rainy night',
         builder: (context) => _RainyNight(
-          darkness: _number(context, 'darkness', 0.7),
+          // The sky's light: 0.15 a cloudy night over a town, 40 noon.
+          skyLight: _number(context, 'sky light', 0.15),
           glow: _number(context, 'glow', 0.35),
           haze: _number(context, 'haze', 0.5),
           rain: _number(context, 'rain', 1),
@@ -63,7 +64,7 @@ WidgetbookComponent wetWorldStories() {
 /// starting over. Setting the ground wetness wets it that much at once.
 class _RainyNight extends StatefulWidget {
   const _RainyNight({
-    required this.darkness,
+    required this.skyLight,
     required this.glow,
     required this.haze,
     required this.rain,
@@ -71,7 +72,7 @@ class _RainyNight extends StatefulWidget {
     required this.wetness,
   });
 
-  final double darkness;
+  final double skyLight;
   final double glow;
   final double haze;
   final double rain;
@@ -84,7 +85,7 @@ class _RainyNight extends StatefulWidget {
 
 class _RainyNightState extends State<_RainyNight> {
   late final RainyNightExample _game = RainyNightExample(
-    darkness: widget.darkness,
+    skyLight: widget.skyLight,
     glow: widget.glow,
     haze: widget.haze,
     rain: widget.rain,
@@ -96,7 +97,7 @@ class _RainyNightState extends State<_RainyNight> {
   void didUpdateWidget(_RainyNight old) {
     super.didUpdateWidget(old);
     _game.setWeather(
-      darkness: widget.darkness,
+      skyLight: widget.skyLight,
       glow: widget.glow,
       haze: widget.haze,
       rain: widget.rain,
