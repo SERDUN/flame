@@ -14,6 +14,13 @@ mixin RainCatcher on Component {
   /// not caught here.
   double? catchDrop(double x, double fromY, double toY, double depth);
 
+  /// How near the eye its front stands, as a drop's depth; `null` if it
+  /// lies along the ground (water, a road). Rain falling nearer the eye
+  /// than that passes in front of it: something standing on the street
+  /// line (0) - a house - only catches the rain behind that line, on its
+  /// roofs and sills.
+  double? get frontDepth => null;
+
   /// Of two catchers stopping a drop at the same height, the higher takes it.
   int get catchOrder => 0;
 

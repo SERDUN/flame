@@ -96,10 +96,19 @@ class WaterSurface extends PositionComponent
 
   WaterShape shape;
 
-  /// World y of the line the world is mirrored about; `null`: the surface's
-  /// top edge. A puddle on a road lies below the line things stand on - set
-  /// it to that line, and the feet meet their reflection.
+  /// World y of the line the world is mirrored about; `null`: the line
+  /// things stand on - the top of the world's [Ground] - or, with no
+  /// ground, the surface's top edge. A puddle on a road lies below that
+  /// line and still mirrors about it, so feet meet their reflection;
+  /// something standing elsewhere says so itself
+  /// (`Reflectable.reflectionBase`).
   double? waterLine;
+
+  /// The line the world is mirrored about now, world y.
+  double get _line =>
+      waterLine ??
+      Ground.of(this)?.groundBand().top ??
+      absoluteTopLeftPosition.y;
 
   /// The water under its reflection.
   Color color;
@@ -260,7 +269,7 @@ class WaterSurface extends PositionComponent
     }
     final rect = size.toRect();
     final origin = absoluteTopLeftPosition;
-    final line = (waterLine ?? origin.y) - origin.y;
+    final line = _line - origin.y;
     canvas
       ..save()
       ..translate(origin.x, origin.y);
@@ -424,7 +433,7 @@ class WaterSurface extends PositionComponent
     }
     final rect = size.toRect();
     final origin = absoluteTopLeftPosition;
-    final line = (waterLine ?? origin.y) - origin.y;
+    final line = _line - origin.y;
     final outline = this.outline();
     final program = WaterShader.program;
     if (quality == WaterQuality.rippled && program != null && _shown > 0) {
@@ -581,7 +590,7 @@ class WaterSurface extends PositionComponent
   /// the water line to show it mirrored about [base] instead - the line it
   /// stands on, or a drop the spot it falls to.
   double mirrorShift(double base) {
-    final line = waterLine ?? absoluteTopLeftPosition.y;
+    final line = _line;
     return -(base - line) * (1 + squash) / squash;
   }
 

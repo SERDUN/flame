@@ -192,6 +192,11 @@ class Rain extends Component with Reflectable {
     RainCatcher? by;
     var at = double.infinity;
     for (final c in catchers) {
+      final front = c.frontDepth;
+      if (front != null && d.depth >= front) {
+        // It falls in front of this one.
+        continue;
+      }
       final y = c.catchDrop(d.at.x, from, d.at.y, d.depth);
       if (y == null) {
         continue;

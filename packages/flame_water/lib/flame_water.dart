@@ -9,4 +9,4 @@ export 'src/reflection_pass.dart' show ReflectionPass, Reflectable;
 export 'src/ripple_rings.dart' show RippleRings;
 export 'src/water_shader.dart' show WaterShader;
 export 'src/water_surface.dart' show WaterQuality, WaterShape, WaterSurface;
-export 'src/wettable.dart' show Wettable;
+export 'src/wettable.dart' show WetSheen, Wettable;

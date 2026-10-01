@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import 'package:flame/components.dart';
+import 'package:flame_lighting/flame_lighting.dart';
 import 'package:flame_water/src/rain.dart';
 
 /// Something rain wets: a wall, a road, a car, a puddle.
@@ -66,4 +67,19 @@ mixin Wettable on Component {
     final held = wet / rate;
     wetness = held + (wetness - held) * math.exp(-rate * dt);
   }
+}
+
+/// Something that shines and darkens as wet as it is: a wall, a roof, a
+/// car. Ties a [Wettable]'s wetness to a [Glossy] look - it darkens as its
+/// pores fill ([Wettable.wetDarkening]) and shines once a film forms on it
+/// ([Wettable.wetGloss]), up to [soakedGloss].
+mixin WetSheen on Glossy, Wettable {
+  /// How glossy it is soaked, `0..1`: glazed tiles more than brick.
+  double get soakedGloss => 0.6;
+
+  @override
+  double get gloss => soakedGloss * wetGloss;
+
+  @override
+  double get darkening => wetDarkening;
 }
