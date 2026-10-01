@@ -31,6 +31,7 @@ dev_dependencies:
 
 flutter:
   shaders:
+    - shaders/veil.frag
     - shaders/water.frag
   assets:
     # Built by hook/build.dart from flame_water.shaderbundle.json.
