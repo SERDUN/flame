@@ -98,13 +98,24 @@ void main() {
     },
   );
 
-  test('a shader gets a light as four vectors', () {
+  test('a shader gets a light as five vectors', () {
     final field = _field([(Light.point(intensity: 0.9, radius: 70), 30, 40)]);
-    final into = Float32List(16);
+    final into = Float32List(LightField.lightFloats);
     field.writeLight(0, into, 0);
     expect(into.sublist(0, 2), [30, 40], reason: 'where');
     expect(into[7], closeTo(0.9, 1e-6), reason: 'how strong');
     expect(into[8], 70, reason: 'how far it reaches');
+  });
+
+  test('a lamp shining down lights round its bulb too, near it', () {
+    final field = _field([
+      (Light.cone(radius: 300, spread: 1, spill: 0.8, spillRadius: 40), 0, 0),
+    ]);
+    // Above the bulb is outside the cone; the spill lights it near the
+    // bulb, and not far off.
+    expect(field.reach(0, 0, -20, 0), closeTo(0.8 * 0.25, 1e-6));
+    expect(field.reach(0, 0, -60, 0), 0);
+    expect(field.reach(0, 0, 100, 0), greaterThan(0.3), reason: 'the cone');
   });
 
   group('shadows', () {
