@@ -286,4 +286,167 @@ void main() {
     expect(at(440, 340), greaterThan(at(360, 340) + 5), reason: 'glinting');
     expect(at(100, 100), lessThan(10), reason: 'nothing where it is dark');
   });
+
+  testWithFlameGame('two lamps light two places in one frame', (game) async {
+    await _setUp(
+      game,
+      [
+        LightSource(
+          position: Vector2(200, 300),
+          color: const Color(0xFFFF0000),
+        ),
+        LightSource(
+          position: Vector2(600, 300),
+          color: const Color(0xFF0000FF),
+        ),
+      ],
+      wall: const Color(0xFF000000),
+      darkness: 0,
+      glow: 1,
+    );
+    final at = await _renderRgb(game);
+    // Each draw keeps the uniforms it was given: the red lamp's light is
+    // red, the blue one's blue (off the bulbs, which are near white).
+    expect(at(200, 330).r, greaterThan(100));
+    expect(at(200, 330).b, lessThan(10));
+    expect(at(600, 330).b, greaterThan(100));
+    expect(at(600, 330).r, lessThan(10));
+  });
+
+  testWithFlameGame('the shader lights as much as the field says', (
+    game,
+  ) async {
+    final lamp = LightSource(
+      position: Vector2(400, 200),
+      radius: 300,
+      coneAngle: 1.6,
+      color: const Color(0xFFFFFFFF),
+    );
+    await _setUp(
+      game,
+      [lamp],
+      wall: const Color(0xFF000000),
+      darkness: 0,
+      glow: 1,
+    );
+    final at = await _render(game);
+    final field = lamp.stage!.frame.light;
+    // Along the axis, across the soft edge and out to the reach: the light
+    // drawn and the light rain and walls are given agree.
+    for (final (x, y) in const [
+      (400, 260),
+      (400, 400),
+      (470, 330),
+      (560, 330),
+      (600, 300),
+      (400, 480),
+    ]) {
+      final expected = (field.reach(0, x.toDouble(), y.toDouble(), 0) * 255)
+          .clamp(0, 255);
+      expect(at(x, y), closeTo(expected, 4), reason: 'at ($x, $y)');
+    }
+  });
+
+  testWithFlameGame('a lamp shining down lights its own head', (game) async {
+    final lamp = LightSource(
+      position: Vector2(400, 200),
+      radius: 300,
+      coneAngle: 1.2,
+      color: const Color(0xFFFFFFFF),
+      spill: 0.8,
+      spillRadius: 60,
+    );
+    await _setUp(
+      game,
+      [lamp],
+      wall: const Color(0xFF000000),
+      darkness: 0,
+      glow: 1,
+    );
+    final at = await _render(game);
+    final field = lamp.stage!.frame.light;
+    for (final (x, y) in const [
+      (400, 170),
+      (430, 190),
+      (400, 150),
+      (400, 300),
+    ]) {
+      final expected = (field.reach(0, x.toDouble(), y.toDouble(), 0) * 255)
+          .clamp(0, 255);
+      expect(at(x, y), closeTo(expected, 4), reason: 'at ($x, $y)');
+    }
+    expect(at(400, 170), greaterThan(40), reason: 'above the bulb, lit');
+    expect(at(400, 130), lessThan(5), reason: 'past the spill, dark');
+  });
+
+  testWithFlameGame('a zoomed camera lights where the lamp is', (game) async {
+    await LightShader.load(directory: 'shaders');
+    game.onGameResize(Vector2(800, 600));
+    game.camera.viewfinder
+      ..anchor = Anchor.topLeft
+      ..zoom = 2
+      ..position = Vector2(300, 200);
+    game.world.addAll([
+      _Wall(const Color(0xFFFFFFFF)),
+      Lighting(ambient: const Color(0xFF000000), darkness: 1, glow: 0, haze: 0),
+      LightSource(position: Vector2(400, 300), radius: 60),
+    ]);
+    await game.ready();
+    final at = await _render(game);
+    // World (400, 300) is at ((400 - 300) * 2, (300 - 200) * 2) on screen.
+    expect(at(200, 200), greaterThan(230));
+    expect(at(400, 300), lessThan(10), reason: 'not at its world place');
+  });
+
+  testWithFlameGame('before the shader is loaded a light is a soft disc', (
+    game,
+  ) async {
+    LightShader.reset();
+    game.onGameResize(Vector2(800, 600));
+    game.camera.viewfinder.anchor = Anchor.topLeft;
+    game.world.addAll([
+      _Wall(const Color(0xFFFFFFFF)),
+      Lighting(ambient: const Color(0xFF000000), darkness: 1, glow: 0, haze: 0),
+      LightSource(position: Vector2(400, 300)),
+    ]);
+    await game.ready();
+    final at = await _render(game);
+    expect(at(400, 300), greaterThan(230));
+    expect(at(400, 380), lessThan(at(400, 320)));
+    expect(at(100, 100), lessThan(10));
+    await LightShader.load(directory: 'shaders');
+  });
+
+  testWithFlameGame('a wet wall in a scaled layer glints where the lamp is', (
+    game,
+  ) async {
+    // The wall in a layer drawn at half size: its gloss area is still in
+    // world coordinates, and its sheen must land there, not at half of it.
+    final layer = PositionComponent(scale: Vector2.all(0.5))..add(_WetWall(1));
+    await _setUp(game, [
+      LightSource(position: Vector2(400, 300)),
+      layer,
+    ], wall: const Color(0xFF808080));
+    final at = await _render(game);
+    expect(at(440, 340), greaterThan(at(360, 340) + 5), reason: 'glinting');
+  });
+}
+
+/// The rendered game's colour at a pixel.
+Future<({int r, int g, int b}) Function(int x, int y)> _renderRgb(
+  FlameGame game,
+) async {
+  game.update(1 / 60);
+  final recorder = PictureRecorder();
+  game.render(Canvas(recorder));
+  final image = await recorder.endRecording().toImage(800, 600);
+  final bytes = (await image.toByteData())!;
+  return (int x, int y) {
+    final i = (y * 800 + x) * 4;
+    return (
+      r: bytes.getUint8(i),
+      g: bytes.getUint8(i + 1),
+      b: bytes.getUint8(i + 2),
+    );
+  };
 }

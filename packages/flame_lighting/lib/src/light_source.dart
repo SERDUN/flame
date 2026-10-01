@@ -16,7 +16,8 @@ import 'package:flame_stage/flame_stage.dart';
 /// one that also draws them.
 class LightSource extends PositionComponent with OnStage, LightCarrier {
   /// A bulb, or with [coneAngle] a cone along [coneDirection] (y down, so
-  /// pi / 2 is straight down).
+  /// pi / 2 is straight down) whose bulb throws [spill] of its light all
+  /// round within [spillRadius] - a street lamp lighting its own head.
   LightSource({
     super.position,
     Color color = const Color(0xFFFFD9A0),
@@ -30,6 +31,8 @@ class LightSource extends PositionComponent with OnStage, LightCarrier {
     Falloff falloff = Falloff.smooth,
     double? onAtDarkness,
     int seed = 0,
+    double spill = 0,
+    double spillRadius = 0,
   }) : light = coneAngle == null
            ? Light.point(
                color: color,
@@ -54,6 +57,8 @@ class LightSource extends PositionComponent with OnStage, LightCarrier {
                falloff: falloff,
                onAtDarkness: onAtDarkness,
                seed: seed,
+               spill: spill,
+               spillRadius: spillRadius,
              );
 
   /// Any [light], at [position].
@@ -66,6 +71,26 @@ class LightSource extends PositionComponent with OnStage, LightCarrier {
   Iterable<Light> get lights => [light];
 
   final Paint _glow = Paint();
+
+  /// The halo the haze makes round a source at [center], [radius] wide, in
+  /// [color] at [alpha]: one profile for the halo a light draws and the
+  /// one the lighting cuts out of the night, which must match or a ring
+  /// shows round each.
+  static Gradient halo(
+    Offset center,
+    double radius,
+    Color color,
+    double alpha,
+  ) => Gradient.radial(
+    center,
+    radius,
+    [
+      color.withValues(alpha: alpha),
+      color.withValues(alpha: alpha * 0.35),
+      color.withValues(alpha: 0),
+    ],
+    const [0, 0.25, 1],
+  );
 
   /// How bright it is now.
   double get strength {
@@ -103,17 +128,7 @@ class LightSource extends PositionComponent with OnStage, LightCarrier {
     if (haze > 0) {
       // Wet air scatters the light into a wide soft halo round the source.
       final halo = r * (6 + 24 * haze);
-      final a = haze * s * 0.6;
-      _glow.shader = Gradient.radial(
-        at,
-        halo,
-        [
-          light.color.withValues(alpha: a),
-          light.color.withValues(alpha: a * 0.35),
-          light.color.withValues(alpha: 0),
-        ],
-        const [0, 0.25, 1],
-      );
+      _glow.shader = LightSource.halo(at, halo, light.color, haze * s * 0.6);
       canvas.drawCircle(at, halo, _glow);
     }
     // The source itself: nearly white at its heart.
