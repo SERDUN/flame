@@ -11,3 +11,5 @@
 - `Weather`: rain in mm an hour, wind, humidity, temperature, clouds and the world's pace, read into `StageFrame.weather` with evaporation, haze and visibility.
 - `colorOfKelvin`: a light's colour from its temperature.
 - `Ambience.adaptsIn`: the eye adapts over time.
+- `Daylight.at`: the sky's and the sun's light, colours and the sky's own look for a sun's elevation and clouds.
+- `Light.sun`: direct light with a direction and shadows.

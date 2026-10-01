@@ -76,41 +76,53 @@ class ShadowSet {
     double source,
   ) {
     var light = 1.0;
+    final ex = px - lx;
+    final ey = py - ly;
+    final ez = pz - lz;
+    final length = math.sqrt(ex * ex + ey * ey + ez * ez);
     for (var i = 0; i < count; i++) {
       final o = i * stride;
       final cz = data[o + 5];
       final half = data[o + 6] / 2;
-      // Where along the way from the light to the point it passes the
-      // capsule's depth; light and point both on one side do not pass it.
-      final dz = pz - lz;
-      double t;
-      double distance;
-      final lightIn = (lz - cz).abs() <= half;
-      final pointIn = (pz - cz).abs() <= half;
-      if (dz.abs() < 1e-6 || (lightIn && pointIn)) {
-        // The whole way lies in the capsule's depth: how near it comes to
-        // the capsule on screen.
-        if (!lightIn || !pointIn) {
-          continue;
-        }
-        // Light and point at the capsule's depth: the nearest the way from
-        // one to the other comes to the capsule.
-        final (along, apart) = _segments(lx, ly, px, py, o);
-        t = along.clamp(0.02, 0.98);
-        distance = apart;
-      } else {
-        t = (cz - lz) / dz;
-        final tHalf = half / dz.abs();
-        if (t + tHalf <= 0.02 || t - tHalf >= 0.98) {
-          continue;
-        }
-        t = t.clamp(0.02, 0.98);
-        distance = _toSegment(lx + (px - lx) * t, ly + (py - ly) * t, o);
-      }
       final radius = data[o + 4];
+      // How near either end of the way an occluder may be and still count,
+      // as a share of the way: a capsule's radius - on a lamp's short way
+      // no nearer than 2 %, on the sun's long one a body's width.
+      final end = math.min(0.02, radius / math.max(length, 1e-9));
+      // The part of the way from the light to the point that runs through
+      // the capsule's depth, kept off both ends; then the nearest that part
+      // comes to the capsule on screen. Taken from the point back, so the
+      // sun's far-off light keeps its precision.
+      double t0;
+      double t1;
+      if (ez.abs() < 1e-9) {
+        if ((lz - cz).abs() > half) {
+          continue;
+        }
+        t0 = 0;
+        t1 = 1;
+      } else {
+        final ta = (cz - half - lz) / ez;
+        final tb = (cz + half - lz) / ez;
+        t0 = math.min(ta, tb);
+        t1 = math.max(ta, tb);
+      }
+      t0 = math.max(t0, end);
+      t1 = math.min(t1, 1 - end);
+      if (t0 >= t1) {
+        continue;
+      }
+      final (along, distance) = _segments(
+        px - ex * (1 - t0),
+        py - ey * (1 - t0),
+        px - ex * (1 - t1),
+        py - ey * (1 - t1),
+        o,
+      );
+      final t = t0 + (t1 - t0) * along;
       // The penumbra: a source of radius s, the occluder at t along the way,
       // blurs the shadow's edge by s(1 - t) / t at the occluder's distance.
-      final blur = math.max(source * (1 - t), 1e-3);
+      final blur = math.max(source * (1 - t), radius * 1e-3);
       final s = ((distance - radius) / blur + 0.5).clamp(0.0, 1.0);
       final visible = s * s * (3 - 2 * s);
       light *= 1 - data[o + 7] * (1 - visible);
@@ -119,22 +131,6 @@ class ShadowSet {
       }
     }
     return light;
-  }
-
-  /// Distance from ([x], [y]) to capsule [o]'s segment.
-  double _toSegment(double x, double y, int o) {
-    final ax = data[o];
-    final ay = data[o + 1];
-    final bx = data[o + 2];
-    final by = data[o + 3];
-    final abx = bx - ax;
-    final aby = by - ay;
-    final len2 = abx * abx + aby * aby;
-    var t = len2 < 1e-9 ? 0.0 : ((x - ax) * abx + (y - ay) * aby) / len2;
-    t = t.clamp(0.0, 1.0);
-    final dx = x - (ax + abx * t);
-    final dy = y - (ay + aby * t);
-    return math.sqrt(dx * dx + dy * dy);
   }
 
   /// The nearest the segment from (px1, py1) to (px2, py2) comes to

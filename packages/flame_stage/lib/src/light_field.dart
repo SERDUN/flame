@@ -67,6 +67,7 @@ class Light {
     this.standsAt,
     this.spill = 0,
     this.spillRadius = 0,
+    this.sunToward,
   }) : offset = offset ?? Vector2.zero(),
        extent = extent ?? Vector2.zero();
 
@@ -203,7 +204,29 @@ class Light {
          sourceRadius: 0,
        );
 
+  /// The sun: direct light from far off along [toward] - where its light
+  /// goes, x across, y down, z out of the scene toward the eye - and
+  /// everything in its way casts a shadow, sharp near what casts it and
+  /// softer farther off (the sun is half a degree across). A sun low behind
+  /// the eye lights the house fronts and lays long shadows into the scene; a
+  /// sun behind the houses leaves their fronts to the sky.
+  Light.sun({
+    required Vector3 toward,
+    Color color = const Color(0xFFFFF4E0),
+    double intensity = 1,
+  }) : this(
+         shape: LightShape.directional,
+         color: color,
+         intensity: intensity,
+         sourceRadius: 0,
+         sunToward: toward,
+       );
+
   LightShape shape;
+
+  /// Where a sun's light goes ([Light.sun]); `null` for light from no
+  /// place - the moon, an overcast sky - which only adds to the sky's.
+  Vector3? sunToward;
 
   /// Where on its carrier it is, in the carrier's own coordinates (for a
   /// carrier that is not a `PositionComponent`, world coordinates).
@@ -439,6 +462,7 @@ class LightField {
   void begin(Ambience? ambience, {WeatherState? weather}) {
     if (ambience == null) {
       count = 0;
+      _sunLevel = 0;
       lit = false;
       skyRed = skyGreen = skyBlue = 1;
       _sensed = 1;
@@ -469,6 +493,7 @@ class LightField {
   }) {
     _adaptsIn = math.max(adaptsIn, 0);
     count = 0;
+    _sunLevel = 0;
     lit = true;
     final light = math.max(skyLight, 0.0);
     skyRed = sky.r * light;
@@ -493,7 +518,7 @@ class LightField {
       _adapted = false;
       return;
     }
-    final target = 1 / math.max(skyLevel, _adaptation);
+    final target = 1 / math.max(skyLevel + _sunLevel, _adaptation);
     if (!_adapted || _adaptsIn <= 0 || dt <= 0) {
       exposure = target;
       _adapted = true;
@@ -523,7 +548,8 @@ class LightField {
     if (strength <= 0) {
       return;
     }
-    if (light.shape == LightShape.directional) {
+    final toward = light.sunToward;
+    if (light.shape == LightShape.directional && toward == null) {
       // From no place: it is part of the sky's light.
       skyRed += light.color.r * strength;
       skyGreen += light.color.g * strength;
@@ -561,8 +587,37 @@ class LightField {
       ..[o + _edge] = edge
       ..[o + _spill] = light.shape == LightShape.cone ? light.spill : 0
       ..[o + _spillRadius] = light.spillRadius;
+    if (toward != null) {
+      // A sun: where its light goes, x and y where a light's way is kept,
+      // z where its depth is; it reaches everywhere; it is half a degree
+      // across, as wide as that at [sunDistance].
+      final way = toward.normalized();
+      data
+        ..[o + _dirX] = way.x
+        ..[o + _dirY] = way.y
+        ..[o + _ahead] = way.z
+        ..[o + _radius] = double.infinity
+        ..[o + _source] = sunDistance * 0.0046;
+      _sunLevel +=
+          strength *
+          (0.2126 * light.color.r +
+              0.7152 * light.color.g +
+              0.0722 * light.color.b) *
+          math.max(way.y, 0);
+    }
     count++;
   }
+
+  /// How far off a sun's light is taken to come from, world units: far
+  /// enough that its rays are parallel over a scene.
+  static const double sunDistance = 1e5;
+
+  /// Whether light [i] is a sun ([Light.sun]).
+  bool isSunOf(int i) =>
+      data[i * stride + _shape].round() == LightShape.directional.index;
+
+  // The suns' light on open ground, for the eye's adaptation.
+  double _sunLevel = 0;
 
   // Per light, read back.
   double xOf(int i) => data[i * stride + _x];
@@ -654,6 +709,9 @@ class LightField {
     final o = i * stride;
     final shape = data[o + _shape].round();
     final strength = data[o + _strength];
+    if (shape == LightShape.directional.index) {
+      return strength * _sunThrough(o, x, y, inFront, toward);
+    }
     // The nearest point of what glows to the point.
     var lx = data[o + _x];
     var ly = data[o + _y];
@@ -719,7 +777,7 @@ class LightField {
         x,
         y,
         inFront,
-        math.max(data[o + _source], 1),
+        data[o + _source],
       );
     }
     return amount;
@@ -747,6 +805,37 @@ class LightField {
   }
 
   final Float32List _toward = Float32List(3);
+
+  /// How much of sun [o]'s light gets to ([x], [y], [inFront]) past
+  /// everything in its way.
+  double _sunThrough(
+    int o,
+    double x,
+    double y,
+    double inFront,
+    Float32List? toward,
+  ) {
+    final dx = data[o + _dirX];
+    final dy = data[o + _dirY];
+    final dz = data[o + _ahead];
+    toward
+      ?..[0] = dx
+      ..[1] = dy
+      ..[2] = dz;
+    final shadows = this.shadows;
+    if (shadows == null || shadows.count == 0) {
+      return 1;
+    }
+    return shadows.through(
+      x - dx * sunDistance,
+      y - dy * sunDistance,
+      inFront - dz * sunDistance,
+      x,
+      y,
+      inFront,
+      data[o + _source],
+    );
+  }
 
   /// How lit world [x], [y] is, [inFront] of the street line, into [out],
   /// as the eye sees it ([exposure]): the sky's light plus every light

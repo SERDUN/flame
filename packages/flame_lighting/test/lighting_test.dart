@@ -52,6 +52,18 @@ class _Post extends Component with OnStage, ShadowCaster {
   );
 }
 
+/// The sun, going [toward].
+class _Sun extends Component with OnStage, LightCarrier {
+  _Sun(this.toward);
+
+  final Vector3 toward;
+
+  @override
+  Iterable<Light> get lights => [
+    Light.sun(toward: toward, color: const Color(0xFFFFFFFF)),
+  ];
+}
+
 /// The moon.
 class _Moon extends Component with OnStage, LightCarrier {
   _Moon(this.intensity);
@@ -455,6 +467,32 @@ void main() {
     expect(night, greaterThan(60));
     expect(day, lessThan(8), reason: 'a speck against the sky');
   });
+
+  testWithFlameGame(
+    'the sun lays a post\'s shadow along the road, away from it',
+    (
+      game,
+    ) async {
+      await _setUp(
+        game,
+        [
+          _Ground(),
+          // From the upper left, down onto the road and a little into it.
+          _Sun(Vector3(1, 1, 0.2)),
+          _Post(470, 330, 415, depth: 0.1),
+        ],
+        wall: const Color(0xFFFFFFFF),
+      );
+      final at = await _render(game);
+      // The road at the post's row: lit to its left, shaded to its right.
+      expect(at(420, 415), greaterThan(100), reason: 'lit');
+      expect(
+        at(520, 415),
+        lessThan(at(420, 415) ~/ 3),
+        reason: 'in its shadow',
+      );
+    },
+  );
 }
 
 /// The rendered game's colour at a pixel.
