@@ -13,11 +13,18 @@ mixin Ground on Component {
   /// The band, world coordinates.
   Rect groundBand();
 
-  // How the ground lies before the eye. The band is the ground from the
-  // street line (depth 0) to the nearest ground in view (depth 1); these
-  // say how far that really is and from how high it is seen, world units,
-  // so what depends on the angle of view - how water mirrors, where light
-  // falls, how rain scatters it - follows from one place.
+  // How the ground lies before the eye, and the one projection everything in
+  // a side-view scene shares. Everything stands at a depth: below 0 behind
+  // the street line (far houses, roofs, rain over them), 0 on it (the walker,
+  // what lines the street), 0..1 on the ground in front of it, down to the
+  // nearest ground in view (puddles, near things, near rain). From the depth
+  // follow where a thing meets the ground on screen ([yAt]), how big it is
+  // and how fast it slides by as the view moves ([scaleAt], [projectX]),
+  // and the angle the eye looks down at it ([sinElevation]) - how water
+  // there mirrors, where light falls, how rain scatters it.
+  //
+  // The band is laid out as a perspective view lays out a ground: its rows
+  // are equal steps of 1 / distance, so they crowd towards the street line.
 
   /// How far the nearest ground in view lies in front of the street line.
   double get depthSpan => groundBand().height * 4;
@@ -28,6 +35,33 @@ mixin Ground on Component {
   /// How far from the eye the nearest ground in view is.
   double get nearDistance => groundBand().height * 2;
 
+  /// How far from the eye the street line is.
+  double get farDistance => nearDistance + depthSpan;
+
+  /// How far from the eye something at [depth] is: the street line at 0,
+  /// the nearest ground in view at 1; behind the line, farther.
+  double distanceAt(double depth) {
+    final step = 1 / nearDistance - 1 / farDistance;
+    // Far behind the line the distance runs to the horizon; keep it finite.
+    final inverse = math.max(
+      1 / farDistance + depth * step,
+      0.05 / farDistance,
+    );
+    return 1 / inverse;
+  }
+
+  /// How much bigger, and faster across the view, something at [depth] is
+  /// than on the street line: below 1 behind it, above 1 in front.
+  double scaleAt(double depth) => farDistance / distanceAt(depth);
+
+  /// World y where something at [depth] meets the ground: the street line
+  /// for anything on or behind it (the line hides the ground behind), lower
+  /// the nearer it stands.
+  double yAt(double depth) {
+    final band = groundBand();
+    return band.top + depth.clamp(0.0, 1.0) * band.height;
+  }
+
   /// The depth of the ground seen at world [y]: 0 on the street line, 1 the
   /// nearest in view.
   double depthAt(double y) {
@@ -35,10 +69,16 @@ mixin Ground on Component {
     return ((y - band.top) / band.height).clamp(0.0, 1.0);
   }
 
+  /// World x at which something at road position [x] and [depth] is seen
+  /// while the view is centred on [focusX]: things nearer the eye slide by
+  /// faster, farther ones slower (parallax).
+  double projectX(double x, double depth, double focusX) =>
+      focusX + (x - focusX) * scaleAt(depth);
+
   /// The sine of the angle the eye looks down onto the ground at [depth]:
   /// small far off (it looks along the ground), larger near.
   double sinElevation(double depth) {
-    final distance = nearDistance + (1 - depth) * depthSpan;
+    final distance = distanceAt(depth);
     return eyeHeight / math.sqrt(eyeHeight * eyeHeight + distance * distance);
   }
 

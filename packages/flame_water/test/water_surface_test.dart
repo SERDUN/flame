@@ -1,15 +1,31 @@
 import 'dart:ui';
 
 import 'package:flame/components.dart';
+import 'package:flame_lighting/flame_lighting.dart';
 import 'package:flame_test/flame_test.dart';
 import 'package:flame_water/flame_water.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 class _Block extends RectangleComponent with Reflectable {
-  _Block({super.position, super.size, super.paint, this.reflectionBase});
+  _Block({
+    super.position,
+    super.size,
+    super.paint,
+    this.reflectionBase,
+    this.groundDepth,
+  });
 
   @override
   final double? reflectionBase;
+
+  @override
+  final double? groundDepth;
+}
+
+/// The ground from y 100 down, 40 deep.
+class _Road extends Component with Ground {
+  @override
+  Rect groundBand() => const Rect.fromLTWH(0, 100, 100, 40);
 }
 
 const _red = Color(0xFFFF0000);
@@ -90,6 +106,32 @@ void main() {
       // Its bottom 10 above its base mirrors to 10 below it: 115..125.
       expect(pixel(50, 120), _red, reason: 'mirrored about its own base');
       expect(pixel(50, 108), _water, reason: 'not about the water line');
+    },
+  );
+
+  testWithFlameGame(
+    'something at a depth is mirrored about where that depth meets the ground',
+    (game) async {
+      final surface = _surface();
+      await game.world.addAll([
+        _Road(),
+        // At depth 0.125 of a ground band 40 deep from y 100: it stands on
+        // y 105, as the block above does by its base.
+        _Block(
+          position: Vector2(40, 85),
+          size: Vector2(20, 10),
+          paint: Paint()..color = _red,
+          groundDepth: 0.125,
+        ),
+        surface,
+      ]);
+      await game.ready();
+      final pixel = await _draw(surface);
+      // With a ground the water mirrors as much as its angle of view lets
+      // it (Fresnel): red, dimmer.
+      expect(pixel(50, 120).r, greaterThan(0.2), reason: 'about y 105');
+      expect(pixel(50, 120).g, 0);
+      expect(pixel(50, 108), _water);
     },
   );
 
