@@ -18,24 +18,24 @@ mixin RainDeflector on OnStage {
   /// coordinates) met this; if so, [to] is put back on the surface and
   /// [velocity] (world units per second) turned off it.
   bool deflect(Vector2 from, Vector2 to, Vector2 velocity, double depth);
+
+  /// What a drop meets on it: how a drop bounces off it
+  /// ([RainBounce.offDome] with its restitution and slip) and how loud rain
+  /// is on it.
+  Substance get surface => Substance.canvas;
 }
 
 /// How a drop bounces off a curved surface.
 abstract final class RainBounce {
-  /// Share of the speed into the surface a drop keeps, thrown back off it.
-  static const double restitution = 0.35;
-
-  /// Share of the speed along the surface kept: the surface drags the water
-  /// a little.
-  static const double friction = 0.85;
-
   /// A drop that moved from [from] to [to] against a dome: half an ellipse
   /// whose rim is centred at [center], turned by [angle] (radians), rising
   /// [height] along its up (world y down, so towards -y unturned) and
   /// [halfWidth] to each side; [flipped] turns it down, a canopy blown inside
   /// out. [surfaceVelocity] is how the dome moves, so a swinging canopy
-  /// throws drops off it. Returns whether it hit; then [to] is put back just
-  /// outside the surface and [velocity] reflected in place.
+  /// throws drops off it. The drop keeps as much of its speed into the
+  /// surface, and along it, as [substance] lets it. Returns whether it hit;
+  /// then [to] is put back just outside the surface and [velocity]
+  /// reflected in place.
   static bool offDome({
     required Vector2 from,
     required Vector2 to,
@@ -47,6 +47,7 @@ abstract final class RainBounce {
     Vector2? surfaceVelocity,
     bool flipped = false,
     double margin = 0.02,
+    Substance substance = Substance.canvas,
   }) {
     // Almost every drop is nowhere near: rule them out with plain arithmetic
     // before any trigonometry.
@@ -91,7 +92,9 @@ abstract final class RainBounce {
     final normalPart = normal * into;
     final tangentPart = relative - normalPart;
     velocity.setFrom(
-      tangentPart * friction - normalPart * restitution + moving,
+      tangentPart * substance.slip -
+          normalPart * substance.restitution +
+          moving,
     );
 
     // Back onto the surface, a hair outside, so the next step does not bounce

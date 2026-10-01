@@ -6,6 +6,7 @@ import 'package:flame/components.dart';
 import 'package:flame_stage/src/shadow.dart';
 import 'package:flame_stage/src/stage.dart';
 import 'package:flame_stage/src/street_projection.dart';
+import 'package:flame_stage/src/weather.dart';
 
 /// What shape a light gives off from.
 enum LightShape {
@@ -316,8 +317,13 @@ mixin Ambience on OnStage {
   /// than the sky's own colour. 1 (a lamp's worth) by default.
   double get adaptation => 1;
 
-  /// How thick the air is with rain and mist, `0..1`: it haloes every light.
-  double get haze;
+  /// How long the eye takes to adapt to brighter light, seconds; to dimmer
+  /// light it takes four times as long. 0: at once.
+  double get adaptsIn => 0;
+
+  /// How thick the air is with rain and mist, `0..1`: it haloes every
+  /// light; `null`: as thick as the stage's weather makes it.
+  double? get haze;
 
   /// How much colour the lights add in the air over what they light,
   /// `0..1`.
@@ -430,7 +436,7 @@ class LightField {
 
   /// Starts a frame's field over: no lights, [ambience]'s sky (white and
   /// unlit when there is none).
-  void begin(Ambience? ambience) {
+  void begin(Ambience? ambience, {WeatherState? weather}) {
     if (ambience == null) {
       count = 0;
       lit = false;
@@ -445,7 +451,8 @@ class LightField {
       sky: ambience.sky,
       skyLight: ambience.skyLight,
       adaptation: ambience.adaptation,
-      haze: ambience.haze,
+      adaptsIn: ambience.adaptsIn,
+      haze: ambience.haze ?? weather?.haze ?? 0,
       glow: ambience.glow,
     );
   }
@@ -456,9 +463,11 @@ class LightField {
     required Color sky,
     required double skyLight,
     double adaptation = 1,
+    double adaptsIn = 0,
     double haze = 0,
     double glow = 0,
   }) {
+    _adaptsIn = math.max(adaptsIn, 0);
     count = 0;
     lit = true;
     final light = math.max(skyLight, 0.0);
@@ -472,13 +481,31 @@ class LightField {
   }
 
   double _adaptation = 1;
+  double _adaptsIn = 0;
+  bool _adapted = false;
 
   /// Ends a frame's field: what the eye adapts to, now that every light is
-  /// in.
-  void finish() {
-    if (lit) {
-      exposure = 1 / math.max(skyLevel, _adaptation);
+  /// in, after [dt] seconds of adapting - quickly to brighter light, four
+  /// times as slowly to dimmer (the eye's cones and rods), by the
+  /// ambience's [Ambience.adaptsIn]. The first frame sees as adapted.
+  void finish([double dt = 0]) {
+    if (!lit) {
+      _adapted = false;
+      return;
     }
+    final target = 1 / math.max(skyLevel, _adaptation);
+    if (!_adapted || _adaptsIn <= 0 || dt <= 0) {
+      exposure = target;
+      _adapted = true;
+      return;
+    }
+    // In steps of brightness, not of the number.
+    final brighter = target < exposure;
+    final tau = brighter ? _adaptsIn : 4 * _adaptsIn;
+    final k = 1 - math.exp(-dt / tau);
+    exposure = math.exp(
+      math.log(exposure) + (math.log(target) - math.log(exposure)) * k,
+    );
   }
 
   /// Adds [light] at world [x], [y] (its anchor on its carrier), turned by

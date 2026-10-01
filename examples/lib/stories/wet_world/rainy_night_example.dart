@@ -12,7 +12,7 @@ class RainyNightExample extends FlameGame {
     this.glow = 0.35,
     this.haze = 0.5,
     this.rain = 1,
-    this.drying = 1,
+    this.humidity = 0.95,
     this.wetness = 1,
   }) : super(
          camera: CameraComponent.withFixedResolution(width: 800, height: 450),
@@ -26,9 +26,9 @@ class RainyNightExample extends FlameGame {
     mirrors, the houses get wet and glint, the lights light the street, lay
     pools on the road and show in the water. Raise the sky's light and the
     same street comes into the day: the eye adapts, and the lamps fade
-    against the sky. Stop the rain and the street
-    dries as fast as the weather dries it: the walls first, then the
-    asphalt, the puddles last.
+    against the sky. Stop the rain in dry air and the street dries as its
+    stuff and the air let it: the walls first, then the asphalt, the
+    puddles last.
   ''';
 
   /// How much light the sky gives (lights' units): 0.15 a cloudy night
@@ -37,10 +37,12 @@ class RainyNightExample extends FlameGame {
   final double glow;
   final double haze;
   final double rain;
-  final double drying;
+
+  /// How damp the air is, `0..1`: under 1 the street dries after the rain.
+  final double humidity;
 
   /// How wet the street is when the scene opens, from dry to soaked; from
-  /// then on the rain and the drying move it.
+  /// then on the rain and the air move it.
   final double wetness;
 
   Lighting? _lighting;
@@ -52,7 +54,7 @@ class RainyNightExample extends FlameGame {
     required double glow,
     required double haze,
     required double rain,
-    required double drying,
+    required double humidity,
   }) {
     _lighting
       ?..skyLight = skyLight
@@ -60,7 +62,7 @@ class RainyNightExample extends FlameGame {
       ..haze = haze;
     _rain
       ?..intensity = rain
-      ..drying = drying;
+      ..humidity = humidity;
   }
 
   /// Makes everything that gets wet [wetness] wet now.
@@ -87,7 +89,8 @@ class RainyNightExample extends FlameGame {
         glow: glow,
         haze: haze,
       ),
-      _rain = Rain(intensity: rain, drying: drying),
+      // Ten world minutes a second: the street dries before your eyes.
+      _rain = Rain(intensity: rain, humidity: humidity, pace: 600),
     ]);
     setWetness(wetness);
   }

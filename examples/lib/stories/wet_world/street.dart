@@ -35,12 +35,8 @@ class Houses extends PositionComponent
     with OnStage, Reflectable, Glossy, Wettable, WetSheen, RainCatcher {
   Houses({bool lit = false})
     : super(position: Vector2(0, 170), size: Vector2(800, 160)) {
-    // The scene opens in the rain: the houses are wet already. Upright,
-    // they shed their water fast once the rain stops.
+    // The scene opens in the rain: the houses are wet already.
     wetness = 1;
-    dryRate = 0.05;
-    // Brick and plaster: they soak water up and darken.
-    porosity = 0.6;
     if (!lit) {
       return;
     }
@@ -68,6 +64,14 @@ class Houses extends PositionComponent
 
   static const _heights = [120.0, 150.0, 100.0, 140.0, 110.0, 160.0, 125.0];
   static const double _w = 800 / 7;
+
+  // Brick and plaster: they soak water up and darken.
+  @override
+  Substance get substance => Substance.brick;
+
+  // Upright: only the rain the wind drives at them reaches them.
+  @override
+  double get rainShare => 0.3;
 
   // They stand on the street line: rain in front of it passes them by.
   @override
@@ -299,7 +303,7 @@ WaterSurface wetRoad({double reflectivity = 0.85}) => WaterSurface(
   // A film: it comes and goes with the rain; the rain keeps it astir.
   film: true,
   chopPerRain: 4,
-)..porosity = 0.4;
+);
 
 /// A puddle lying on the road in front of the walker: its water line is the
 /// line the street stands on, so feet meet their reflection. It shows the same
