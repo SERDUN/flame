@@ -12,7 +12,7 @@
 /// `build/shaderbundles/flame_water.shaderbundle`.
 library;
 
-export 'src/rain.dart' show Rain, RainSlice;
+export 'src/rain.dart' show Rain, RainSlice, RainStrikes;
 export 'src/rain_catcher.dart' show RainCatcher;
 export 'src/rain_deflector.dart' show RainBounce, RainDeflector;
 export 'src/rain_drops.dart' show RainDrops;

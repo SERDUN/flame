@@ -7,7 +7,8 @@ import 'package:flutter/foundation.dart' show immutable;
 /// and how much lies on it before it runs off, how fast what it holds soaks
 /// in, how rough it is (how much it shines when wet, how broken its
 /// reflection), how a drop bounces off it, whether a drop splashes on it, how
-/// loud rain is on it, and its friction for a body standing on it. A thing
+/// loud rain is on it and what a drop on it sounds like, and its friction for
+/// a body standing on it. A thing
 /// says what it is made of; the rain, the water and the lighting do the rest.
 @immutable
 class Substance {
@@ -21,6 +22,9 @@ class Substance {
     this.slip = 0.8,
     this.splashAbove = 57.7,
     this.loudness = 0.5,
+    this.soundHz = 2000,
+    this.ringSec = 0.002,
+    this.hitSec = 0.006,
     this.friction = 0.6,
   });
 
@@ -34,6 +38,9 @@ class Substance {
     restitution: 0.1,
     slip: 0.6,
     loudness: 0.35,
+    soundHz: 3600,
+    ringSec: 0.0015,
+    hitSec: 0.003,
     friction: 0.8,
   );
 
@@ -47,6 +54,9 @@ class Substance {
     restitution: 0.1,
     slip: 0.5,
     loudness: 0.3,
+    soundHz: 3000,
+    ringSec: 0.0015,
+    hitSec: 0.003,
     friction: 0.9,
   );
 
@@ -60,6 +70,9 @@ class Substance {
     restitution: 0.12,
     slip: 0.6,
     loudness: 0.35,
+    soundHz: 3400,
+    ringSec: 0.0015,
+    hitSec: 0.003,
     friction: 0.9,
   );
 
@@ -71,6 +84,9 @@ class Substance {
     restitution: 0.3,
     slip: 0.95,
     loudness: 0.6,
+    soundHz: 5200,
+    ringSec: 0.03,
+    hitSec: 0.002,
     friction: 0.4,
   );
 
@@ -82,6 +98,9 @@ class Substance {
     restitution: 0.4,
     slip: 0.9,
     loudness: 1,
+    soundHz: 2600,
+    ringSec: 0.12,
+    hitSec: 0.002,
     friction: 0.5,
   );
 
@@ -93,6 +112,9 @@ class Substance {
     restitution: 0.35,
     slip: 0.85,
     loudness: 0.7,
+    soundHz: 1100,
+    ringSec: 0.004,
+    hitSec: 0.018,
     friction: 0.7,
   );
 
@@ -107,6 +129,9 @@ class Substance {
     slip: 0.3,
     splashAbove: 120,
     loudness: 0.1,
+    soundHz: 700,
+    ringSec: 0,
+    hitSec: 0.02,
     friction: 0.8,
   );
 
@@ -120,7 +145,25 @@ class Substance {
     slip: 0.7,
     splashAbove: 90,
     loudness: 0.2,
+    soundHz: 1500,
+    hitSec: 0.012,
     friction: 0.8,
+  );
+
+  /// Bare earth: a path, a flower bed. It drinks the rain and deadens it.
+  static const soil = Substance(
+    name: 'soil',
+    porosity: 0.5,
+    holdsMm: 3,
+    soaksMmPerHour: 10,
+    roughness: 0.85,
+    restitution: 0.02,
+    slip: 0.3,
+    splashAbove: 110,
+    loudness: 0.15,
+    soundHz: 600,
+    ringSec: 0,
+    hitSec: 0.01,
   );
 
   /// Wood: a bench, a fence.
@@ -133,6 +176,9 @@ class Substance {
     restitution: 0.15,
     slip: 0.6,
     loudness: 0.45,
+    soundHz: 1600,
+    ringSec: 0.01,
+    hitSec: 0.004,
     friction: 0.7,
   );
 
@@ -146,6 +192,9 @@ class Substance {
     slip: 1,
     splashAbove: 100,
     loudness: 0.4,
+    soundHz: 1600,
+    ringSec: 0.025,
+    hitSec: 0.004,
     friction: 0.1,
   );
 
@@ -180,8 +229,47 @@ class Substance {
   /// How loud rain is on it, `0..1`: a tin roof 1, cloth near nothing.
   final double loudness;
 
+  /// Where the sound of a drop striking it sits, Hz: a tin roof's ring, a
+  /// puddle's bubble (some 1.5 kHz for a millimetre one), the dull thud of
+  /// cloth low down.
+  final double soundHz;
+
+  /// How long it rings on after a drop, seconds, to a third: sheet metal a
+  /// tenth of a second, glass and a bubble in water a few hundredths, cloth
+  /// and earth not at all.
+  final double ringSec;
+
+  /// How long the strike itself lasts, seconds: a hard thing a few
+  /// thousandths (a click), a soft one that gives under the drop longer (a
+  /// pat).
+  final double hitSec;
+
   /// Its friction for a body standing or sliding on it.
   final double friction;
+
+  /// The same substance with some of its properties changed: canvas drawn
+  /// tauter sounds higher.
+  Substance copyWith({
+    String? name,
+    double? loudness,
+    double? soundHz,
+    double? ringSec,
+    double? hitSec,
+  }) => Substance(
+    name: name ?? this.name,
+    porosity: porosity,
+    holdsMm: holdsMm,
+    soaksMmPerHour: soaksMmPerHour,
+    roughness: roughness,
+    restitution: restitution,
+    slip: slip,
+    splashAbove: splashAbove,
+    loudness: loudness ?? this.loudness,
+    soundHz: soundHz ?? this.soundHz,
+    ringSec: ringSec ?? this.ringSec,
+    hitSec: hitSec ?? this.hitSec,
+    friction: friction,
+  );
 
   /// How glossy it is soaked, `0..1`: smooth things more.
   double get soakedGloss => 0.15 + 0.75 * (1 - roughness);

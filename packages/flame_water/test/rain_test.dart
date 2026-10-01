@@ -263,6 +263,89 @@ void main() {
     },
   );
 
+  Future<List<RainStrikes>> heard(
+    FlameGame game, {
+    double intensity = 1,
+    Substance ground = Substance.asphalt,
+    Vector3? listener,
+    bool canopy = false,
+  }) async {
+    game.camera.viewfinder.anchor = Anchor.topLeft;
+    final rain = Rain(intensity: intensity)
+      ..ground = ground
+      ..listener = listener;
+    game.world.addAll([_Ground(), if (canopy) _Canopy(), rain]);
+    await game.ready();
+    await _rainFor(game, 2);
+    rain.takeImpacts();
+    await _rainFor(game, 4);
+    final impacts = rain.takeImpacts();
+    expect(impacts.seconds, closeTo(4, 0.1));
+    expect(rain.takeImpacts().on, isEmpty, reason: 'taken');
+    game.world.removeAll(game.world.children.toList());
+    await game.ready();
+    return impacts.on;
+  }
+
+  double energyOn(List<RainStrikes> strikes, Substance on) =>
+      strikes.where((s) => s.on == on).fold(0, (e, s) => e + s.energy);
+
+  testWithFlameGame('heavier rain is heard louder: more drops, and bigger', (
+    game,
+  ) async {
+    final tuned = energyOn(await heard(game), Substance.asphalt);
+    final heavy = energyOn(await heard(game, intensity: 2), Substance.asphalt);
+    expect(tuned, greaterThan(0));
+    expect(heavy / tuned, greaterThan(2), reason: 'twice the drops, bigger');
+  });
+
+  testWithFlameGame('rain on cloth is heard softer than on metal', (
+    game,
+  ) async {
+    final metal = energyOn(
+      await heard(game, ground: Substance.metal),
+      Substance.metal,
+    );
+    final cloth = energyOn(
+      await heard(game, ground: Substance.cloth),
+      Substance.cloth,
+    );
+    expect(
+      cloth / metal,
+      closeTo(Substance.cloth.loudness / Substance.metal.loudness, 0.05),
+    );
+  });
+
+  testWithFlameGame('a drop is heard fainter the farther it falls', (
+    game,
+  ) async {
+    // The ground runs 0..800 across; a listener in its middle and one far
+    // off to the side, both on the street line.
+    final near = energyOn(
+      await heard(game, listener: Vector3(400, 400, 0)),
+      Substance.asphalt,
+    );
+    final far = energyOn(
+      await heard(game, listener: Vector3(4000, 400, 0)),
+      Substance.asphalt,
+    );
+    expect(near, greaterThan(far * 5));
+  });
+
+  testWithFlameGame('drops on a canopy are heard as its surface', (
+    game,
+  ) async {
+    final strikes = await heard(
+      game,
+      intensity: 2,
+      canopy: true,
+      listener: Vector3(400, 320, 0),
+    );
+    final on = strikes.map((s) => s.on).toSet();
+    expect(on, contains(Substance.canvas), reason: "RainDeflector's default");
+    expect(on, contains(Substance.asphalt));
+  });
+
   testWithFlameGame('no canopy depth, no bounce', (game) async {
     game.camera.viewfinder.anchor = Anchor.topLeft;
     final rain = Rain(intensity: 2);

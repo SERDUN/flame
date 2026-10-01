@@ -108,6 +108,57 @@ class Rain extends Component with OnStage, Reflectable, Weather {
   double _bounceSpeed = 0;
   double _bounceLoudness = 0;
 
+  /// Where the rain is heard from: world x and y, and z how far in front of
+  /// the street line, world units (a walker's head under the umbrella).
+  /// `null`: the eye, every drop as near as its perspective says.
+  Vector3? listener;
+
+  /// The rain heard over the `seconds` since the last call, by what the
+  /// drops struck: the ground ([ground]), a [RainCatcher]'s or a
+  /// [RainDeflector]'s surface (a drop is heard once, as it falls on the
+  /// umbrella, not again as it flies off). Each strike carries the energy
+  /// the ear gets from it: as loud as what it struck ([Substance.loudness]),
+  /// as hard as the drop hits (its mass, the cube of its diameter, times its
+  /// speed squared, against a 2 mm drop at 8 m/s), and fainter by the square
+  /// of its distance from the [listener] (no nearer than 0.2 m). Strikes add
+  /// up by their energy: the patter of a surface goes as the square root of
+  /// its energy per second. So a game hears the rain its world has: where
+  /// more of it falls, on what, and how near.
+  ({double seconds, List<RainStrikes> on}) takeImpacts() {
+    final result = (
+      seconds: _heardSeconds,
+      on: [
+        for (final s in _strikes.values)
+          if (s.count > 0) s.taken(),
+      ],
+    );
+    _heardSeconds = 0;
+    return result;
+  }
+
+  final Map<Substance, RainStrikes> _strikes = {};
+  double _heardSeconds = 0;
+  StreetProjection? _heardFrom;
+
+  void _heard(int i, Substance on, double x, double y, double speed) {
+    final listener = this.listener;
+    double r2;
+    if (listener == null) {
+      final p = _drops.perspective(i);
+      r2 = 1 / (p * p);
+    } else {
+      final ahead = _heardFrom?.ahead(_drops.depth(i)) ?? 0;
+      final dx = x - listener.x;
+      final dy = y - listener.y;
+      final dz = ahead - listener.z;
+      r2 = (dx * dx + dy * dy + dz * dz) / (metre * metre);
+    }
+    final d = _drops.diameter(i) / 2;
+    final v = speed / metre / 8;
+    final energy = on.loudness * d * d * d * v * v / math.max(r2, 0.04);
+    (_strikes[on] ??= RainStrikes(on)).add(energy);
+  }
+
   /// World units in a metre.
   double metre;
 
@@ -432,6 +483,8 @@ class Rain extends Component with OnStage, Reflectable, Weather {
       return;
     }
     final (:view, :land, :scale) = frame;
+    _heardSeconds += dt;
+    _heardFrom = stage?.frame.projection;
     _veil.update(this, view, dt);
     _trackView(view, dt);
     final top = cloudTop?.call() ?? view.top - _margin;
@@ -536,6 +589,7 @@ class Rain extends Component with OnStage, Reflectable, Weather {
           _bounces++;
           _bounceSpeed += speed;
           _bounceLoudness += deflector.surface.loudness;
+          _heard(i, deflector.surface, _from.x, _from.y, speed);
         }
         return true;
       }
@@ -573,6 +627,7 @@ class Rain extends Component with OnStage, Reflectable, Weather {
         return false;
       }
       landed.update(null, (n) => n + 1, ifAbsent: () => 1);
+      _heard(i, ground, x, land, _velocity.length);
       // The bare ground; behind the street line, nothing to see.
       if (depth >= 0) {
         _burst(i, x, land, ground);
@@ -580,6 +635,7 @@ class Rain extends Component with OnStage, Reflectable, Weather {
       return true;
     }
     landed.update(by.runtimeType, (n) => n + 1, ifAbsent: () => 1);
+    _heard(i, by.surface, x, at, _velocity.length);
     _burst(i, x, at, by.surface);
     by.onDrop(Vector2(x, at), _drops.strength(i));
     return true;
@@ -893,4 +949,34 @@ class RainSlice extends Component with Reflectable {
     rain._underLighting(this),
     isMounted ? this : null,
   );
+}
+
+/// The drops that struck one substance ([Rain.takeImpacts]): how many, and
+/// the energy the ear got from them together.
+class RainStrikes {
+  RainStrikes(this.on);
+
+  /// What they struck.
+  final Substance on;
+
+  /// How many struck it.
+  int count = 0;
+
+  /// The energy the ear got from them, against a 2 mm drop at 8 m/s on a
+  /// loudness-1 surface a metre off.
+  double energy = 0;
+
+  void add(double e) {
+    count++;
+    energy += e;
+  }
+
+  RainStrikes taken() {
+    final copy = RainStrikes(on)
+      ..count = count
+      ..energy = energy;
+    count = 0;
+    energy = 0;
+    return copy;
+  }
 }
