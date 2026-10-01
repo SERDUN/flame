@@ -29,7 +29,7 @@ void addWetWorldStories(Dashbook dashbook) {
       (context) => GameWidget(
         game: MirrorPuddleExample(
           reflectivity: context.numberProperty('reflectivity', 0.75),
-          squash: context.numberProperty('squash', 0.6),
+          squash: context.numberProperty('squash', 1),
           fade: context.numberProperty('fade', 0.7),
           wetRoadOn: context.boolProperty('wet road', true),
         ),

@@ -6,7 +6,7 @@ import 'package:flame_water/flame_water.dart';
 class MirrorPuddleExample extends FlameGame {
   MirrorPuddleExample({
     this.reflectivity = 0.75,
-    this.squash = 0.6,
+    this.squash = 1,
     this.fade = 0.7,
     this.wetRoadOn = true,
   }) : super(
@@ -37,9 +37,8 @@ class MirrorPuddleExample extends FlameGame {
         left: 260,
         width: 320,
         reflectivity: reflectivity,
-        squash: squash,
         fade: fade,
-      ),
+      )..squash = squash,
       puddle(left: 500, width: 130, top: 398, height: 44),
       Rain(),
     ]);

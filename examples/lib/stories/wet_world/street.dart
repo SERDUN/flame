@@ -25,11 +25,12 @@ class Sky extends PositionComponent with Reflectable {
 /// A row of house fronts against the sky, with a few lit windows. With
 /// `lit` each lit window gives a little warm light, one of them flickering.
 ///
-/// What the rain does to them is theirs: they get wet ([Wettable]) and, as
-/// wet as they are, the lamps glint off their fronts ([Glossy]); rain
-/// breaks on their roofs and window sills ([RainCatcher]).
+/// What the rain does to them is theirs: they get wet ([Wettable]), and as
+/// wet as they are they darken and the lamps glint off their fronts
+/// ([Glossy], [WetSheen]); rain behind the street line breaks on their
+/// roofs and window sills ([RainCatcher]).
 class Houses extends PositionComponent
-    with Reflectable, Glossy, Wettable, RainCatcher {
+    with Reflectable, Glossy, Wettable, WetSheen, RainCatcher {
   Houses({bool lit = false})
     : super(position: Vector2(0, 170), size: Vector2(800, 160)) {
     // The scene opens in the rain: the houses are wet already. Upright,
@@ -64,11 +65,9 @@ class Houses extends PositionComponent
   static const _heights = [120.0, 150.0, 100.0, 140.0, 110.0, 160.0, 125.0];
   static const double _w = 800 / 7;
 
+  // They stand on the street line: rain in front of it passes them by.
   @override
-  double get gloss => 0.6 * wetGloss;
-
-  @override
-  double get darkening => wetDarkening;
+  double get frontDepth => 0;
 
   @override
   Path glossArea() {
@@ -101,11 +100,6 @@ class Houses extends PositionComponent
 
   @override
   double? catchDrop(double x, double fromY, double toY, double depth) {
-    // Only rain behind the street line reaches the roofs; the rest falls in
-    // front of the houses, onto the road.
-    if (depth >= 0) {
-      return null;
-    }
     for (final (left, right, y) in _ledges()) {
       if (x >= left && x <= right && fromY < y && toY >= y) {
         return y;
@@ -168,20 +162,13 @@ class Lamp extends PositionComponent with Reflectable {
 
   final Paint _post = Paint()..color = const Color(0xFF0E1118);
   final Paint _bulb = Paint()..color = const Color(0xFFFFE3A0);
-  final Paint _glow = Paint()
-    ..color = const Color(0x88FFD27A)
-    ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8);
 
   @override
   void render(Canvas canvas) {
     canvas
       ..drawRect(Rect.fromLTWH(8, 12, 4, size.y - 12), _post)
       ..drawRect(const Rect.fromLTWH(0, 6, 20, 8), _post);
-    final bulb = Offset(size.x / 2, 16);
-    if (ReflectionPass.isActive) {
-      canvas.drawCircle(bulb, 10, _glow);
-    }
-    canvas.drawCircle(bulb, 5, _bulb);
+    canvas.drawCircle(Offset(size.x / 2, 16), 5, _bulb);
   }
 }
 
@@ -275,10 +262,8 @@ WaterSurface wetRoad({double reflectivity = 0.85}) => WaterSurface(
   position: Vector2(0, groundLine),
   size: Vector2(800, 120),
   shape: WaterShape.rect,
-  waterLine: groundLine,
   color: const Color(0x00000000),
   reflectivity: reflectivity,
-  squash: 0.6,
   fade: 0.9,
   tint: const Color(0x2219202A),
   // A film of water: drops break on it into small quick rings.
@@ -302,15 +287,12 @@ WaterSurface puddle({
   double top = 345,
   double height = 34,
   double reflectivity = 1,
-  double squash = 0.6,
   double fade = 0.7,
 }) => WaterSurface(
   position: Vector2(left, top),
   size: Vector2(width, height),
-  waterLine: groundLine,
   color: const Color(0x66151A22),
   reflectivity: reflectivity,
-  squash: squash,
   fade: fade,
   tint: const Color(0x2230405A),
   // Water to spare (depth 1, the default): drops set off wide slow rings.
