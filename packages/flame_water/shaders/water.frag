@@ -38,6 +38,7 @@ uniform float uLine;          // the water line, local y
 uniform vec4 uPool;           // the water's outline: centre, half extents
 uniform float uSoft;          // share of an ellipse's radius its rim fades
 uniform float uRound;         // 1 an ellipse, 0 a rectangle
+uniform float uPixels;        // pixels of the image per local unit
 uniform vec4 uRings[kMaxRings]; // centre x, centre y, radius, amplitude
 uniform sampler2D uReflection;
 
@@ -141,10 +142,11 @@ void main() {
     float down = uSpread;
     float across = uSpread * s;
     vec4 color;
-    if (down < 0.5) {
+    // Under half a pixel of smear is none.
+    if (down * uPixels < 0.5) {
         color = mirrored(at / uSize);
     } else {
-        int side = across < 0.75 ? 0 : 2;
+        int side = across * uPixels < 0.75 ? 0 : 2;
         vec4 sum = vec4(0.0);
         float total = 0.0;
         for (int j = -7; j <= 7; j++) {
