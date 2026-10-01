@@ -39,16 +39,16 @@ uniform vec4 u[kCapsules + kShadows * 2];
 #define L_SOURCE u[3].w
 #define L_SPILL u[4].x
 #define L_SPILL_RADIUS u[4].y
+#define FALLOFF u[4].z
 // The street's projection.
 #define P_TOP u[5].x
 #define P_BAND u[5].y
 #define P_NEAR u[5].z
 #define P_FAR u[5].w
 #define P_EYE u[6].x
-// How to draw: on the wall (0) or the ground (1), how much, which falloff.
+// How to draw: on the wall (0) or the ground (1), and how much.
 #define MODE u[6].y
 #define AMOUNT u[6].z
-#define FALLOFF u[6].w
 // What stands in the way: capsules from u[kCapsules], two vec4 each.
 #define S_COUNT u[7].x
 

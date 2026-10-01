@@ -39,7 +39,7 @@ void main() {
     expect(defines['P_EYE'], LightShader.projectionEye);
     expect(defines['MODE'], LightShader.planeMode);
     expect(defines['AMOUNT'], LightShader.drawAmount);
-    expect(defines['FALLOFF'], LightShader.falloffMode);
+    expect(defines['FALLOFF'], 18, reason: 'the light carries it');
     expect(defines['S_COUNT'], LightShader.shadowCount);
     // The light block is LightField.writeLight's four vec4.
     expect(defines['L_POS'], 0);

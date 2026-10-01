@@ -1,0 +1,220 @@
+#version 320 es
+
+// Every light of a frame, added up once into a float target: what each
+// pixel of the view gets of them, brighter than white where it is, and how
+// much of the night they lift there.
+//
+// rgb: the light cast, each light's colour times how much of it arrives
+// (shape, falloff, cone, the spill round a cone's source, on the ground
+// the angle it comes in at, the shadows on its way).
+// a: how much of the night is left: each light, and the halo the haze makes
+// round its source, takes its share away - as the canvas path cuts one
+// light after another out of the night layer.
+//
+// The same light as light.frag works out for one light on the canvas path,
+// and LightField.reach on the CPU.
+
+precision highp float;
+
+const int kMaxLights = 16;
+const int kMaxShadows = 8;
+
+const float kCone = 1.0;
+const float kArea = 2.0;
+const float kLine = 3.0;
+
+uniform Params {
+  vec4 view;      // the world rect the target covers: left, top, width, height
+  vec4 street;    // band top, band height, near distance, far distance
+  vec4 info;      // eye height, lights in use, capsules in use, haze
+  vec4 lights[kMaxLights * 5];   // LightField.writeLight's five vectors each
+  vec4 capsules[kMaxShadows * 2];
+} params;
+
+in vec2 v_uv;
+out vec4 frag_color;
+
+float aheadAt(float d) {
+  float inverse = max(1.0 / params.street.w +
+                          d * (1.0 / params.street.z - 1.0 / params.street.w),
+                      0.05 / params.street.w);
+  return params.street.w - 1.0 / inverse;
+}
+
+float toSegment(vec2 p, vec2 a, vec2 b) {
+  vec2 ab = b - a;
+  float len2 = dot(ab, ab);
+  float t = len2 < 1e-9 ? 0.0 : clamp(dot(p - a, ab) / len2, 0.0, 1.0);
+  return length(p - (a + ab * t));
+}
+
+vec2 segments(vec2 p1, vec2 p2, vec2 q1, vec2 q2) {
+  vec2 d1 = p2 - p1;
+  vec2 d2 = q2 - q1;
+  vec2 r = p1 - q1;
+  float a = dot(d1, d1);
+  float e = dot(d2, d2);
+  float f = dot(d2, r);
+  float s = 0.0;
+  float t = 0.0;
+  if (a <= 1e-12 && e <= 1e-12) {
+    s = 0.0;
+  } else if (a <= 1e-12) {
+    t = clamp(f / e, 0.0, 1.0);
+  } else {
+    float c = dot(d1, r);
+    if (e <= 1e-12) {
+      s = clamp(-c / a, 0.0, 1.0);
+    } else {
+      float b = dot(d1, d2);
+      float denom = a * e - b * b;
+      s = denom > 1e-12 ? clamp((b * f - c * e) / denom, 0.0, 1.0) : 0.0;
+      t = (b * s + f) / e;
+      if (t < 0.0) {
+        t = 0.0;
+        s = clamp(-c / a, 0.0, 1.0);
+      } else if (t > 1.0) {
+        t = 1.0;
+        s = clamp((b - c) / a, 0.0, 1.0);
+      }
+    }
+  }
+  return vec2(s, length(p1 + d1 * s - (q1 + d2 * t)));
+}
+
+// How much light gets from l to p past every capsule (ShadowSet.through).
+float through(vec3 l, vec3 p, float source) {
+  float light = 1.0;
+  int count = int(params.info.z);
+  for (int i = 0; i < kMaxShadows; i++) {
+    if (i >= count) {
+      break;
+    }
+    vec4 seg = params.capsules[i * 2];
+    vec4 info = params.capsules[i * 2 + 1];
+    float radius = info.x;
+    float cz = info.y;
+    float slab = info.z * 0.5;
+    float dz = p.z - l.z;
+    float t;
+    float dist;
+    bool lightIn = abs(l.z - cz) <= slab;
+    bool pointIn = abs(p.z - cz) <= slab;
+    if (abs(dz) < 1e-6 || (lightIn && pointIn)) {
+      if (!lightIn || !pointIn) {
+        continue;
+      }
+      vec2 nearest = segments(l.xy, p.xy, seg.xy, seg.zw);
+      t = clamp(nearest.x, 0.02, 0.98);
+      dist = nearest.y;
+    } else {
+      t = (cz - l.z) / dz;
+      float tHalf = slab / abs(dz);
+      if (t + tHalf <= 0.02 || t - tHalf >= 0.98) {
+        continue;
+      }
+      t = clamp(t, 0.02, 0.98);
+      dist = toSegment(mix(l.xy, p.xy, t), seg.xy, seg.zw);
+    }
+    float blur = max(source * (1.0 - t), 1e-3);
+    float s = clamp((dist - radius) / blur + 0.5, 0.0, 1.0);
+    float visible = s * s * (3.0 - 2.0 * s);
+    light *= 1.0 - info.w * (1.0 - visible);
+  }
+  return light;
+}
+
+// The halo's profile (LightSource.halo): full at the source, 0.35 a
+// quarter of the way out, nothing at its edge.
+float halo(float r) {
+  if (r >= 1.0) {
+    return 0.0;
+  }
+  return r < 0.25 ? mix(1.0, 0.35, r / 0.25) : mix(0.35, 0.0, (r - 0.25) / 0.75);
+}
+
+void main() {
+  vec2 frag = params.view.xy + v_uv * params.view.zw;
+  // Above the street line, the wall plane; below it, the ground at the
+  // depth of its row.
+  bool ground = params.street.y > 0.0 && frag.y > params.street.x;
+  vec3 p = vec3(frag, 0.0);
+  if (ground) {
+    float depth = clamp((frag.y - params.street.x) / params.street.y, 0.0, 1.0);
+    p.z = aheadAt(depth);
+  }
+  vec3 sum = vec3(0.0);
+  float left = 1.0;
+  int count = int(params.info.y);
+  float haze = params.info.w;
+  for (int i = 0; i < kMaxLights; i++) {
+    if (i >= count) {
+      break;
+    }
+    vec4 a = params.lights[i * 5];
+    vec4 c = params.lights[i * 5 + 1];
+    vec4 g = params.lights[i * 5 + 2];
+    vec4 h = params.lights[i * 5 + 3];
+    vec4 k = params.lights[i * 5 + 4];
+    vec2 pos = a.xy;
+    float shape = a.w;
+    float strength = c.a;
+    // The nearest point of what glows.
+    vec2 e = pos;
+    if (abs(shape - kArea) < 0.5) {
+      vec2 halfSize = h.yz * 0.5;
+      e = clamp(p.xy, pos - halfSize, pos + halfSize);
+    } else if (abs(shape - kLine) < 0.5) {
+      float along = clamp(dot(p.xy - pos, g.yz), -h.y * 0.5, h.y * 0.5);
+      e = pos + g.yz * along;
+    }
+    vec3 l = vec3(e, a.z);
+    vec3 v = p - l;
+    float dist = length(v);
+    float radius = g.x;
+    float spillRadius = k.x > 0.0 ? k.y : 0.0;
+    float reach = 0.0;
+    if (dist < radius) {
+      float t = 1.0 - dist / radius;
+      // The falloff: smooth, or physical (k.z).
+      float fall = k.z < 0.5
+          ? t * t
+          : 1.0 / (1.0 + 16.0 * dist * dist / (radius * radius)) *
+                min(1.0, t * 4.0);
+      float cone = 1.0;
+      if (abs(shape - kCone) < 0.5) {
+        float across = length(v.xy);
+        if (across > 1e-6) {
+          float cs = dot(v.xy, g.yz) / across;
+          float full = acos(clamp(g.w, -1.0, 1.0));
+          float edge = acos(clamp(h.x, -1.0, 1.0));
+          float off = acos(clamp(cs, -1.0, 1.0));
+          cone = 1.0 - smoothstep(full, max(edge, full + 1e-4), off);
+        }
+      }
+      reach = fall * cone;
+    }
+    if (dist < spillRadius) {
+      float ts = 1.0 - dist / spillRadius;
+      reach = max(reach, k.x * ts * ts);
+    }
+    if (reach > 0.0) {
+      float incidence = 1.0;
+      if (ground) {
+        incidence = dist < 1e-3 ? 1.0 : clamp(v.y / dist, 0.0, 1.0);
+      }
+      float shade = params.info.z > 0.5 ? through(l, p, max(h.w, 1.0)) : 1.0;
+      float amount = strength * reach * incidence * shade;
+      sum += c.rgb * amount;
+      left *= 1.0 - clamp(amount, 0.0, 1.0);
+    }
+    // The halo the haze makes round its source lets the night through
+    // too, round the source as it is seen.
+    float source = h.w;
+    if (haze > 0.0 && source > 0.0) {
+      float r = length(frag - pos) / (source * (6.0 + 24.0 * haze));
+      left *= 1.0 - clamp(haze * strength * 0.6, 0.0, 1.0) * halo(r);
+    }
+  }
+  frag_color = vec4(sum, left);
+}
