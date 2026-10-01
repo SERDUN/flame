@@ -115,7 +115,17 @@ class _GpuWaveField implements WaveField {
       return;
     }
     _drops.addAll([u, v, radius, depth]);
+    // A field that steps seldom (a big surface, coarse cells) would hoard
+    // drops without end: past a few steps' worth they are thinned.
+    if (_drops.length >= _hoard * 4) {
+      _thin(_hoard ~/ 2);
+    }
   }
+
+  /// Drops held between steps at most.
+  static const int _hoard = maxDrops * 4;
+
+  void _thin(int keep) => thinDrops(_drops, keep);
 
   @override
   void step(int steps, {required double damping, required double courant}) {
@@ -123,6 +133,8 @@ class _GpuWaveField implements WaveField {
       return;
     }
     _host.reset();
+    // As many drops as these steps take, the rest folded into them.
+    _thin(steps * maxDrops);
     final pipeline = _shared.pipeline;
     final shader = pipeline.fragmentShader;
     for (var s = 0; s < steps; s++) {
