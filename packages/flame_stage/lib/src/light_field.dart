@@ -63,6 +63,8 @@ class Light {
     this.dimmer = 1,
     this.onAtDarkness,
     this.standsAt,
+    this.spill = 0,
+    this.spillRadius = 0,
   }) : offset = offset ?? Vector2.zero(),
        extent = extent ?? Vector2.zero();
 
@@ -107,6 +109,8 @@ class Light {
     double flicker = 0,
     int seed = 0,
     double? onAtDarkness,
+    double spill = 0,
+    double spillRadius = 0,
   }) : this(
          shape: LightShape.cone,
          offset: offset,
@@ -122,6 +126,8 @@ class Light {
          flicker: flicker,
          seed: seed,
          onAtDarkness: onAtDarkness,
+         spill: spill,
+         spillRadius: spillRadius,
        );
 
   /// A glowing rectangle [size] big centred on [offset]: a shop window, a
@@ -223,6 +229,14 @@ class Light {
   /// A cone's full angle, radians.
   double spread;
 
+  /// The share of a cone's light its source throws all round, near it: a
+  /// street lamp's bulb lights its own head and the air round it, not only
+  /// the street under the cone. 0 a cone and nothing else.
+  double spill;
+
+  /// How far round the source [spill] reaches, world units.
+  double spillRadius;
+
   /// Share of a cone's half angle, at its edge, over which it eases out.
   double softEdge;
 
@@ -322,7 +336,7 @@ class LightSample {
 /// [writeLight]). Nothing walks the component tree to find a light.
 class LightField {
   /// Floats per light in [data]; see the `_` offsets.
-  static const int stride = 20;
+  static const int stride = 22;
 
   static const int _x = 0;
   static const int _y = 1;
@@ -344,6 +358,8 @@ class LightField {
   static const int _falloff = 17;
   static const int _half = 18;
   static const int _edge = 19;
+  static const int _spill = 20;
+  static const int _spillRadius = 21;
 
   Float32List data = Float32List(stride * 16);
 
@@ -421,7 +437,9 @@ class LightField {
           light.standsAt ?? projection?.yAt(light.depth) ?? double.nan
       ..[o + _falloff] = light.falloff.index.toDouble()
       ..[o + _half] = half
-      ..[o + _edge] = edge;
+      ..[o + _edge] = edge
+      ..[o + _spill] = light.shape == LightShape.cone ? light.spill : 0
+      ..[o + _spillRadius] = light.spillRadius;
     count++;
   }
 
@@ -453,12 +471,19 @@ class LightField {
     blue: data[i * stride + _b],
   );
 
+  /// The share light [i] throws all round near its source, and how far.
+  double spillOf(int i) => data[i * stride + _spill];
+  double spillRadiusOf(int i) => data[i * stride + _spillRadius];
+
+  /// How far light [i] reaches at all, world units.
+  double reachOf(int i) => math.max(radiusOf(i), spillRadiusOf(i));
+
   /// Whether light [i] falls off physically rather than smoothly.
   bool isPhysicalOf(int i) => data[i * stride + _falloff] > 0.5;
 
-  /// Writes light [i] for a shader as four vec4 at [at]: (x, y, ahead,
+  /// Writes light [i] for a shader as five vec4 at [at]: (x, y, ahead,
   /// shape), (r, g, b, strength), (radius, dirX, dirY, cosFull), (cosEdge,
-  /// extentX, extentY, source).
+  /// extentX, extentY, source), (spill, spill radius, 0, 0).
   void writeLight(int i, Float32List into, int at) {
     final o = i * stride;
     into
@@ -477,8 +502,15 @@ class LightField {
       ..[at + 12] = data[o + _cosEdge]
       ..[at + 13] = data[o + _extentX]
       ..[at + 14] = data[o + _extentY]
-      ..[at + 15] = data[o + _source];
+      ..[at + 15] = data[o + _source]
+      ..[at + 16] = data[o + _spill]
+      ..[at + 17] = data[o + _spillRadius]
+      ..[at + 18] = 0
+      ..[at + 19] = 0;
   }
+
+  /// Floats [writeLight] writes.
+  static const int lightFloats = 20;
 
   /// Radius of the halo the haze makes round light [i]'s source.
   double haloRadiusOf(int i) => sourceRadiusOf(i) * (6 + 24 * haze);
@@ -526,7 +558,9 @@ class LightField {
     final dz = inFront - data[o + _ahead];
     final d2 = dx * dx + dy * dy + dz * dz;
     final radius = data[o + _radius];
-    if (d2 >= radius * radius) {
+    final spill = data[o + _spill];
+    final spillRadius = spill > 0 ? data[o + _spillRadius] : 0.0;
+    if (d2 >= radius * radius && d2 >= spillRadius * spillRadius) {
       return 0;
     }
     final d = math.sqrt(d2);
@@ -543,13 +577,21 @@ class LightField {
           ..[2] = dz / d;
       }
     }
-    final t = 1 - d / radius;
-    final fall = data[o + _falloff] < 0.5
-        ? t * t
-        : 1 / (1 + 16 * d2 / (radius * radius)) * math.min(1, t * 4);
-    var amount = strength * fall;
-    if (shape == LightShape.cone.index) {
-      amount *= _coneAt(o, dx, dy);
+    var amount = 0.0;
+    if (d < radius) {
+      final t = 1 - d / radius;
+      final fall = data[o + _falloff] < 0.5
+          ? t * t
+          : 1 / (1 + 16 * d2 / (radius * radius)) * math.min(1, t * 4);
+      amount = strength * fall;
+      if (shape == LightShape.cone.index) {
+        amount *= _coneAt(o, dx, dy);
+      }
+    }
+    if (d < spillRadius) {
+      // What the source throws all round, near it.
+      final t = 1 - d / spillRadius;
+      amount = math.max(amount, strength * spill * t * t);
     }
     final shadows = this.shadows;
     if (amount > 0 && shadows != null && shadows.count > 0) {
@@ -618,9 +660,9 @@ class LightField {
         // The light goes from the lamp to the drop; the eye looks back
         // along the depth: the cosine between the two ways.
         final mu = _toward[2];
-        final phase = math
-            .pow((1 + g * g) / (1 + g * g - 2 * g * mu), 1.5)
-            .toDouble();
+        // Henyey-Greenstein, x^1.5 as x * sqrt(x).
+        final q = (1 + g * g) / (1 + g * g - 2 * g * mu);
+        final phase = q * math.sqrt(q);
         scattered += amount * phase;
       }
       final o = i * stride;
