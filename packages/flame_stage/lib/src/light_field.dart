@@ -513,12 +513,16 @@ class LightField {
   /// in, after [dt] seconds of adapting - quickly to brighter light, four
   /// times as slowly to dimmer (the eye's cones and rods), by the
   /// ambience's [Ambience.adaptsIn]. The first frame sees as adapted.
-  void finish([double dt = 0]) {
+  ///
+  /// The eye adapts to all it sees in [view] ([seenLevel]), the street
+  /// before it laid out by [projection]; with no view, to the sky and the
+  /// suns on open ground.
+  void finish([double dt = 0, Rect? view, StreetProjection? projection]) {
     if (!lit) {
       _adapted = false;
       return;
     }
-    final target = 1 / math.max(skyLevel + _sunLevel, _adaptation);
+    final target = 1 / math.max(seenLevel(view, projection), _adaptation);
     if (!_adapted || _adaptsIn <= 0 || dt <= 0) {
       exposure = target;
       _adapted = true;
@@ -607,6 +611,51 @@ class LightField {
     }
     count++;
   }
+
+  /// How bright what is in [view] is, as the eye takes it in: the light
+  /// falling over a grid across it, the sky's and every light's, on the
+  /// house fronts above the street line and on the ground below it
+  /// ([projection]), and of that the brightest a tenth of the view gets.
+  /// That is what the eye sees as white (the anchoring of lightness: the
+  /// brightest thing in view looks white, if it is big enough to count). A
+  /// lit street at night is seen in its lamps' light; a far bulb is a speck
+  /// and leaves the night dark. The sky's and the suns' level on open
+  /// ground with no view or no light.
+  double seenLevel(Rect? view, [StreetProjection? projection]) {
+    if (view == null || view.isEmpty || count == 0) {
+      return skyLevel + _sunLevel;
+    }
+    const across = 8;
+    const down = 6;
+    final levels = _levels;
+    var n = 0;
+    for (var j = 0; j < down; j++) {
+      final y = view.top + view.height * (j + 0.5) / down;
+      final inFront = projection != null && y > projection.line
+          ? projection.ahead(projection.depthAt(y))
+          : 0.0;
+      for (var i = 0; i < across; i++) {
+        final x = view.left + view.width * (i + 0.5) / across;
+        var level = skyLevel;
+        for (var l = 0; l < count; l++) {
+          final amount = reach(l, x, y, inFront);
+          if (amount > 0) {
+            final o = l * stride;
+            level +=
+                amount *
+                (0.2126 * data[o + _r] +
+                    0.7152 * data[o + _g] +
+                    0.0722 * data[o + _b]);
+          }
+        }
+        levels[n++] = level;
+      }
+    }
+    levels.sort();
+    return levels[(levels.length * 0.9).floor()];
+  }
+
+  final Float64List _levels = Float64List(48);
 
   /// How far off a sun's light is taken to come from, world units: far
   /// enough that its rays are parallel over a scene.
