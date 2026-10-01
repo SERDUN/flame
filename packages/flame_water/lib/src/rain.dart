@@ -497,6 +497,10 @@ class Rain extends Component with Reflectable {
     double to = double.infinity,
   }) {
     final mirror = ReflectionPass.current;
+    // In water, only what stands across from it.
+    final area = ReflectionPass.area;
+    final left = area?.left ?? double.negativeInfinity;
+    final right = area?.right ?? double.infinity;
     final quads = _drops.length + _droplets.length;
     if (quads == 0) {
       return;
@@ -544,6 +548,10 @@ class Rain extends Component with Reflectable {
       if (d.depth < from || d.depth >= to) {
         continue;
       }
+      // Its streak trails back along its motion, up to a metre and more.
+      if (d.at.x < left - _margin || d.at.x > right + _margin) {
+        continue;
+      }
       final speed = d.velocity.length;
       final length = RainDrops.streakLength(speed / metre) * metre;
       // In water a drop is mirrored about the spot it falls to.
@@ -562,7 +570,7 @@ class Rain extends Component with Reflectable {
       );
     }
     for (final p in _droplets) {
-      if (p.depth < from || p.depth >= to) {
+      if (p.depth < from || p.depth >= to || p.at.x < left || p.at.x > right) {
         continue;
       }
       final shift = mirror?.mirrorShift(p.floor) ?? 0;

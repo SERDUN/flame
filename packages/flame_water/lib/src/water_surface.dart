@@ -601,6 +601,21 @@ class WaterSurface extends PositionComponent
     return depth == null ? null : Ground.of(this)?.yAt(depth);
   }
 
+  /// What of the world this water can show, world coordinates: everything
+  /// standing across from it (any height - each thing is mirrored about where
+  /// it stands), widened by how far its rings, chop and roughness move what
+  /// it mirrors.
+  Rect get reflectedArea {
+    final origin = absoluteTopLeftPosition;
+    final reach = waveAmplitude + chop + streak;
+    return Rect.fromLTRB(
+      origin.x - reach,
+      double.negativeInfinity,
+      origin.x + size.x + reach,
+      double.infinity,
+    );
+  }
+
   /// How far to move something (world units, down) for the mirror about
   /// the water line to show it mirrored about [base] instead - the line it
   /// stands on, or a drop the spot it falls to.
