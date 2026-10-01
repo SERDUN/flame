@@ -73,7 +73,7 @@ void main() {
       position: Vector2(0, 400),
       size: Vector2(800, 120),
       shape: WaterShape.rect,
-      depth: 0.1,
+      waterDepth: 0.1,
       film: true,
     );
     final puddle = WaterSurface(
@@ -175,7 +175,7 @@ void main() {
   });
 
   test('water dries as long as it is deep', () {
-    final film = WaterSurface(depth: 0.1, film: true);
+    final film = WaterSurface(waterDepth: 0.1, film: true);
     final puddle = WaterSurface();
     expect(film.dryRate, closeTo(0.02, 1e-9), reason: 'as the asphalt');
     expect(puddle.dryRate, closeTo(film.dryRate / 10, 1e-9));

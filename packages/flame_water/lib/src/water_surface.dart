@@ -75,7 +75,7 @@ class WaterSurface extends PositionComponent
     this.squash = 1,
     this.fade = 0.8,
     this.tint = const Color(0x00000000),
-    this.depth = 1,
+    this.waterDepth = 1,
     this.edgeSoftness = 0.35,
     RippleRings? ripples,
     this.rippleColor = const Color(0x99FFFFFF),
@@ -91,11 +91,11 @@ class WaterSurface extends PositionComponent
     this.gpuWaves = false,
     this.glowGain = 10,
     double wetness = 1,
-  }) : ripples = ripples ?? RippleRings.forDepth(depth),
-       waveAmplitude = waveAmplitude ?? 1.5 + 3.5 * depth.clamp(0.0, 1.0),
+  }) : ripples = ripples ?? RippleRings.forDepth(waterDepth),
+       waveAmplitude = waveAmplitude ?? 1.5 + 3.5 * waterDepth.clamp(0.0, 1.0),
        wavelength =
            wavelength ??
-           (ripples ?? RippleRings.forDepth(depth)).maxRadius * 0.4 {
+           (ripples ?? RippleRings.forDepth(waterDepth)).maxRadius * 0.4 {
     // A film starts as wet as the scene says; standing water is water.
     this.wetness = wetness;
   }
@@ -150,13 +150,13 @@ class WaterSurface extends PositionComponent
   /// Drops break on all of it; the deeper, the wider, slower and plainer
   /// the rings they leave and the more those bend the reflection - unless
   /// [ripples] and [waveAmplitude] are given outright.
-  final double depth;
+  final double waterDepth;
 
   /// Water dries as long as it is deep: a film on the asphalt goes at the
   /// usual rate, a puddle ten times as deep takes ten times as long. Unless
   /// set outright.
   @override
-  double get dryRate => _dryRate ?? 0.002 / math.max(depth, 0.1);
+  double get dryRate => _dryRate ?? 0.002 / math.max(waterDepth, 0.1);
 
   @override
   set dryRate(double value) => _dryRate = value;
@@ -239,7 +239,7 @@ class WaterSurface extends PositionComponent
   }
 
   @override
-  int get catchOrder => (depth * 100).round();
+  int get catchOrder => (waterDepth * 100).round();
 
   @override
   void onDrop(Vector2 at, double strength) => splash(at, strength: strength);
@@ -547,7 +547,8 @@ class WaterSurface extends PositionComponent
   /// The rings' paint: [rippleColor], plainer the more water there is - and
   /// the wetter it is (barely wet asphalt hardly shows a ring).
   Paint _ringPaint() {
-    final plain = (0.5 + 0.5 * depth.clamp(0.0, 1.0)) * wetness.clamp(0.0, 1.0);
+    final plain =
+        (0.5 + 0.5 * waterDepth.clamp(0.0, 1.0)) * wetness.clamp(0.0, 1.0);
     return _ripplePaint
       ..strokeWidth = rippleWidth
       ..color = rippleColor.withValues(alpha: rippleColor.a * plain);

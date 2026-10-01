@@ -1,6 +1,6 @@
 ## 0.1.0
 
-- `WaterSurface.depth` (0 a film on asphalt, 1 a puddle) sets the rings: radius, life, how much they bend the reflection and how plain they show (`RippleRings.forDepth`).
+- `WaterSurface.waterDepth` (0 a film on asphalt, 1 a puddle) sets the rings: radius, life, how much they bend the reflection and how plain they show (`RippleRings.forDepth`).
 
 - `WaterSurface` is a `LightReflector` (flame_lighting): every light of the stage's frame shows in it, worked out by the water shader where the mirror puts it, bent by the drops and smeared by a rough surface.
 - `Rain` reads the stage's frame: the view, the street's projection, the light on each drop.
