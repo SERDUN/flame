@@ -5,6 +5,7 @@ import 'package:flame/components.dart';
 import 'package:flame_lighting/src/glossy.dart';
 import 'package:flame_lighting/src/light_reflector.dart';
 import 'package:flame_lighting/src/light_shader.dart';
+import 'package:flame_lighting/src/light_source.dart';
 import 'package:flame_stage/flame_stage.dart';
 
 /// The night over a world, and how its lights cut it.
@@ -57,22 +58,6 @@ class Lighting extends Component with OnStage, Ambience {
   final Paint _add = Paint()..blendMode = BlendMode.plus;
   final Paint _halo = Paint()..blendMode = BlendMode.dstOut;
 
-  // A shader keeps its uniforms by reference until the frame is drawn: one
-  // per draw, reused frame to frame.
-  final List<FragmentShader> _shaders = [];
-  int _used = 0;
-
-  FragmentShader? _nextShader() {
-    final program = LightShader.program;
-    if (program == null) {
-      return null;
-    }
-    if (_used == _shaders.length) {
-      _shaders.add(program.fragmentShader());
-    }
-    return _shaders[_used++];
-  }
-
   @override
   void render(Canvas canvas) {
     final frame = stage?.frame;
@@ -83,8 +68,8 @@ class Lighting extends Component with OnStage, Ambience {
     if (!field.isLit) {
       return;
     }
-    _used = 0;
-    final view = frame.view.inflate(4);
+    // A little past the view, so nothing shows at its edge.
+    final view = frame.view.inflate(frame.view.width * 0.01);
     var lift = 0.0;
     for (var i = 0; i < field.count; i++) {
       if (field.shapeOf(i) == LightShape.directional) {
@@ -130,6 +115,9 @@ class Lighting extends Component with OnStage, Ambience {
   }) {
     final field = frame.light;
     final reach = _bounds(field, i);
+    if (!reach.overlaps(frame.view)) {
+      return;
+    }
     final projection = frame.projection;
     final line = projection?.line;
     final wall = line == null
@@ -157,7 +145,7 @@ class Lighting extends Component with OnStage, Ambience {
       if (area.isEmpty) {
         continue;
       }
-      final shader = _nextShader();
+      final shader = LightShader.shader;
       if (shader == null) {
         _castPlain(canvas, field, i, paint, amount, area);
         continue;
@@ -178,7 +166,7 @@ class Lighting extends Component with OnStage, Ambience {
 
   /// Where light [i] can reach on screen.
   Rect _bounds(LightField field, int i) {
-    final r = field.radiusOf(i);
+    final r = field.reachOf(i);
     final x = field.xOf(i);
     final y = field.yOf(i);
     final ex = field.shapeOf(i) == LightShape.area ? field.extentXOf(i) / 2 : 0;
@@ -234,15 +222,12 @@ class Lighting extends Component with OnStage, Ambience {
     }
     final center = Offset(field.xOf(i), field.yOf(i));
     final radius = field.haloRadiusOf(i);
-    _halo.shader = Gradient.radial(
+    // The same profile as the halo the light draws, or a ring would show.
+    _halo.shader = LightSource.halo(
       center,
       radius,
-      [
-        const Color(0xFFFFFFFF).withValues(alpha: a),
-        const Color(0xFFFFFFFF).withValues(alpha: a * 0.35),
-        const Color(0x00FFFFFF),
-      ],
-      const [0, 0.25, 1],
+      const Color(0xFFFFFFFF),
+      a,
     );
     canvas.drawCircle(center, radius, _halo);
   }
@@ -278,7 +263,7 @@ class Lighting extends Component with OnStage, Ambience {
         _cast(canvas, frame, i, _sheen, gloss * 0.45, clip: bounds);
       }
     }
-    final every = 100 / math.max(wet.rivulets, 0.1);
+    final every = math.max(wet.rivuletSpacing, 1e-3);
     var k = 0;
     for (var x = bounds.left + every / 2; x < bounds.right; x += every) {
       k++;
@@ -297,20 +282,29 @@ class Lighting extends Component with OnStage, Ambience {
         continue;
       }
       // A damp trail, not a line: wide, soft, fading in and out along its
-      // length, only just lighter than the wall round it. It breathes slowly
-      // as the water on it thickens and thins.
+      // length, only just lighter than the wall round it, in the colour of
+      // the light on it. It breathes slowly as the water on it thickens and
+      // thins.
       final breath = 0.75 + 0.25 * math.sin(_time * (0.4 + 0.5 * h) + h * 6);
       final a = gloss * lit * (0.08 + 0.1 * h) * breath;
-      final halfWidth = 4 + 2.5 * _unit(k * 5.1);
+      final halfWidth = wet.rivuletWidth * (0.8 + 0.5 * _unit(k * 5.1)) / 2;
       final middle = Offset(rx, top + (bottom - top) * 0.4);
+      final color = Color.lerp(_sample.color, const Color(0xFFFFFFFF), 0.3)!;
+      _rivulet.shader = Gradient.radial(
+        Offset.zero,
+        1,
+        [
+          color.withValues(alpha: a),
+          color.withValues(alpha: a * 0.6),
+          color.withValues(alpha: 0),
+        ],
+        const [0, 0.45, 1],
+      );
       canvas
         ..save()
         ..translate(middle.dx, middle.dy)
         ..scale(halfWidth, (bottom - top) / 2)
-        ..drawRect(
-          const Rect.fromLTRB(-1, -1, 1, 1),
-          _rivulet..color = Color.fromRGBO(255, 255, 255, a),
-        )
+        ..drawRect(const Rect.fromLTRB(-1, -1, 1, 1), _rivulet)
         ..restore();
     }
     canvas.restore();
@@ -321,13 +315,5 @@ class Lighting extends Component with OnStage, Ambience {
     return s - s.floorToDouble();
   }
 
-  final Paint _rivulet = Paint()
-    ..blendMode = BlendMode.plus
-    ..shader = Gradient.radial(
-      Offset.zero,
-      1,
-      // Warm lamp-lit water; the paint's alpha sets how bright.
-      const [Color(0xFFFFE8C8), Color(0x99FFE8C8), Color(0x00FFE8C8)],
-      const [0, 0.45, 1],
-    );
+  final Paint _rivulet = Paint()..blendMode = BlendMode.plus;
 }

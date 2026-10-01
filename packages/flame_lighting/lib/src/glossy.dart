@@ -1,3 +1,4 @@
+import 'dart:typed_data';
 import 'dart:ui';
 
 import 'package:flame/components.dart';
@@ -23,13 +24,11 @@ mixin Glossy on Component {
       return;
     }
     // After its own tree the canvas is back in its parent's coordinates;
-    // the sheen is laid out in the world's.
-    canvas.save();
-    final holder = parent;
-    if (holder is PositionComponent) {
-      final origin = holder.absoluteTopLeftPosition;
-      canvas.translate(-origin.x, -origin.y);
-    }
+    // the sheen is laid out in the world's: undo every transform down to
+    // the parent, scaled and turned ones too.
+    canvas
+      ..save()
+      ..transform(Float64List.fromList(_worldToParent().storage));
     if (dark > 0) {
       canvas.drawPath(
         glossArea(),
@@ -42,6 +41,19 @@ mixin Glossy on Component {
 
   static final Paint _darken = Paint();
 
+  /// The transform from world coordinates to the parent's.
+  Matrix4 _worldToParent() {
+    // The parent's coordinates to the world's: each ancestor's transform
+    // put in front of those below it.
+    var toWorld = Matrix4.identity();
+    for (final a in ancestors()) {
+      if (a is PositionComponent) {
+        toWorld = a.transform.transformMatrix.multiplied(toWorld);
+      }
+    }
+    return Matrix4.inverted(toWorld);
+  }
+
   /// How much of its colour it has lost to the water in it, `0..1`: a wet
   /// wall is darker than a dry one. Drawn over [glossArea].
   double get darkening => 0;
@@ -52,6 +64,11 @@ mixin Glossy on Component {
   /// Where it is wet, world coordinates.
   Path glossArea();
 
-  /// Rivulets per 100 world units across it.
-  double get rivulets => 9;
+  /// How far apart the rivulets run across it, world units: about a hand
+  /// apart on a wall in a world measured in pixels. A world in metres says
+  /// so (0.2).
+  double get rivuletSpacing => 11;
+
+  /// How wide a rivulet's damp trail is, world units.
+  double get rivuletWidth => 10;
 }

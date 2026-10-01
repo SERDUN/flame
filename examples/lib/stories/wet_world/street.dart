@@ -134,9 +134,10 @@ class Houses extends PositionComponent
   }
 }
 
-/// A street lamp: a post and a warm bulb. In a reflection the bulb blurs into
-/// a glow, as a light does in water. With `lit` it holds its lights: a cone
-/// down onto the street and a small halo round the bulb.
+/// A street lamp: a post and a warm bulb. With `lit` the bulb is a light: a
+/// cone down onto the street, the bulb itself drawn by it, with the halo the
+/// wet air makes round it - one light, not one for the cone and another for
+/// the bulb.
 class Lamp extends PositionComponent with Reflectable {
   Lamp({required double x, bool lit = false})
     : super(
@@ -144,7 +145,7 @@ class Lamp extends PositionComponent with Reflectable {
         anchor: Anchor.bottomCenter,
         size: Vector2(20, 150),
         children: [
-          if (lit) ...[
+          if (lit)
             // A street lamp lights the street for some metres round.
             LightSource(
               position: Vector2(10, 16),
@@ -152,15 +153,10 @@ class Lamp extends PositionComponent with Reflectable {
               coneAngle: 1.9,
               intensity: 0.95,
               sourceRadius: 5,
+              // The bulb lights the lamp's head and the air round it.
+              spill: 0.95,
+              spillRadius: 36,
             ),
-            // The bulb's own glow; the air's halo round it is the cone's.
-            LightSource(
-              position: Vector2(10, 16),
-              radius: 36,
-              intensity: 0.9,
-              sourceRadius: 0,
-            ),
-          ],
         ],
       );
 

@@ -2,6 +2,7 @@ import 'dart:typed_data';
 import 'dart:ui';
 
 import 'package:flame_stage/flame_stage.dart';
+import 'package:flutter/foundation.dart' show visibleForTesting;
 
 /// Where a light is drawn by [LightShader].
 enum LightPlane {
@@ -24,6 +25,23 @@ abstract final class LightShader {
   /// The program; `null` before [load] finishes.
   static FragmentProgram? get program => _program;
 
+  static final Expando<FragmentShader> _shaders = Expando();
+
+  /// The one shader every light is drawn with; `null` before [load]
+  /// finishes. A draw takes a copy of the uniforms it is given, so one
+  /// serves every draw.
+  static FragmentShader? get shader {
+    final program = _program;
+    return program == null
+        ? null
+        : _shaders[program] ??= program.fragmentShader();
+  }
+
+  /// Forgets the program, so lights are drawn as before it was loaded: for
+  /// tests of that path.
+  @visibleForTesting
+  static void reset() => _program = null;
+
   /// Loads the program from [directory], the key the app bundles it under;
   /// the package's own tests, where it is the app, pass `shaders`.
   static Future<void> load({
@@ -36,22 +54,22 @@ abstract final class LightShader {
   static const int maxShadows = 8;
 
   /// Where the capsules start, in vec4s; two vec4 each.
-  static const int capsules = 7;
+  static const int capsules = 8;
 
   /// vec4s in the shader's `u` array.
   static const int vectors = capsules + maxShadows * 2;
 
-  // Offsets, in floats: the shader's names. The light's four vec4 come
+  // Offsets, in floats: the shader's names. The light's five vec4 come
   // first, as [LightField.writeLight] writes them.
-  static const int projectionTop = 16;
-  static const int projectionBand = 17;
-  static const int projectionNear = 18;
-  static const int projectionFar = 19;
-  static const int projectionEye = 20;
-  static const int planeMode = 21;
-  static const int drawAmount = 22;
-  static const int falloffMode = 23;
-  static const int shadowCount = 24;
+  static const int projectionTop = LightField.lightFloats;
+  static const int projectionBand = projectionTop + 1;
+  static const int projectionNear = projectionTop + 2;
+  static const int projectionFar = projectionTop + 3;
+  static const int projectionEye = projectionTop + 4;
+  static const int planeMode = projectionTop + 5;
+  static const int drawAmount = projectionTop + 6;
+  static const int falloffMode = projectionTop + 7;
+  static const int shadowCount = projectionTop + 8;
 
   static final Float32List _floats = Float32List(vectors * 4);
 

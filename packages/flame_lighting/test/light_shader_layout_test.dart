@@ -45,6 +45,9 @@ void main() {
     expect(defines['L_POS'], 0);
     expect(defines['L_STRENGTH'], 7);
     expect(defines['L_SOURCE'], 15);
+    expect(defines['L_SPILL'], 16);
+    expect(defines['L_SPILL_RADIUS'], 17);
+    expect(LightField.lightFloats, 20);
   });
 
   test('the arrays are as long on both sides', () {

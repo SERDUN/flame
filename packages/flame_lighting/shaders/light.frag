@@ -21,7 +21,7 @@ precision highp float;
 #include <flutter/runtime_effect.glsl>
 
 const int kShadows = 8;
-const int kCapsules = 7;
+const int kCapsules = 8;
 
 uniform vec4 u[kCapsules + kShadows * 2];
 
@@ -37,18 +37,20 @@ uniform vec4 u[kCapsules + kShadows * 2];
 #define L_COS_EDGE u[3].x
 #define L_EXTENT u[3].yz
 #define L_SOURCE u[3].w
+#define L_SPILL u[4].x
+#define L_SPILL_RADIUS u[4].y
 // The street's projection.
-#define P_TOP u[4].x
-#define P_BAND u[4].y
-#define P_NEAR u[4].z
-#define P_FAR u[4].w
-#define P_EYE u[5].x
+#define P_TOP u[5].x
+#define P_BAND u[5].y
+#define P_NEAR u[5].z
+#define P_FAR u[5].w
+#define P_EYE u[6].x
 // How to draw: on the wall (0) or the ground (1), how much, which falloff.
-#define MODE u[5].y
-#define AMOUNT u[5].z
-#define FALLOFF u[5].w
+#define MODE u[6].y
+#define AMOUNT u[6].z
+#define FALLOFF u[6].w
 // What stands in the way: capsules from u[kCapsules], two vec4 each.
-#define S_COUNT u[6].x
+#define S_COUNT u[7].x
 
 const float kArea = 2.0;
 const float kLine = 3.0;
@@ -172,11 +174,12 @@ void main() {
     vec3 l = vec3(e, L_AHEAD);
     vec3 v = p - l;
     float dist = length(v);
-    if (dist >= L_RADIUS || L_STRENGTH <= 0.0) {
+    float spillRadius = L_SPILL > 0.0 ? L_SPILL_RADIUS : 0.0;
+    if ((dist >= L_RADIUS && dist >= spillRadius) || L_STRENGTH <= 0.0) {
         fragColor = vec4(0.0);
         return;
     }
-    float t = 1.0 - dist / L_RADIUS;
+    float t = max(1.0 - dist / L_RADIUS, 0.0);
     float fall = FALLOFF < 0.5
         ? t * t
         : 1.0 / (1.0 + 16.0 * dist * dist / (L_RADIUS * L_RADIUS)) *
@@ -198,6 +201,12 @@ void main() {
         incidence = dist < 1e-3 ? 1.0 : clamp(v.y / dist, 0.0, 1.0);
     }
     float shade = S_COUNT > 0.5 ? through(l, p, max(L_SOURCE, 1.0)) : 1.0;
-    float a = AMOUNT * L_STRENGTH * fall * cone * incidence * shade;
+    float reach = fall * cone;
+    if (dist < spillRadius) {
+        // What the source throws all round, near it.
+        float ts = 1.0 - dist / spillRadius;
+        reach = max(reach, L_SPILL * ts * ts);
+    }
+    float a = AMOUNT * L_STRENGTH * reach * incidence * shade;
     fragColor = vec4(L_COLOR * a, a);
 }
