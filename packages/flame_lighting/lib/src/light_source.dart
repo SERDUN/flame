@@ -131,6 +131,11 @@ class LightSource extends PositionComponent with Emissive {
 
   final Paint _glow = Paint();
 
+  /// World y of the ground it stands on, if not the line water mirrors
+  /// about (see [Emissive.standsAt]).
+  @override
+  double? standsAt;
+
   /// Radius of the halo [haze] makes round the source.
   double haloRadius(double haze) => sourceRadius * (6 + 24 * haze);
 

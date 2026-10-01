@@ -13,6 +13,11 @@ mixin Emissive on Component {
   /// Draws the glowing parts, in this component's own coordinates. Call it
   /// from the component's render too.
   void renderEmissive(Canvas canvas);
+
+  /// World y of the ground it stands on, if not the line water mirrors
+  /// about: a lamp nearer the eye stands lower, and water mirrors its glow
+  /// about where it stands. `null`: on that line.
+  double? get standsAt => null;
 }
 
 /// A surface that mirrors light: water, a wet road, a glossy roof.
@@ -31,9 +36,18 @@ mixin LightMirror on Component {
   /// times brighter passes that number to [glow], which then draws what the
   /// air scatters that much fainter: brought back, only the sources come out
   /// brighter than white, and a halo as bright as it is.
+  ///
+  /// A mirror that mirrors things about where each stands passes [glow] how
+  /// far to move what stands on a given ground (`shift`, world y in, world
+  /// units down out), and each light standing elsewhere is moved so.
   void renderMirroredGlow(
     Canvas canvas,
-    void Function(Canvas canvas, double headroom) glow,
+    void Function(
+      Canvas canvas,
+      double headroom, [
+      double Function(double base)? shift,
+    ])
+    glow,
   );
 }
 
