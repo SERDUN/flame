@@ -68,13 +68,13 @@ void main() {
     expect(_constant(source, 'kHeader'), WaterShader.header);
     expect(_constant(source, 'kMaxRings'), WaterShader.maxRings);
     expect(_constant(source, 'kMaxLights'), WaterShader.maxLights);
-    // Five vectors a light.
-    expect(WaterShader.lightFloats, 5 * 4);
+    // Six vectors a light.
+    expect(WaterShader.lightFloats, 6 * 4);
     expect(
       WaterShader.floats,
-      (WaterShader.header + WaterShader.maxRings + WaterShader.maxLights * 5) *
+      (WaterShader.header + WaterShader.maxRings + WaterShader.maxLights * 6) *
           4,
     );
-    expect(source, contains('uniform vec4 u[kLights + kMaxLights * 5];'));
+    expect(source, contains('uniform vec4 u[kLights + kMaxLights * 6];'));
   });
 }

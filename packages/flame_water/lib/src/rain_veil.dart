@@ -19,6 +19,7 @@ import 'package:flame_water/src/rain_drops.dart';
 class RainVeil {
   static FragmentProgram? _program;
   static bool _asked = false;
+  static final Expando<FragmentShader> _shaderOf = Expando();
 
   /// Loads the veil shader. [asset] is the key the app bundles it under; the
   /// package's own tests, where it is the app, pass `shaders/veil.frag`.
@@ -44,7 +45,6 @@ class RainVeil {
   final Vector2 _at = Vector2.zero();
   final Vector2 _air = Vector2.zero();
   final Float32List _uniforms = Float32List(_floats);
-  final Map<double, FragmentShader> _shaders = {};
   final Paint _streaks = Paint();
   final Paint _haze = Paint();
   final Paint _spray = Paint();
@@ -159,7 +159,8 @@ class RainVeil {
       ..[15] = alpha
       ..[16] = pixels <= 0 ? 1 : 1 / pixels
       ..[17] = depth * 97;
-    final shader = _shaders[depth] ??= program.fragmentShader();
+    // A draw takes a copy of the uniforms: one shader serves every veil.
+    final shader = _shaderOf[program] ??= program.fragmentShader();
     for (var i = 0; i < _floats; i++) {
       shader.setFloat(i, f[i]);
     }
