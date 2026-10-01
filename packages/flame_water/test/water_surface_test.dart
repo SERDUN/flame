@@ -135,6 +135,24 @@ void main() {
     },
   );
 
+  testWithFlameGame(
+    'water shows only what stands across from it, as far as its rings reach',
+    (game) async {
+      final surface = _surface();
+      await game.world.add(surface);
+      await game.ready();
+      // Rings bend its mirror by up to waveAmplitude: 5 at depth 1.
+      final area = surface.reflectedArea;
+      expect(area.left, -surface.waveAmplitude);
+      expect(area.right, 100 + surface.waveAmplitude);
+      expect(area.top, double.negativeInfinity, reason: 'any height');
+      expect(ReflectionPass.area, isNull, reason: 'outside a reflection');
+      Rect? during;
+      ReflectionPass.run(surface, () => during = ReflectionPass.area);
+      expect(during, area);
+    },
+  );
+
   testWithFlameGame('a squashed reflection is shorter', (game) async {
     final surface = _surface(squash: 0.5);
     await game.world.addAll([

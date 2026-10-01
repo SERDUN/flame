@@ -1,3 +1,5 @@
+import 'dart:ui';
+
 import 'package:flame/components.dart';
 import 'package:flame_water/src/water_surface.dart';
 
@@ -35,6 +37,13 @@ abstract final class ReflectionPass {
 
   /// Whether the component being drawn is a reflection.
   static bool get isActive => _current != null;
+
+  /// What of the world the water drawing now can show, world coordinates:
+  /// its mirror is upright, so only what stands across from it, give or
+  /// take how far its ripples and roughness move what it mirrors. A
+  /// component drawing many things (a layer of decor, the rain) may draw
+  /// only those across this; `null` outside a reflection.
+  static Rect? get area => _current?.reflectedArea;
 
   /// Runs [draw] as the reflection in [surface]; passes do not nest (water is
   /// not reflected in water).
