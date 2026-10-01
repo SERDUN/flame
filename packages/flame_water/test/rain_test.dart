@@ -387,4 +387,27 @@ void main() {
       expect(near, greaterThan(0));
     },
   );
+
+  testWithFlameGame(
+    'a view that follows someone gets rain on its leading side too',
+    (game) async {
+      game.onGameResize(Vector2(800, 600));
+      game.camera.viewfinder.anchor = Anchor.topLeft;
+      // The cloud 12 m up at 50 units a metre: a drop takes about two
+      // seconds down, while the view moves on 1.5 m a second.
+      final rain = Rain(seed: 3, cloudTop: () => -600 + 400);
+      game.world.addAll([_Ground(), rain]);
+      await game.ready();
+      for (var t = 0.0; t < 8; t += 1 / 30) {
+        game.camera.viewfinder.position += Vector2(75 / 30, 0);
+        game.update(1 / 30);
+      }
+      final view = game.camera.visibleWorldRect;
+      int quarter(int i) => rain.dropXs.where((x) {
+        final at = (x - view.left) / view.width * 4;
+        return at >= i && at < i + 1;
+      }).length;
+      expect(quarter(3), greaterThan(0.6 * quarter(0)));
+    },
+  );
 }

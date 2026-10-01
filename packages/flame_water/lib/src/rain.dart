@@ -204,6 +204,46 @@ class Rain extends Component with Reflectable {
 
   Rect? _lastView;
 
+  /// How fast the view moves across the world, world units a second: a
+  /// camera following someone. A drop takes seconds from the cloud, and the
+  /// view has moved on by the time it lands.
+  double _viewSpeed = 0;
+  double? _viewLeft;
+
+  /// Follows the view's movement over [dt], smoothed over a fraction of a
+  /// second; a jump (a restart, a seek) is not the camera moving.
+  void _trackView(Rect view, double dt) {
+    final previous = _viewLeft;
+    _viewLeft = view.left;
+    if (previous == null || dt <= 0) {
+      return;
+    }
+    final moved = view.left - previous;
+    if (moved.abs() >= view.width) {
+      return;
+    }
+    _viewSpeed += (moved / dt - _viewSpeed) * (1 - math.exp(-dt / 0.3));
+  }
+
+  /// How much more ground than the view the rain has to reach: as far as
+  /// the view travels while a drop falls the whole way down, and as far as
+  /// the wind carries a drop while it falls through the view.
+  double _viewReach(Rect view, double Function(double) land) {
+    final top = cloudTop?.call() ?? view.top - _margin;
+    final fall = RainDrops.terminalSpeed(2) * metre;
+    final way = math.max(land(0) - top, 0) / fall;
+    final through = _inViewTime(view, top, land(0), fall);
+    return _viewSpeed.abs() * way +
+        (_windX(_viewCenter(view)) * metre * through).abs();
+  }
+
+  /// How long a drop falling at [fall] from [top] to [landing] is inside the
+  /// view's height.
+  double _inViewTime(Rect view, double top, double landing, double fall) =>
+      math.max(landing - math.max(view.top, top), 0) / fall;
+
+  Vector2 _viewCenter(Rect view) => Vector2(view.center.dx, view.center.dy);
+
   final Vector2 _air = Vector2.zero();
 
   /// The wind's x at [at], metres per second.
@@ -239,10 +279,25 @@ class Rain extends Component with Reflectable {
     // as far as the wind carries it on the way down.
     final top = cloudTop?.call() ?? view.top - _margin;
     final landing = land(depth);
-    final target =
-        view.left - _margin + _random.nextDouble() * (view.width + 2 * _margin);
-    final windX = _windX(Vector2(target, (top + landing) / 2)) * metre;
     final fallTime = math.max(landing - top, 0) / fall;
+    // It lands over the view as it is now or as it will be by then: a view
+    // following someone has moved on while the drop fell, and rain aimed
+    // only where it is now would leave its leading side dry.
+    final ahead = _viewSpeed * fallTime;
+    // And a drop seen in the view now may still have far to go downwind:
+    // one that lands past the view's downwind edge crosses it on the way
+    // down, as far in as the wind carries it while it falls through the view.
+    final downwind =
+        _windX(_viewCenter(view)) *
+        metre *
+        _inViewTime(view, top, landing, fall) *
+        perspective;
+    final from =
+        view.left - _margin + math.min(0, ahead) + math.min(0, downwind);
+    final to =
+        view.right + _margin + math.max(0, ahead) + math.max(0, downwind);
+    final target = from + _random.nextDouble() * (to - from);
+    final windX = _windX(Vector2(target, (top + landing) / 2)) * metre;
     final born = target - windX * perspective * fallTime;
     return _Drop(
       at: Vector2(
@@ -298,6 +353,7 @@ class Rain extends Component with Reflectable {
       return;
     }
     final (:view, :land, :scale) = frame;
+    _trackView(view, dt);
     if (!_started) {
       _started = true;
       // The rain is already falling when the scene opens: as many drops as
@@ -319,7 +375,14 @@ class Rain extends Component with Reflectable {
         }
       }
     }
-    _due += dt * density * view.width / metre * intensity;
+    // As many per metre over the ground the view will cross, not only the
+    // view.
+    _due +=
+        dt *
+        density *
+        (view.width + _viewReach(view, land)) /
+        metre *
+        intensity;
     while (_due >= 1) {
       _due -= 1;
       final drop = _newDrop(view, land, scale, dt);
