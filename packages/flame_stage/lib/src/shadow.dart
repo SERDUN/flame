@@ -2,12 +2,13 @@ import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:flame/components.dart';
+import 'package:flame_stage/src/stage.dart';
 
 /// A component that stands in the light's way: a walker, an umbrella, a lamp
 /// post, a shelter's roof. Once a frame it tells the stage its shape as a
 /// few capsules ([ShadowSet.capsule]) - enough for the light to know what it
 /// hides, cheap enough to ask for every drop of rain.
-mixin ShadowCaster on Component {
+mixin ShadowCaster on OnStage {
   /// Writes its shape now into [shadows], world coordinates.
   void castShadow(ShadowSet shadows);
 }
@@ -84,8 +85,12 @@ class ShadowSet {
       final dz = pz - lz;
       double t;
       double distance;
-      if (dz.abs() < 1e-6) {
-        if ((pz - cz).abs() > half) {
+      final lightIn = (lz - cz).abs() <= half;
+      final pointIn = (pz - cz).abs() <= half;
+      if (dz.abs() < 1e-6 || (lightIn && pointIn)) {
+        // The whole way lies in the capsule's depth: how near it comes to
+        // the capsule on screen.
+        if (!lightIn || !pointIn) {
           continue;
         }
         // Light and point at the capsule's depth: the nearest the way from
@@ -193,28 +198,6 @@ class ShadowSet {
   double radiusOf(int i) => data[i * stride + 4];
   double aheadOf(int i) => data[i * stride + 5];
   double opacityOf(int i) => data[i * stride + 7];
-
-  /// Writes up to [max] capsules for a shader: two vec4 each, (ax, ay, bx,
-  /// by) and (radius, ahead, thickness, opacity), then one vec4 with the
-  /// count. Returns the floats written.
-  int writeUniforms(Float32List into, int at, {int max = 8}) {
-    final n = math.min(count, max);
-    var w = at;
-    for (var k = 0; k < max; k++) {
-      for (var j = 0; j < stride; j++) {
-        into[w++] = k < n ? data[k * stride + j] : 0;
-      }
-    }
-    into
-      ..[w++] = n.toDouble()
-      ..[w++] = 0
-      ..[w++] = 0
-      ..[w++] = 0;
-    return w - at;
-  }
-
-  /// Floats [writeUniforms] writes for [max].
-  static int uniformFloats(int max) => max * stride + 4;
 }
 
 /// Writes a capsule for a [PositionComponent] standing upright at its

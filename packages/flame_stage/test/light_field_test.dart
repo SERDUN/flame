@@ -98,17 +98,13 @@ void main() {
     },
   );
 
-  test('a shader gets the strongest lights and the night', () {
-    final field = _field([
-      for (var i = 0; i < 20; i++)
-        (Light.point(intensity: i / 10), i * 10.0, 0),
-    ]);
-    final into = Float32List(LightField.uniformFloats(16));
-    final written = field.writeUniforms(into, 0);
-    expect(written, LightField.uniformFloats(16));
-    expect(into[16 * 16], 16, reason: 'the count, capped');
-    expect(into[16 * 16 + 1], closeTo(0.8, 1e-6), reason: 'darkness');
-    expect(into[7], closeTo(1.9, 1e-6), reason: 'the strongest first');
+  test('a shader gets a light as four vectors', () {
+    final field = _field([(Light.point(intensity: 0.9, radius: 70), 30, 40)]);
+    final into = Float32List(16);
+    field.writeLight(0, into, 0);
+    expect(into.sublist(0, 2), [30, 40], reason: 'where');
+    expect(into[7], closeTo(0.9, 1e-6), reason: 'how strong');
+    expect(into[8], 70, reason: 'how far it reaches');
   });
 
   group('shadows', () {

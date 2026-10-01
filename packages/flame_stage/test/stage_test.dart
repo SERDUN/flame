@@ -5,7 +5,7 @@ import 'package:flame_stage/flame_stage.dart';
 import 'package:flame_test/flame_test.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-class _Road extends Component with Ground {
+class _Road extends Component with OnStage, Ground {
   Rect band = const Rect.fromLTWH(0, 400, 800, 100);
 
   @override
