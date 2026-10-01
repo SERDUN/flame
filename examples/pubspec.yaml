@@ -17,12 +17,14 @@ dependencies:
   flame_audio: ^2.13.0-dev.0
   flame_forge2d: ^0.21.0-dev.0
   flame_isolate: ^0.7.0-dev.0+24
+  flame_lighting: ^0.1.0
   flame_lottie: ^0.5.0-dev.0+24
   flame_noise: ^0.3.4-dev.0+24
   flame_spine: ^0.4.0-dev.0+7
   flame_svg: ^3.0.0-dev.0
   flame_test: ^3.0.0-dev.0
   flame_tiled: ^4.0.0-dev.0
+  flame_water: ^0.1.0
   flutter:
     sdk: flutter
   google_fonts: ^8.0.2
@@ -39,6 +41,8 @@ dependencies:
 
 dev_dependencies:
   flame_lint: ^1.4.4-dev.0
+  flutter_test:
+    sdk: flutter
   test: any
 
 flutter:
