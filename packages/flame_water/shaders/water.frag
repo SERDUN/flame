@@ -31,17 +31,13 @@ uniform float uElevTop;       // sine of the angle the eye looks down, top row
 uniform float uElevBottom;    // ... and bottom row
 uniform float uFresnel;       // 1: mirror as much as water does at that angle
 uniform float uSpread;        // how long a rough surface smears a point, units
-// Colours and the outline come as single floats: a vector after a lone float
-// is laid out on its own boundary on Vulkan, not where the floats are set in
-// order, and the frame is lost.
-uniform float uBaseR;         // the water (or the wet ground) under it,
-uniform float uBaseG;         // premultiplied
-uniform float uBaseB;
-uniform float uBaseA;
-uniform float uTintR;         // laid over the reflection, premultiplied
-uniform float uTintG;
-uniform float uTintB;
-uniform float uTintA;
+// A vector after a lone float is laid out on its own boundary on Vulkan, not
+// where the floats are set in order, and the frame is lost: the colours are
+// vectors only because they start 12 and 16 floats in, on 16-byte
+// boundaries. Metal binds each uniform on its own, at most 31.
+uniform vec4 uBase;           // the water (or the wet ground) under it,
+                              // premultiplied
+uniform vec4 uTint;           // laid over the reflection, premultiplied
 uniform float uFade;          // how much it fades from the line down, 0..1
 uniform float uLine;          // the water line, local y
 uniform float uPoolX;         // the water's outline: its centre ...
@@ -57,7 +53,14 @@ uniform float uPad0;
 uniform float uPad1;
 uniform float uPad2;
 uniform vec4 uRings[kMaxRings]; // centre x, centre y, radius, amplitude
+// The surface's heights from the wave equation (flutter_gpu), when there is
+// a field: then they bend the mirror instead of the rings. Two vectors after
+// the ring array, which ends on a 16-byte boundary: Metal binds each uniform
+// on its own, and there are no more than 31 to bind.
+uniform vec4 uWave;   // on (1) or not, a cell across and down, slope gain
+uniform vec4 uGlint;  // what a crest catches, premultiplied
 uniform sampler2D uReflection;
+uniform sampler2D uHeights;
 
 out vec4 fragColor;
 
@@ -113,6 +116,33 @@ vec2 ripple(vec2 p) {
     return shift;
 }
 
+// The field's height at uv, read between cell centres by hand: not every GPU
+// filters a float texture, and read cell by cell the rings come out stepped.
+float height(vec2 uv) {
+    vec2 cells = 1.0 / uWave.yz;
+    vec2 at = uv * cells - 0.5;
+    vec2 i = floor(at);
+    vec2 f = at - i;
+    vec2 t = uWave.yz;
+    vec2 c = (i + 0.5) * t;
+    float a = texture(uHeights, c).r;
+    float b = texture(uHeights, c + vec2(t.x, 0.0)).r;
+    float d = texture(uHeights, c + vec2(0.0, t.y)).r;
+    float e = texture(uHeights, c + t).r;
+    return mix(mix(a, b, f.x), mix(d, e, f.x), f.y);
+}
+
+// The surface's slope at p from the field's heights, across and down the
+// water as seen (down flattened as the rings are): central differences,
+// one cell each way.
+vec2 slope(vec2 p) {
+    vec2 uv = p / uSize;
+    vec2 t = uWave.yz;
+    float dx = height(uv + vec2(t.x, 0.0)) - height(uv - vec2(t.x, 0.0));
+    float dy = height(uv + vec2(0.0, t.y)) - height(uv - vec2(0.0, t.y));
+    return vec2(dx, dy) * 0.5;
+}
+
 // Water's reflectance seen at an angle whose sine above it is s (Schlick).
 float fresnel(float s) {
     float c = 1.0 - clamp(s, 0.0, 1.0);
@@ -149,7 +179,21 @@ void main() {
         fragColor = vec4(0.0);
         return;
     }
-    vec2 at = p + ripple(p) + chop(p);
+    bool waves = uWave.x > 0.5;
+    vec2 tilt = waves ? slope(p) : vec2(0.0);
+    vec2 bend = ripple(p);
+    if (waves) {
+        // Many drops' waves add up under heavy rain; past a point the mirror
+        // would be read from outside its image. uWave.w is a drop's ring at
+        // about waveAmplitude, so no more than one and a half of those.
+        bend = vec2(tilt.x, tilt.y * uFlatten) * uWave.w;
+        float most = uWave.w * 0.15 * 1.5;
+        float l = length(bend);
+        if (l > most) {
+            bend *= most / l;
+        }
+    }
+    vec2 at = p + bend + chop(p);
     float s = mix(uElevTop, uElevBottom, clamp(p.y / uSize.y, 0.0, 1.0));
     // A rough surface smears a point into a column: down by uSpread (a
     // sigma), and across that times the sine of the angle it is seen at -
@@ -185,9 +229,16 @@ void main() {
     float below = clamp((p.y - uLine) / max(uSize.y - uLine, 1.0), 0.0, 1.0);
     vec4 mirror = color * uGain * reflectance * (1.0 - uFade * below);
     // The mirror over the water, the tint over both; all premultiplied.
-    vec4 base = vec4(uBaseR, uBaseG, uBaseB, uBaseA);
-    vec4 tint = vec4(uTintR, uTintG, uTintB, uTintA);
+    vec4 base = uBase;
+    vec4 tint = uTint;
     vec4 c = mirror + base * (1.0 - clamp(mirror.a, 0.0, 1.0));
     c = tint + c * (1.0 - tint.a);
+    // The wave crests catch the light.
+    if (waves) {
+        // A ring's crest, where it leans most: a drop's ring leans about
+        // 0.1-0.3 as it spreads.
+        float catchLight = smoothstep(0.01, 0.06, length(tilt)) * 0.6;
+        c = uGlint * catchLight + c * (1.0 - uGlint.a * catchLight);
+    }
     fragColor = c * water;
 }

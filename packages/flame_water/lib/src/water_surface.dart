@@ -9,6 +9,7 @@ import 'package:flame_water/src/rain_catcher.dart';
 import 'package:flame_water/src/reflection_pass.dart';
 import 'package:flame_water/src/ripple_rings.dart';
 import 'package:flame_water/src/water_shader.dart';
+import 'package:flame_water/src/wave_field.dart';
 import 'package:flame_water/src/wettable.dart';
 
 /// How a surface draws its reflection.
@@ -180,6 +181,11 @@ class WaterSurface extends PositionComponent
   /// Length of a ring's wave, local units.
   double wavelength;
 
+  /// How far a unit of the GPU field's slope shifts the reflection, in
+  /// [waveAmplitude]s: a drop's rings there bend it about as far as a ring
+  /// does.
+  double waveGain = 4;
+
   /// How far a rough surface smears its reflection up and down, local units
   /// (the spread of a vertical blur): 0 still water, a clear mirror; a wet
   /// road smears a lamp into a streak many times its size, and the street
@@ -319,15 +325,18 @@ class WaterSurface extends PositionComponent
     // The rings' crests glint with the light round them - bright by a lamp,
     // faint but there in the dark, lit by the sky.
     final lighting = Lighting.current;
-    ripples.render(
-      canvas,
-      _ringPaint(),
-      lightAt: lighting == null
-          ? null
-          : (x, y) =>
-                0.35 +
-                lighting.lightAt(Vector2(origin.x + x, origin.y + y)).light,
-    );
+    // The field's crests glint in the water shader instead.
+    if (_waves?.heights == null) {
+      ripples.render(
+        canvas,
+        _ringPaint(),
+        lightAt: lighting == null
+            ? null
+            : (x, y) =>
+                  0.35 +
+                  lighting.lightAt(Vector2(origin.x + x, origin.y + y)).light,
+      );
+    }
     _litLastFrame = true;
     if (!shaded) {
       _closeArea(canvas, rect);
@@ -413,11 +422,110 @@ class WaterSurface extends PositionComponent
   /// Starts a ripple where a drop hit, [worldPoint] in world coordinates.
   void splash(Vector2 worldPoint, {double strength = 1}) {
     final origin = absoluteTopLeftPosition;
-    ripples.add(
-      worldPoint.x - origin.x,
-      worldPoint.y - origin.y,
-      strength: strength,
-    );
+    final x = worldPoint.x - origin.x;
+    final y = worldPoint.y - origin.y;
+    ripples.add(x, y, strength: strength);
+    final waves = _waves;
+    if (waves != null) {
+      _splashes++;
+      waves.drop(
+        x / size.x,
+        y / size.y,
+        radius: _dropCells,
+        depth: strength / math.sqrt(math.max(1, _overlap)),
+      );
+    }
+  }
+
+  /// Splashes since the last update, and how many land a second, smoothed.
+  int _splashes = 0;
+  double _splashRate = 0;
+
+  /// How many drops' waves cross a point at once: the drops landing a
+  /// second on a ring's area, times how long a ring lasts. Their waves add
+  /// up at random, as the square root of how many; each drop's is made that
+  /// much smaller, so heavy rain stirs the surface about as much as one ring
+  /// does, the way the rings (the newest few) do.
+  double get _overlap {
+    final plan = size.x * size.y / ripples.flatten;
+    if (plan <= 0) {
+      return 1;
+    }
+    final ring = math.pi * ripples.maxRadius * ripples.maxRadius;
+    return _splashRate / plan * ring * ripples.lifeSec;
+  }
+
+  /// Whether the surface moves by the wave equation on the GPU rather than
+  /// by its rings: at [WaterQuality.rippled], where flutter_gpu is on. Off
+  /// for a surface that should keep to the rings.
+  bool gpuWaves = true;
+
+  WaveField? _waves;
+  bool _wavesAsked = false;
+  double _waveSteps = 0;
+
+  /// The field's cell, local units: a sixth of the rings' wavelength (any
+  /// coarser and a ring comes out many-sided), or more for a big surface,
+  /// 256 cells at most each way.
+  double get _cell {
+    final plan = math.max(size.x, size.y / ripples.flatten);
+    return math.max(wavelength / 6, plan / 256);
+  }
+
+  /// A drop's dent, cells across: wide enough to come out round.
+  static const double _dropCells = 2.5;
+
+  /// Steps of the wave equation a second: a wave in it crosses 1/sqrt(2) of
+  /// a cell a step, and should go as fast as a ring grows.
+  double get _stepsPerSecond =>
+      ripples.maxRadius / ripples.lifeSec / (math.sqrt1_2 * _cell);
+
+  /// Starts making the field once the surface has a size.
+  void _askForWaves() {
+    if (_wavesAsked || !gpuWaves || quality != WaterQuality.rippled) {
+      return;
+    }
+    if (size.x <= 0 || size.y <= 0 || WaveField.available == false) {
+      return;
+    }
+    _wavesAsked = true;
+    final cell = _cell;
+    WaveField.create(
+      columns: (size.x / cell).ceil().clamp(2, 256),
+      rows: (size.y / ripples.flatten / cell).ceil().clamp(2, 256),
+    ).then((field) {
+      if (isRemoved || isRemoving) {
+        field?.dispose();
+        return;
+      }
+      _waves = field;
+    });
+  }
+
+  void _stepWaves(double dt) {
+    final waves = _waves;
+    if (waves == null) {
+      return;
+    }
+    if (dt > 0) {
+      final k = 1 - math.exp(-dt);
+      _splashRate += (_splashes / dt - _splashRate) * k;
+    }
+    _splashes = 0;
+    final rate = _stepsPerSecond;
+    _waveSteps += dt * rate;
+    // A slow frame skips steps rather than taking a burst of them.
+    final steps = _waveSteps.floor().clamp(0, 6);
+    _waveSteps -= _waveSteps.floor();
+    // A ring fades out over its life; the field's waves, which spread and
+    // cross, over twice that.
+    final damping = math
+        .pow(
+          0.05,
+          1 / (2 * ripples.lifeSec * rate),
+        )
+        .toDouble();
+    waves.step(steps, damping: damping);
   }
 
   /// Whether [worldPoint] lies on the water.
@@ -433,6 +541,8 @@ class WaterSurface extends PositionComponent
     super.update(dt);
     _time += dt;
     ripples.update(dt);
+    _askForWaves();
+    _stepWaves(dt);
   }
 
   @override
@@ -465,10 +575,11 @@ class WaterSurface extends PositionComponent
         tint: tint,
         fade: fade.clamp(0.0, 1.0),
         line: line,
+        glints: true,
       );
       final lit = _litLastFrame;
       _litLastFrame = false;
-      if (!lit) {
+      if (!lit && _waves?.heights == null) {
         canvas
           ..save()
           ..clipPath(outline);
@@ -663,7 +774,9 @@ class WaterSurface extends PositionComponent
     Color tint = const Color(0x00000000),
     double fade = 0,
     double line = 0,
+    bool glints = false,
   }) {
+    final heights = _waves?.heights;
     // The smear is done in the shader: the image need be no finer than it.
     final sigma = streak / 3;
     // Under half a pixel of smear is none; above, the image need be no finer
@@ -728,10 +841,23 @@ class WaterSurface extends PositionComponent
       for (var i = count; i < WaterShader.maxRings; i++) {
         u.setFloats(const [0, 0, 0, 0]);
       }
+      final waves = _waves;
+      final glint = glints ? _ringPaint().color : const Color(0x00000000);
+      // uWave, then uGlint.
+      u
+        ..setFloat(heights == null ? 0 : 1)
+        ..setFloat(waves == null ? 0 : 1 / waves.columns)
+        ..setFloat(waves == null ? 0 : 1 / waves.rows)
+        ..setFloat(waveAmplitude * waveGain);
+      color(u, glint);
     });
     shader
       ..setFloat(2, count.toDouble())
-      ..setImageSampler(0, image, filterQuality: FilterQuality.low);
+      ..setImageSampler(0, image, filterQuality: FilterQuality.low)
+      // Unfiltered (the default): not every GPU filters a float texture.
+      // With no field the slot still needs an image; the shader does not
+      // read it.
+      ..setImageSampler(1, heights ?? image);
     canvas.drawRect(rect, paint..shader = shader);
   }
 

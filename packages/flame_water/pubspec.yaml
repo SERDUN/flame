@@ -17,6 +17,10 @@ dependencies:
   flame_lighting: ^0.1.0
   flutter:
     sdk: flutter
+  flutter_gpu:
+    sdk: flutter
+  flutter_gpu_shaders: ^0.5.2
+  hooks: ^2.0.0
 
 dev_dependencies:
   flame_lint: ^1.4.4-dev.0
@@ -27,3 +31,6 @@ dev_dependencies:
 flutter:
   shaders:
     - shaders/water.frag
+  assets:
+    # Built by hook/build.dart from flame_water.shaderbundle.json.
+    - build/shaderbundles/flame_water.shaderbundle
