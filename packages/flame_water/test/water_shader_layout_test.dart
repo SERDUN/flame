@@ -59,6 +59,7 @@ void main() {
       'uGlint': WaterShader.glint,
       'uSquash': WaterShader.squash,
       'uAir': WaterShader.air,
+      'uImage': WaterShader.image,
     };
     expect(defines, dart);
   });

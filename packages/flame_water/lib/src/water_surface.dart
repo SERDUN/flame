@@ -6,6 +6,7 @@ import 'package:flame/components.dart';
 import 'package:flame/extensions.dart';
 import 'package:flame_lighting/flame_lighting.dart';
 import 'package:flame_stage/flame_stage.dart';
+import 'package:flame_water/src/mirror_pass.dart';
 import 'package:flame_water/src/rain.dart';
 import 'package:flame_water/src/rain_catcher.dart';
 import 'package:flame_water/src/reflection_pass.dart';
@@ -62,7 +63,8 @@ enum WaterShape {
 /// The surface must not be rotated or scaled, nor its parents: it maps world
 /// coordinates to its own by its absolute top-left corner.
 class WaterSurface extends PositionComponent
-    with OnStage, RainCatcher, Wettable, LightReflector {
+    with OnStage, RainCatcher, Wettable, LightReflector
+    implements Mirror {
   WaterSurface({
     super.position,
     super.size,
@@ -286,7 +288,7 @@ class WaterSurface extends PositionComponent
   @override
   void renderReflectedLights(Canvas canvas, StageFrame frame) {
     final strength = _shown.clamp(0.0, 1.0);
-    if (strength <= 0 || _dry) {
+    if (strength <= 0 || _dry || !_inView) {
       return;
     }
     final field = frame.light;
@@ -746,9 +748,19 @@ class WaterSurface extends PositionComponent
     _stepWaves(dt);
   }
 
+  /// Whether any of it is in the stage's view; before the stage's first
+  /// frame, taken to be.
+  bool get _inView {
+    final stage = this.stage;
+    if (stage == null || stage.frame.index == 0) {
+      return true;
+    }
+    return stage.frame.view.overlaps(toAbsoluteRect());
+  }
+
   @override
   void render(Canvas canvas) {
-    if (!film && _dry) {
+    if ((!film && _dry) || !_inView) {
       return;
     }
     final rect = size.toRect();
@@ -764,12 +776,7 @@ class WaterSurface extends PositionComponent
         _sceneSlot,
         program,
         rect,
-        (c) => _mirror(
-          c,
-          line,
-          origin,
-          () => ReflectionPass.run(this, () => _renderReflected(_root(), c)),
-        ),
+        MirrorPass.of(this),
         gain: _shown.clamp(0.0, 1.0),
         paint: _shaderPaint,
         base: _base(),
@@ -817,7 +824,15 @@ class WaterSurface extends PositionComponent
           origin,
           () => ReflectionPass.run(
             this,
-            () => _renderReflected(_root(), canvas),
+            () => MirrorPass.drawWorld(
+              canvas,
+              Stage.worldOf(this),
+              reflects: reflects,
+              left: area.left,
+              right: area.right,
+              projection: _projection,
+              shift: mirrorShift,
+            ),
           ),
         ),
       );
@@ -902,22 +917,14 @@ class WaterSurface extends PositionComponent
     canvas.restore();
   }
 
-  /// Where [thing] stands, world y, if not on the line the water mirrors
-  /// about: as it says, or where its depth puts it on the world's ground.
-  double? _baseOf(Reflectable thing) {
-    final base = thing.reflectionBase;
-    if (base != null) {
-      return base;
-    }
-    final depth = thing.groundDepth;
-    return depth == null ? null : _projection?.yAt(depth);
-  }
-
   /// What of the world this water can show, world coordinates: everything
   /// standing across from it (any height - each thing is mirrored about where
   /// it stands), widened by how far its rings, chop and roughness move what
   /// it mirrors.
-  Rect get reflectedArea {
+  Rect get reflectedArea => area;
+
+  @override
+  Rect get area {
     final origin = absoluteTopLeftPosition;
     final reach = waveAmplitude + chop + streak;
     return Rect.fromLTRB(
@@ -928,9 +935,29 @@ class WaterSurface extends PositionComponent
     );
   }
 
-  /// How far to move something (world units, down) for the mirror about
-  /// the water line to show it mirrored about [base] instead - the line it
-  /// stands on, or a drop the spot it falls to.
+  @override
+  Component get drawer => this;
+
+  /// World y of the line it mirrors the world about.
+  double get mirrorLine => _line;
+
+  /// Whether it draws its mirror through the water shader, from a
+  /// [MirrorPass]'s picture.
+  bool get mirrorsThroughShader =>
+      quality == WaterQuality.rippled &&
+      WaterShader.program != null &&
+      _shown > 0 &&
+      !_dry;
+
+  /// Pixels per world unit its mirror's picture needs: [resolution], or
+  /// fewer under a smear, which the shader does - no finer than a few
+  /// pixels a sigma of it.
+  double get mirrorPixels {
+    final pixels = streak / 3 * resolution;
+    return resolution * (pixels < 0.5 ? 1 : (2.5 / pixels).clamp(0.25, 1));
+  }
+
+  @override
   double mirrorShift(double base) {
     final line = _line;
     return -(base - line) * (1 + squash) / squash;
@@ -952,18 +979,18 @@ class WaterSurface extends PositionComponent
     draw();
   }
 
-  /// [record] (drawing in the surface's own coordinates) rendered into an
-  /// image and drawn over [rect] through the water shader: bent around the
-  /// newest rings, smeared as rough as the surface is, mirrored as much as
-  /// water does at the angle each row is seen at, at [gain] brightness,
-  /// over [base], under [tint], faded by [fade] below [line] and eased out
-  /// at the rim; the crests glint.
+  /// The world mirrored in [pass]'s picture, drawn over [rect] through the
+  /// water shader: bent around the newest rings, smeared as rough as the
+  /// surface is, mirrored as much as water does at the angle each row is
+  /// seen at, at [gain] brightness, over [base], under [tint], faded by
+  /// [fade] below [line] and eased out at the rim; the crests glint. With
+  /// no picture (none of the world in view) only the water under it.
   void _throughShader(
     Canvas canvas,
     _ShaderSlot slot,
     FragmentProgram program,
     Rect rect,
-    void Function(Canvas canvas) record, {
+    MirrorPass? pass, {
     required double gain,
     required Paint paint,
     required Color base,
@@ -971,28 +998,17 @@ class WaterSurface extends PositionComponent
     required double fade,
     required double line,
   }) {
-    // The smear is done in the shader: the image need be no finer than it.
-    // Under half a pixel of smear is none; above, the image need be no finer
-    // than a few pixels a sigma.
-    final pixels = streak / 3 * resolution;
-    final scale =
-        resolution * (pixels < 0.5 ? 1 : (2.5 / pixels).clamp(0.25, 1));
-    final width = (size.x * scale).ceil();
-    final height = (size.y * scale).ceil();
-    if (width <= 0 || height <= 0) {
-      return;
-    }
-    final recorder = PictureRecorder();
-    record(Canvas(recorder)..scale(scale));
-    final picture = recorder.endRecording();
-    slot.image?.dispose();
-    final image = slot.image = picture.toImageSync(width, height);
-    picture.dispose();
-
+    final image = pass?.image ?? (_blank ??= _makeBlank());
+    final origin = absoluteTopLeftPosition;
+    final bounds = pass?.bounds ?? Rect.zero;
     final shader = slot.shader ??= program.fragmentShader();
-    final f = _uniforms(slot, gain: gain, line: line)
+    final f = _uniforms(slot, gain: pass?.image == null ? 0 : gain, line: line)
       ..[WaterShader.fade] = fade
-      ..[WaterShader.pixels] = scale;
+      ..[WaterShader.pixels] = pass?.scale ?? 1
+      ..[WaterShader.image] = bounds.left - origin.x
+      ..[WaterShader.image + 1] = bounds.top - origin.y
+      ..[WaterShader.image + 2] = bounds.width
+      ..[WaterShader.image + 3] = bounds.height;
     WaterShader.color(f, WaterShader.base, base);
     WaterShader.color(f, WaterShader.tint, tint);
     WaterShader.color(f, WaterShader.glint, _ringPaint().color);
@@ -1063,78 +1079,16 @@ class WaterSurface extends PositionComponent
     _lightSlot.dispose();
     super.onRemove();
   }
-
-  Component _root() {
-    Component top = this;
-    for (final a in ancestors()) {
-      top = a;
-      if (a is World) {
-        break;
-      }
-    }
-    return top;
-  }
-
-  /// Draws what [parent] holds that the water reflects: a reflected component
-  /// with all it holds; any other one only as a way down to its children,
-  /// with its transform. Water surfaces are never reflected.
-  void _renderReflected(Component parent, Canvas canvas) {
-    for (final child in parent.children) {
-      if (child is WaterSurface) {
-        continue;
-      }
-      if (reflects(child)) {
-        if (_beside(child)) {
-          final base = child is Reflectable ? _baseOf(child) : null;
-          if (base == null) {
-            child.renderTree(canvas);
-          } else {
-            canvas
-              ..save()
-              ..translate(0, mirrorShift(base));
-            child.renderTree(canvas);
-            canvas.restore();
-          }
-        }
-        continue;
-      }
-      if (child.children.isEmpty) {
-        continue;
-      }
-      if (child is PositionComponent) {
-        canvas
-          ..save()
-          ..transform2D(child.transform);
-        _renderReflected(child, canvas);
-        canvas.restore();
-      } else {
-        _renderReflected(child, canvas);
-      }
-    }
-  }
-
-  /// Whether [c] stands where its reflection can reach the water: anything
-  /// that is not placed on the plane may; a placed one only if it overlaps
-  /// the water across.
-  bool _beside(Component c) {
-    if (c is! PositionComponent) {
-      return true;
-    }
-    final r = c.toAbsoluteRect();
-    final origin = absoluteTopLeftPosition;
-    return r.right >= origin.x && r.left <= origin.x + size.x;
-  }
 }
 
-/// One image the water renders a reflection into each frame, and the shader
-/// instance that draws it (each draw keeps its own uniforms).
+/// A shader instance a surface draws with, and its uniforms: each draw
+/// keeps its own.
 class _ShaderSlot {
-  Image? image;
   FragmentShader? shader;
   final Float32List uniforms = Float32List(WaterShader.floats);
 
   void dispose() {
-    image?.dispose();
-    image = null;
+    shader?.dispose();
+    shader = null;
   }
 }

@@ -1,11 +1,10 @@
 import 'dart:ui';
 
 import 'package:flame/components.dart';
-import 'package:flame_water/src/water_surface.dart';
 
 /// Marks a component as part of what water reflects.
 ///
-/// A [WaterSurface] mirrors the world above it, but only the components with
+/// Water mirrors the world above it, but only the components with
 /// this mixin (and everything under them) take part: the scenery, the
 /// characters, the lights - not the HUD, not debug overlays, not the water
 /// itself. A component can still tell it is being drawn as a reflection
@@ -24,34 +23,50 @@ mixin Reflectable on Component {
   double? get groundDepth => null;
 }
 
+/// What a reflection is drawn for: water mirroring the world, or many
+/// waters at once.
+abstract interface class Mirror {
+  /// How far to move something (world units, down) for the mirror about
+  /// the water line to show it mirrored about [base] instead - the line it
+  /// stands on, or a drop the spot it falls to.
+  double mirrorShift(double base);
+
+  /// What of the world it can show, world coordinates: its mirror is
+  /// upright, so only what stands across from it, give or take how far its
+  /// ripples and roughness move what it mirrors.
+  Rect get area;
+
+  /// The component the reflection is drawn into: whatever looks different
+  /// over the night and under it goes by where this one is.
+  Component get drawer;
+}
+
 /// The reflection being drawn right now, if any.
 ///
-/// While a [WaterSurface] draws the world mirrored in it, [current] is that
-/// surface: a component may skip fine detail in a reflection, or draw a
-/// different look (a lamp's glow instead of its bulb, for example).
+/// While water draws the world mirrored in it, [current] is that mirror: a
+/// component may skip fine detail in a reflection, or draw a different look
+/// (a lamp's glow instead of its bulb, for example).
 abstract final class ReflectionPass {
-  static WaterSurface? _current;
+  static Mirror? _current;
 
-  /// The surface drawing its reflection now; `null` outside a reflection.
-  static WaterSurface? get current => _current;
+  /// The mirror being drawn now; `null` outside a reflection.
+  static Mirror? get current => _current;
 
   /// Whether the component being drawn is a reflection.
   static bool get isActive => _current != null;
 
-  /// What of the world the water drawing now can show, world coordinates:
-  /// its mirror is upright, so only what stands across from it, give or
-  /// take how far its ripples and roughness move what it mirrors. A
-  /// component drawing many things (a layer of decor, the rain) may draw
+  /// What of the world the mirror drawing now can show, world coordinates.
+  /// A component drawing many things (a layer of decor, the rain) may draw
   /// only those across this; `null` outside a reflection.
-  static Rect? get area => _current?.reflectedArea;
+  static Rect? get area => _current?.area;
 
-  /// Runs [draw] as the reflection in [surface]; passes do not nest (water is
-  /// not reflected in water).
-  static void run(WaterSurface surface, void Function() draw) {
+  /// Runs [draw] as the reflection in [mirror]; passes do not nest (water
+  /// is not reflected in water).
+  static void run(Mirror mirror, void Function() draw) {
     if (_current != null) {
       return;
     }
-    _current = surface;
+    _current = mirror;
     try {
       draw();
     } finally {
