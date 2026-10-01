@@ -1,0 +1,29 @@
+name: flame_water
+resolution: workspace
+description: Water for Flame side-view scenes - surfaces that mirror the world above them, ripples, wet ground.
+version: 0.1.0
+publish_to: none
+homepage: https://github.com/SERDUN/flame/tree/serdun/packages/flame_water
+topics:
+  - flame
+  - water
+
+environment:
+  sdk: ">=3.11.0 <4.0.0"
+  flutter: ">=3.41.0"
+
+dependencies:
+  flame: ^1.38.0
+  flame_lighting: ^0.1.0
+  flutter:
+    sdk: flutter
+
+dev_dependencies:
+  flame_lint: ^1.4.3
+  flame_test: ^2.3.0
+  flutter_test:
+    sdk: flutter
+
+flutter:
+  shaders:
+    - shaders/water.frag
