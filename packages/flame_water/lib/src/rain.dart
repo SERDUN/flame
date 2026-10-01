@@ -808,7 +808,7 @@ class Rain extends Component with OnStage, Reflectable {
   }) {
     final mirror = ReflectionPass.current;
     // In water, the rain is as dark as the water it is mirrored in.
-    final dark = mirror == null ? underNight : _underNight(mirror);
+    final dark = mirror == null ? underNight : _underNight(mirror.drawer);
     if (mirror == null) {
       // A veil is far behind; water does not need it.
       for (final depth in veils) {

@@ -26,7 +26,7 @@ precision highp float;
 
 const int kMaxRings = 32;
 const int kMaxLights = 8;
-const int kHeader = 11;
+const int kHeader = 12;
 const int kRings = kHeader;
 const int kLights = kRings + kMaxRings;
 
@@ -64,6 +64,8 @@ uniform vec4 u[kLights + kMaxLights * 5];
 #define uSquash      u[10].y   // the mirror's height over the thing's
 #define uAir         u[10].z   // how much of the light cast on what stands
                                // on the street (walls, the air) is mirrored
+#define uImage       u[11]     // the mirror's picture: its corner and size,
+                               // local units (it covers other waters too)
 
 uniform sampler2D uReflection;
 uniform sampler2D uHeights;
@@ -155,9 +157,10 @@ float fresnel(float s) {
     return 0.02 + 0.98 * c * c * c * c * c;
 }
 
-// The mirror at uv, nothing outside it: the sampler clamps, and a clamped
-// edge would run on as a line.
-vec4 mirrored(vec2 uv) {
+// The mirror at local point p, nothing outside its picture: the sampler
+// clamps, and a clamped edge would run on as a line.
+vec4 mirrored(vec2 p) {
+    vec2 uv = (p - uImage.xy) / uImage.zw;
     if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) {
         return vec4(0.0);
     }
@@ -322,7 +325,7 @@ void main() {
     vec4 color;
     // Under half a pixel of smear is none.
     if (down * uPixels < 0.5) {
-        color = mirrored(at / uSize);
+        color = mirrored(at);
     } else {
         int side = across * uPixels < 0.75 ? 0 : 2;
         vec4 sum = vec4(0.0);
@@ -336,7 +339,7 @@ void main() {
                 }
                 float x = float(k) * 0.8;
                 float w = wy * exp(-0.5 * x * x);
-                sum += mirrored((at + vec2(x * across, y * down)) / uSize) * w;
+                sum += mirrored(at + vec2(x * across, y * down)) * w;
                 total += w;
             }
         }
