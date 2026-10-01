@@ -55,24 +55,12 @@ mixin OnStage on Component {
 /// The ground of a side-view street: the band of the view from the line
 /// things stand on (its top edge) down towards the viewer. The stage builds
 /// the frame's [StreetProjection] from it.
-mixin Ground on Component {
+mixin Ground on OnStage {
   /// The band, world coordinates.
   Rect groundBand();
 
   /// How the eye stands before the street.
   DepthCamera get depthCamera => DepthCamera.street;
-
-  @override
-  void onMount() {
-    super.onMount();
-    Stage.of(this).join(this);
-  }
-
-  @override
-  void onRemove() {
-    Stage.of(this).leave(this);
-    super.onRemove();
-  }
 }
 
 /// The stage a side-view scene plays on: who is on it, and what each frame

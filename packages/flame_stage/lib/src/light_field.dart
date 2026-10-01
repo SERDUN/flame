@@ -4,6 +4,7 @@ import 'dart:ui';
 
 import 'package:flame/components.dart';
 import 'package:flame_stage/src/shadow.dart';
+import 'package:flame_stage/src/stage.dart';
 import 'package:flame_stage/src/street_projection.dart';
 
 /// What shape a light gives off from.
@@ -267,8 +268,9 @@ class Light {
 
 /// A component that carries lights: a lamp post, a lit window, a walker's
 /// torch, a car's headlights. The stage reads its [lights] once a frame,
-/// where they are on it now.
-mixin LightCarrier on Component {
+/// where they are on it now. On the stage it is [OnStage]: a carrier off it
+/// would light nothing, so the type asks for it.
+mixin LightCarrier on OnStage {
   /// Its lights now.
   Iterable<Light> get lights;
 }
@@ -276,7 +278,7 @@ mixin LightCarrier on Component {
 /// What the night is like: the scene's darkness, the colour of the dark,
 /// the haze that haloes lights, how much colour lights add. One a scene
 /// (the lighting); none means day.
-mixin Ambience on Component {
+mixin Ambience on OnStage {
   /// How dark it is where no light falls, `0..1`: 0 day, 1 black night.
   double get darkness;
 
@@ -317,7 +319,7 @@ class LightSample {
 ///
 /// Built once a frame by the stage, read by everything that is lit: rain,
 /// wet walls, water, the lighting that draws the night, shaders (through
-/// [writeUniforms]). Nothing walks the component tree to find a light.
+/// [writeLight]). Nothing walks the component tree to find a light.
 class LightField {
   /// Floats per light in [data]; see the `_` offsets.
   static const int stride = 20;
@@ -415,7 +417,8 @@ class LightField {
       ..[o + _extentX] = light.extent.x
       ..[o + _extentY] = light.extent.y
       ..[o + _source] = light.sourceRadius
-      ..[o + _stands] = light.standsAt ?? projection?.yAt(light.depth) ?? y
+      ..[o + _stands] =
+          light.standsAt ?? projection?.yAt(light.depth) ?? double.nan
       ..[o + _falloff] = light.falloff.index.toDouble()
       ..[o + _half] = half
       ..[o + _edge] = edge;
@@ -437,13 +440,45 @@ class LightField {
   double extentXOf(int i) => data[i * stride + _extentX];
   double extentYOf(int i) => data[i * stride + _extentY];
   double sourceRadiusOf(int i) => data[i * stride + _source];
-  double standsAtOf(int i) => data[i * stride + _stands];
+  /// World y of the ground light [i] stands on: as it says, or where its
+  /// depth meets the street's ground; `null` with neither (no street).
+  double? standsAtOf(int i) {
+    final y = data[i * stride + _stands];
+    return y.isNaN ? null : y;
+  }
   Color colorOf(int i) => Color.from(
     alpha: 1,
     red: data[i * stride + _r],
     green: data[i * stride + _g],
     blue: data[i * stride + _b],
   );
+
+  /// Whether light [i] falls off physically rather than smoothly.
+  bool isPhysicalOf(int i) => data[i * stride + _falloff] > 0.5;
+
+  /// Writes light [i] for a shader as four vec4 at [at]: (x, y, ahead,
+  /// shape), (r, g, b, strength), (radius, dirX, dirY, cosFull), (cosEdge,
+  /// extentX, extentY, source).
+  void writeLight(int i, Float32List into, int at) {
+    final o = i * stride;
+    into
+      ..[at] = data[o + _x]
+      ..[at + 1] = data[o + _y]
+      ..[at + 2] = data[o + _ahead]
+      ..[at + 3] = data[o + _shape]
+      ..[at + 4] = data[o + _r]
+      ..[at + 5] = data[o + _g]
+      ..[at + 6] = data[o + _b]
+      ..[at + 7] = data[o + _strength]
+      ..[at + 8] = data[o + _radius]
+      ..[at + 9] = data[o + _dirX]
+      ..[at + 10] = data[o + _dirY]
+      ..[at + 11] = data[o + _cosFull]
+      ..[at + 12] = data[o + _cosEdge]
+      ..[at + 13] = data[o + _extentX]
+      ..[at + 14] = data[o + _extentY]
+      ..[at + 15] = data[o + _source];
+  }
 
   /// Radius of the halo the haze makes round light [i]'s source.
   double haloRadiusOf(int i) => sourceRadiusOf(i) * (6 + 24 * haze);
@@ -610,57 +645,4 @@ class LightField {
         ..blue = b / total;
     }
   }
-
-  /// Copies the field into [into] at [at] for a shader: [maxLights] of the
-  /// strongest lights, four vec4 each - (x, y, ahead, shape), (r, g, b,
-  /// strength), (radius, dirX, dirY, cosFull), (cosEdge, extentX, extentY,
-  /// source) - then one vec4 of (count, darkness, haze, glow). Returns the
-  /// floats written. Lights past [maxLights] are the faintest, dropped.
-  int writeUniforms(Float32List into, int at, {int maxLights = 16}) {
-    final n = math.min(count, maxLights);
-    final order = List<int>.generate(count, (i) => i);
-    if (count > maxLights) {
-      order.sort(
-        (a, b) => data[b * stride + _strength].compareTo(
-          data[a * stride + _strength],
-        ),
-      );
-    }
-    var w = at;
-    for (var k = 0; k < maxLights; k++) {
-      if (k >= n) {
-        for (var j = 0; j < 16; j++) {
-          into[w++] = 0;
-        }
-        continue;
-      }
-      final o = order[k] * stride;
-      into
-        ..[w++] = data[o + _x]
-        ..[w++] = data[o + _y]
-        ..[w++] = data[o + _ahead]
-        ..[w++] = data[o + _shape]
-        ..[w++] = data[o + _r]
-        ..[w++] = data[o + _g]
-        ..[w++] = data[o + _b]
-        ..[w++] = data[o + _strength]
-        ..[w++] = data[o + _radius]
-        ..[w++] = data[o + _dirX]
-        ..[w++] = data[o + _dirY]
-        ..[w++] = data[o + _cosFull]
-        ..[w++] = data[o + _cosEdge]
-        ..[w++] = data[o + _extentX]
-        ..[w++] = data[o + _extentY]
-        ..[w++] = data[o + _source];
-    }
-    into
-      ..[w++] = n.toDouble()
-      ..[w++] = darkness
-      ..[w++] = haze
-      ..[w++] = glow;
-    return w - at;
-  }
-
-  /// Floats [writeUniforms] writes for [maxLights].
-  static int uniformFloats(int maxLights) => maxLights * 16 + 4;
 }
