@@ -34,7 +34,7 @@ const int kLights = kRings + kMaxRings;
 // out differently on Vulkan than the floats are set, and Metal binds each
 // uniform on its own, 31 at most. The Dart side (WaterShader) writes the
 // same layout.
-uniform vec4 u[kLights + kMaxLights * 5];
+uniform vec4 u[kLights + kMaxLights * 6];
 
 #define uSize        u[0].xy   // the water's rectangle, local units
 #define uCount       u[0].z    // rings in use
@@ -193,13 +193,14 @@ float falloff(float dist, float radius, float physical) {
 }
 
 // The lights mirrored at p (local units), seen at an angle whose sine is
-// s. Each light is five vectors:
+// s. Each light is six vectors:
 //   (x, y, shape, body sigma) of its image in the mirror;
 //   (r, g, b, strength);
 //   (half across, half down, direction x, y) of its image's glowing part;
 //   (the y it stands on, radius, direction x, y) as it is, unmirrored - a
 //   cone's way, a tube's length;
-//   (cos full, cos edge or a tube's half length, physical, headroom).
+//   (cos full, cos edge or a tube's half length, physical, headroom);
+//   (spill, spill radius, 0, 0): what a cone's source throws all round.
 // Its glowing body and the halo the haze makes round it are smeared up and
 // down by the surface's roughness and across by that times s; the light it
 // casts on what stands on the street (walls, the air) is mirrored too,
@@ -213,11 +214,12 @@ vec3 lights(vec2 p, float s) {
             break;
         }
         // Indexed by the loop's own counter: SkSL takes no other index.
-        vec4 a = u[kLights + i * 5];
-        vec4 c = u[kLights + i * 5 + 1];
-        vec4 e = u[kLights + i * 5 + 2];
-        vec4 g = u[kLights + i * 5 + 3];
-        vec4 h = u[kLights + i * 5 + 4];
+        vec4 a = u[kLights + i * 6];
+        vec4 c = u[kLights + i * 6 + 1];
+        vec4 e = u[kLights + i * 6 + 2];
+        vec4 g = u[kLights + i * 6 + 3];
+        vec4 h = u[kLights + i * 6 + 4];
+        vec4 k = u[kLights + i * 6 + 5];
         vec2 d = p - a.xy;
         vec2 half_;
         if (a.z > 2.5) {
@@ -268,6 +270,7 @@ vec3 lights(vec2 p, float s) {
                 v -= clamp(v, -box, box);
             }
             float dist = length(v);
+            float reach = 0.0;
             if (dist < g.y) {
                 float cone = 1.0;
                 if (a.z > 0.5 && a.z < 1.5 && dist > 1e-6) {
@@ -276,8 +279,13 @@ vec3 lights(vec2 p, float s) {
                     float edge = acos(clamp(h.y, -1.0, 1.0));
                     cone = 1.0 - smoothstep(full, max(edge, full + 1e-4), off);
                 }
-                sum += c.rgb * (uAir * c.w * falloff(dist, g.y, h.z) * cone);
+                reach = falloff(dist, g.y, h.z) * cone;
             }
+            if (dist < k.y) {
+                float ts = 1.0 - dist / k.y;
+                reach = max(reach, k.x * ts * ts);
+            }
+            sum += c.rgb * (uAir * c.w * reach);
         }
     }
     return sum;

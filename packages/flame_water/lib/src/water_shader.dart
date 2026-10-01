@@ -20,8 +20,8 @@ abstract final class WaterShader {
   /// vec4s before the rings.
   static const int header = 12;
 
-  /// Floats per mirrored light: five vec4.
-  static const int lightFloats = 20;
+  /// Floats per mirrored light: six vec4.
+  static const int lightFloats = 24;
 
   /// Where the rings start, in floats.
   static const int rings = header * 4;
@@ -64,6 +64,13 @@ abstract final class WaterShader {
 
   /// The loaded program; `null` before [load] finishes.
   static FragmentProgram? get program => _program;
+
+  static final Expando<FragmentShader> _shaders = Expando();
+
+  /// The one shader every surface draws [program] with: a draw takes a copy
+  /// of the uniforms and images it is given, so one serves them all.
+  static FragmentShader shaderOf(FragmentProgram program) =>
+      _shaders[program] ??= program.fragmentShader();
 
   /// Loads the program. [asset] is the key the app bundles it under; the
   /// package's own tests, where it is the app, pass `shaders/water.frag`.

@@ -389,7 +389,7 @@ class WaterSurface extends PositionComponent
       // What it casts reaches its radius round it; the mirror shows that
       // much round its image.
       final x = field.xOf(i) - origin.x;
-      final out = field.radiusOf(i) + field.haloRadiusOf(i) + streak;
+      final out = field.reachOf(i) + field.haloRadiusOf(i) + streak;
       if (x < -out || x > size.x + out) {
         continue;
       }
@@ -468,7 +468,11 @@ class WaterSurface extends PositionComponent
         ..[o + 16] = math.cos(field.halfSpreadOf(i) - field.edgeOf(i))
         ..[o + 17] = spreadOrLength
         ..[o + 18] = field.isPhysicalOf(i) ? 1 : 0
-        ..[o + 19] = headroom;
+        ..[o + 19] = headroom
+        ..[o + 20] = field.spillOf(i)
+        ..[o + 21] = field.spillRadiusOf(i)
+        ..[o + 22] = 0
+        ..[o + 23] = 0;
     }
     return n;
   }
@@ -483,12 +487,12 @@ class WaterSurface extends PositionComponent
     double strength,
     LightField field,
   ) {
-    final shader = _lightSlot.shader ??= program.fragmentShader();
+    final shader = WaterShader.shaderOf(program);
     final haze = field.haze;
     final glow = field.glow;
     final f =
         _uniforms(
-            _lightSlot,
+            _lightUniforms,
             gain: strength,
             line: _line - absoluteTopLeftPosition.y,
           )
@@ -609,8 +613,9 @@ class WaterSurface extends PositionComponent
     canvas.restore();
   }
 
-  final _ShaderSlot _sceneSlot = _ShaderSlot();
-  final _ShaderSlot _lightSlot = _ShaderSlot();
+  // The uniforms of its two draws: the street mirrored, and the lights.
+  final Float32List _sceneUniforms = Float32List(WaterShader.floats);
+  final Float32List _lightUniforms = Float32List(WaterShader.floats);
   final Paint _shaderPaint = Paint();
   final Paint _glowPaint = Paint()..blendMode = BlendMode.plus;
   final Paint _smear = Paint();
@@ -801,7 +806,7 @@ class WaterSurface extends PositionComponent
       // draw, no layers.
       _throughShader(
         canvas,
-        _sceneSlot,
+        _sceneUniforms,
         program,
         rect,
         MirrorPass.of(this),
@@ -1015,7 +1020,7 @@ class WaterSurface extends PositionComponent
   /// no picture (none of the world in view) only the water under it.
   void _throughShader(
     Canvas canvas,
-    _ShaderSlot slot,
+    Float32List uniforms,
     FragmentProgram program,
     Rect rect,
     MirrorPass? pass, {
@@ -1029,14 +1034,15 @@ class WaterSurface extends PositionComponent
     final image = pass?.image ?? (_blank ??= _makeBlank());
     final origin = absoluteTopLeftPosition;
     final bounds = pass?.bounds ?? Rect.zero;
-    final shader = slot.shader ??= program.fragmentShader();
-    final f = _uniforms(slot, gain: pass?.image == null ? 0 : gain, line: line)
-      ..[WaterShader.fade] = fade
-      ..[WaterShader.pixels] = pass?.scale ?? 1
-      ..[WaterShader.image] = bounds.left - origin.x
-      ..[WaterShader.image + 1] = bounds.top - origin.y
-      ..[WaterShader.image + 2] = bounds.width
-      ..[WaterShader.image + 3] = bounds.height;
+    final shader = WaterShader.shaderOf(program);
+    final f =
+        _uniforms(uniforms, gain: pass?.image == null ? 0 : gain, line: line)
+          ..[WaterShader.fade] = fade
+          ..[WaterShader.pixels] = pass?.scale ?? 1
+          ..[WaterShader.image] = bounds.left - origin.x
+          ..[WaterShader.image + 1] = bounds.top - origin.y
+          ..[WaterShader.image + 2] = bounds.width
+          ..[WaterShader.image + 3] = bounds.height;
     WaterShader.color(f, WaterShader.base, base);
     WaterShader.color(f, WaterShader.tint, tint);
     WaterShader.color(f, WaterShader.glint, _ringPaint().color);
@@ -1051,13 +1057,13 @@ class WaterSurface extends PositionComponent
   }
 
   /// The uniforms both modes share - the surface, its rings and field, how
-  /// it is seen, its outline - in [slot]'s array, the rest cleared.
+  /// it is seen, its outline - in [uniforms], the rest cleared.
   Float32List _uniforms(
-    _ShaderSlot slot, {
+    Float32List uniforms, {
     required double gain,
     required double line,
   }) {
-    final f = slot.uniforms..fillRange(0, slot.uniforms.length, 0);
+    final f = uniforms..fillRange(0, uniforms.length, 0);
     final view = _view();
     final pool = outline().getBounds();
     final waves = _waves;
@@ -1103,20 +1109,6 @@ class WaterSurface extends PositionComponent
     _waves?.dispose();
     _waves = null;
     _wavesAsked = false;
-    _sceneSlot.dispose();
-    _lightSlot.dispose();
     super.onRemove();
-  }
-}
-
-/// A shader instance a surface draws with, and its uniforms: each draw
-/// keeps its own.
-class _ShaderSlot {
-  FragmentShader? shader;
-  final Float32List uniforms = Float32List(WaterShader.floats);
-
-  void dispose() {
-    shader?.dispose();
-    shader = null;
   }
 }

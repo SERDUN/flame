@@ -72,4 +72,24 @@ void main() {
     expect(MirrorPass.recordings - before, 0);
     expect(post.drawn, 1, reason: 'only in the street');
   });
+
+  testWithFlameGame('what is hidden is not mirrored either', (game) async {
+    await WaterShader.load(asset: 'shaders/water.frag');
+    game.camera.viewfinder.anchor = Anchor.topLeft;
+    final post = _Post();
+    final hidden = _Hidden()..add(post);
+    game.world.addAll([hidden, _water(0, 400, 800, 200)]);
+    await game.ready();
+    await _frame(game);
+    post.drawn = 0;
+    await _frame(game);
+    expect(post.drawn, 0);
+  });
+}
+
+/// A group that is not drawn, and holds what water would mirror.
+class _Hidden extends PositionComponent with HasVisibility {
+  _Hidden() {
+    isVisible = false;
+  }
 }

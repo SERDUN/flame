@@ -2,7 +2,6 @@ import 'dart:math' as math;
 import 'dart:ui';
 
 import 'package:flame/components.dart';
-import 'package:flame/extensions.dart';
 import 'package:flame_stage/flame_stage.dart';
 import 'package:flame_water/src/reflection_pass.dart';
 import 'package:flame_water/src/water_surface.dart';
@@ -141,11 +140,15 @@ class MirrorPass implements Mirror {
   }
 
   /// Draws what [parent] holds that [reflects] takes, in world coordinates
-  /// onto [canvas]: a reflected component with all it holds; any other only
-  /// as a way down to its children, with its transform. Water is never
-  /// reflected, and a placed thing only if it stands across from [left] ..
-  /// [right]. Something standing off the line is moved by [shift] of its
-  /// base - as it says, or where its depth meets the street's ground.
+  /// onto [canvas]: a reflected component with all it holds, through its
+  /// own renderTree; any other only as a way down to its children, through
+  /// its decorator (a placed one's transform). A hidden component is
+  /// skipped with all it holds. A component that draws its children its own
+  /// way - a parallax layer - is mirrored with them only if it is reflected
+  /// itself. Water is never reflected, and a placed thing only if it stands
+  /// across from [left] .. [right]. Something standing off the line is moved
+  /// by [shift] of its base - as it says, or where its depth meets the
+  /// street's ground.
   static void drawWorld(
     Canvas canvas,
     Component parent, {
@@ -156,7 +159,8 @@ class MirrorPass implements Mirror {
     required double Function(double base) shift,
   }) {
     for (final child in parent.children) {
-      if (child is WaterSurface) {
+      if (child is WaterSurface ||
+          (child is HasVisibility && !child.isVisible)) {
         continue;
       }
       if (reflects(child)) {
@@ -177,30 +181,22 @@ class MirrorPass implements Mirror {
       if (child.children.isEmpty) {
         continue;
       }
+      void down(Canvas canvas) => drawWorld(
+        canvas,
+        child,
+        reflects: reflects,
+        left: left,
+        right: right,
+        projection: projection,
+        shift: shift,
+      );
+      // On the way down, what the component's own drawing does to its
+      // children: a placed one's transform and whatever else its decorator
+      // adds, as its renderTree would.
       if (child is PositionComponent) {
-        canvas
-          ..save()
-          ..transform2D(child.transform);
-        drawWorld(
-          canvas,
-          child,
-          reflects: reflects,
-          left: left,
-          right: right,
-          projection: projection,
-          shift: shift,
-        );
-        canvas.restore();
+        child.decorator.applyChain(down, canvas);
       } else {
-        drawWorld(
-          canvas,
-          child,
-          reflects: reflects,
-          left: left,
-          right: right,
-          projection: projection,
-          shift: shift,
-        );
+        down(canvas);
       }
     }
   }
