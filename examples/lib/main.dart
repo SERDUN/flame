@@ -38,9 +38,10 @@ import 'package:examples/stories/svg/svg.dart';
 import 'package:examples/stories/system/system.dart';
 import 'package:examples/stories/tiled/tiled.dart';
 import 'package:examples/stories/utils/utils.dart';
+import 'package:examples/stories/wet_world/wet_world.dart';
 import 'package:examples/stories/widgets/widgets.dart';
 import 'package:flame/game.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 void main() {
   final page = PageProviderImpl().getPage();
@@ -69,8 +70,10 @@ void main() {
 void runAsDashbook() {
   final dashbook = Dashbook(
     title: 'Flame Examples',
-    theme: ThemeData.dark(),
   );
+
+  // The SERDUN fork's own samples: water that mirrors the world.
+  addWetWorldStories(dashbook);
 
   // Some small sample games
   addGameStories(dashbook);
