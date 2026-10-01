@@ -430,7 +430,8 @@ class WaterSurface extends PositionComponent
         case LightShape.area:
           halfX = field.extentXOf(i) / 2;
           halfY = field.extentYOf(i) / 2 * squash;
-          body = 0.04 * math.min(field.extentXOf(i), field.extentYOf(i)) + 0.5;
+          // A pane's edge, a little soft against its size.
+          body = 0.04 * math.min(field.extentXOf(i), field.extentYOf(i));
           headroom = 1;
         case LightShape.line:
           // Its direction mirrored and squeezed: y flips, by squash.
@@ -440,7 +441,11 @@ class WaterSurface extends PositionComponent
           dirX = mx / length;
           dirY = my / length;
           halfX = field.extentXOf(i) / 2 * length;
-          body = 0.5 * math.max(field.sourceRadiusOf(i), 2);
+          // Half the tube's thickness, which is at least a fiftieth of its
+          // length, as the light source draws it.
+          body =
+              0.5 *
+              math.max(field.sourceRadiusOf(i), field.extentXOf(i) * 0.02);
           headroom = 1;
           spreadOrLength = field.extentXOf(i) / 2;
         case LightShape.point:
@@ -452,7 +457,9 @@ class WaterSurface extends PositionComponent
         ..[o] = field.xOf(i) - origin.x
         ..[o + 1] = base + (base - field.yOf(i)) * squash - origin.y
         ..[o + 2] = shape.index.toDouble()
-        ..[o + 3] = math.max(body, 0.5)
+        // In the surface's own units: a world in metres has bulbs of a few
+        // centimetres. Never quite zero, which the shader divides by.
+        ..[o + 3] = math.max(body, 1e-4 * math.max(size.x, size.y))
         ..[o + 4] = color.r
         ..[o + 5] = color.g
         ..[o + 6] = color.b

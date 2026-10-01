@@ -134,4 +134,32 @@ void main() {
     expect(at(400, 525), lessThan(at(400, 550) ~/ 2));
     expect(at(400, 575), lessThan(at(400, 550) ~/ 2));
   });
+
+  testWithFlameGame('in a world in metres a bulb mirrors as a bulb', (
+    game,
+  ) async {
+    await WaterShader.load(asset: 'shaders/water.frag');
+    // A hundred pixels a metre: the view 8 m by 6 m.
+    game.camera.viewfinder
+      ..anchor = Anchor.topLeft
+      ..zoom = 100;
+    game.world.addAll([
+      WaterSurface(
+        position: Vector2(0, 4),
+        size: Vector2(8, 2),
+        shape: WaterShape.rect,
+        color: const Color(0xFF000000),
+        fade: 0,
+      ),
+      // A bulb 5 cm across, a metre over the water.
+      LightSource(position: Vector2(4, 3), radius: 1, sourceRadius: 0.05),
+      Lighting(ambient: const Color(0xFF000000), darkness: 1, glow: 0, haze: 0),
+    ]);
+    await game.ready();
+    final at = await _render(game);
+    // Mirrored a metre under the line: (400, 500) on screen.
+    expect(at(400, 500), greaterThan(200));
+    expect(at(400, 530), lessThan(40), reason: 'a bulb, not a disc of light');
+    expect(at(430, 500), lessThan(40));
+  });
 }
