@@ -55,6 +55,9 @@ uniform vec4 u[kCapsules + kShadows * 2];
 const float kArea = 2.0;
 const float kLine = 3.0;
 const float kCone = 1.0;
+const float kSun = 4.0;
+// As far as LightField.sunDistance.
+const float kSunDistance = 1e5;
 
 out vec4 fragColor;
 
@@ -63,13 +66,6 @@ float ahead(float d) {
     float inverse = max(1.0 / P_FAR + d * (1.0 / P_NEAR - 1.0 / P_FAR),
                         0.05 / P_FAR);
     return P_FAR - 1.0 / inverse;
-}
-
-float toSegment(vec2 p, vec2 a, vec2 b) {
-    vec2 ab = b - a;
-    float len2 = dot(ab, ab);
-    float t = len2 < 1e-9 ? 0.0 : clamp(dot(p - a, ab) / len2, 0.0, 1.0);
-    return length(p - (a + ab * t));
 }
 
 // The nearest the segment p1-p2 comes to the segment q1-q2: where along
@@ -122,29 +118,37 @@ float through(vec3 l, vec3 p, float source) {
         float radius = info.x;
         float cz = info.y;
         float slab = info.z * 0.5;
-        float dz = p.z - l.z;
-        float t;
-        float dist;
-        bool lightIn = abs(l.z - cz) <= slab;
-        bool pointIn = abs(p.z - cz) <= slab;
-        if (abs(dz) < 1e-6 || (lightIn && pointIn)) {
-            // The whole way lies in the capsule's depth.
-            if (!lightIn || !pointIn) {
+        // Near either end of the way, as a share of it: a capsule's
+        // radius, no more than 2 % (ShadowSet.through).
+        float end = min(0.02, radius / max(length(p - l), 1e-9));
+        // The part of the way through the capsule's depth, then the nearest
+        // it comes to the capsule on screen; from the point back, for
+        // precision.
+        vec3 e = p - l;
+        float t0;
+        float t1;
+        if (abs(e.z) < 1e-9) {
+            if (abs(l.z - cz) > slab) {
                 continue;
             }
-            vec2 nearest = segments(l.xy, p.xy, seg.xy, seg.zw);
-            t = clamp(nearest.x, 0.02, 0.98);
-            dist = nearest.y;
+            t0 = 0.0;
+            t1 = 1.0;
         } else {
-            t = (cz - l.z) / dz;
-            float tHalf = slab / abs(dz);
-            if (t + tHalf <= 0.02 || t - tHalf >= 0.98) {
-                continue;
-            }
-            t = clamp(t, 0.02, 0.98);
-            dist = toSegment(mix(l.xy, p.xy, t), seg.xy, seg.zw);
+            float ta = (cz - slab - l.z) / e.z;
+            float tb = (cz + slab - l.z) / e.z;
+            t0 = min(ta, tb);
+            t1 = max(ta, tb);
         }
-        float blur = max(source * (1.0 - t), 1e-3);
+        t0 = max(t0, end);
+        t1 = min(t1, 1.0 - end);
+        if (t0 >= t1) {
+            continue;
+        }
+        vec2 nearest = segments(p.xy - e.xy * (1.0 - t0),
+                                p.xy - e.xy * (1.0 - t1), seg.xy, seg.zw);
+        float t = t0 + (t1 - t0) * nearest.x;
+        float dist = nearest.y;
+        float blur = max(source * (1.0 - t), radius * 1e-3);
         float s = clamp((dist - radius) / blur + 0.5, 0.0, 1.0);
         float visible = s * s * (3.0 - 2.0 * s);
         light *= 1.0 - info.w * (1.0 - visible);
@@ -160,6 +164,18 @@ void main() {
         p = vec3(frag, ahead(depth));
     } else {
         p = vec3(frag, 0.0);
+    }
+    if (abs(L_SHAPE - kSun) < 0.5) {
+        // The sun: from far off along its way, everywhere; on the ground as
+        // steeply as it comes down, on the house fronts as much as it comes
+        // from the eye's side.
+        vec3 way = vec3(L_DIR, L_AHEAD);
+        vec3 from = p - way * kSunDistance;
+        float facing = MODE > 0.5 ? max(way.y, 0.0) : max(-way.z, 0.0);
+        float lit = S_COUNT > 0.5 ? through(from, p, L_SOURCE) : 1.0;
+        float a = AMOUNT * L_STRENGTH * facing * lit;
+        fragColor = vec4(L_COLOR * a, a);
+        return;
     }
     // The nearest point of what glows.
     vec2 e = L_POS;
@@ -200,7 +216,7 @@ void main() {
         // On the ground light comes in at an angle: as much as it falls.
         incidence = dist < 1e-3 ? 1.0 : clamp(v.y / dist, 0.0, 1.0);
     }
-    float shade = S_COUNT > 0.5 ? through(l, p, max(L_SOURCE, 1.0)) : 1.0;
+    float shade = S_COUNT > 0.5 ? through(l, p, L_SOURCE) : 1.0;
     float reach = fall * cone;
     if (dist < spillRadius) {
         // What the source throws all round, near it.

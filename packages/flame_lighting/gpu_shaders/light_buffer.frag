@@ -22,6 +22,9 @@ const int kMaxShadows = 8;
 const float kCone = 1.0;
 const float kArea = 2.0;
 const float kLine = 3.0;
+const float kSun = 4.0;
+// As far as LightField.sunDistance.
+const float kSunDistance = 1e5;
 
 uniform Params {
   vec4 view;      // the world rect the target covers: left, top, width, height
@@ -40,13 +43,6 @@ float aheadAt(float d) {
                           d * (1.0 / params.street.z - 1.0 / params.street.w),
                       0.05 / params.street.w);
   return params.street.w - 1.0 / inverse;
-}
-
-float toSegment(vec2 p, vec2 a, vec2 b) {
-  vec2 ab = b - a;
-  float len2 = dot(ab, ab);
-  float t = len2 < 1e-9 ? 0.0 : clamp(dot(p - a, ab) / len2, 0.0, 1.0);
-  return length(p - (a + ab * t));
 }
 
 vec2 segments(vec2 p1, vec2 p2, vec2 q1, vec2 q2) {
@@ -96,28 +92,36 @@ float through(vec3 l, vec3 p, float source) {
     float radius = info.x;
     float cz = info.y;
     float slab = info.z * 0.5;
-    float dz = p.z - l.z;
-    float t;
-    float dist;
-    bool lightIn = abs(l.z - cz) <= slab;
-    bool pointIn = abs(p.z - cz) <= slab;
-    if (abs(dz) < 1e-6 || (lightIn && pointIn)) {
-      if (!lightIn || !pointIn) {
+    // Near either end of the way, as a share of it: a capsule's radius, no
+    // more than 2 % (ShadowSet.through).
+    float end = min(0.02, radius / max(length(p - l), 1e-9));
+    // The part of the way through the capsule's depth, then the nearest it
+    // comes to the capsule on screen; from the point back, for precision.
+    vec3 e = p - l;
+    float t0;
+    float t1;
+    if (abs(e.z) < 1e-9) {
+      if (abs(l.z - cz) > slab) {
         continue;
       }
-      vec2 nearest = segments(l.xy, p.xy, seg.xy, seg.zw);
-      t = clamp(nearest.x, 0.02, 0.98);
-      dist = nearest.y;
+      t0 = 0.0;
+      t1 = 1.0;
     } else {
-      t = (cz - l.z) / dz;
-      float tHalf = slab / abs(dz);
-      if (t + tHalf <= 0.02 || t - tHalf >= 0.98) {
-        continue;
-      }
-      t = clamp(t, 0.02, 0.98);
-      dist = toSegment(mix(l.xy, p.xy, t), seg.xy, seg.zw);
+      float ta = (cz - slab - l.z) / e.z;
+      float tb = (cz + slab - l.z) / e.z;
+      t0 = min(ta, tb);
+      t1 = max(ta, tb);
     }
-    float blur = max(source * (1.0 - t), 1e-3);
+    t0 = max(t0, end);
+    t1 = min(t1, 1.0 - end);
+    if (t0 >= t1) {
+      continue;
+    }
+    vec2 nearest = segments(p.xy - e.xy * (1.0 - t0), p.xy - e.xy * (1.0 - t1),
+                            seg.xy, seg.zw);
+    float t = t0 + (t1 - t0) * nearest.x;
+    float dist = nearest.y;
+    float blur = max(source * (1.0 - t), radius * 1e-3);
     float s = clamp((dist - radius) / blur + 0.5, 0.0, 1.0);
     float visible = s * s * (3.0 - 2.0 * s);
     light *= 1.0 - info.w * (1.0 - visible);
@@ -161,6 +165,17 @@ void main() {
     vec2 pos = a.xy;
     float shape = a.w;
     float strength = c.a;
+    if (abs(shape - kSun) < 0.5) {
+      // The sun: from far off along its way, everywhere; on the ground as
+      // steeply as it comes down, on the house fronts as much as it comes
+      // from the eye's side.
+      vec3 way = vec3(g.yz, a.z);
+      vec3 from = p - way * kSunDistance;
+      float facing = ground ? max(way.y, 0.0) : max(-way.z, 0.0);
+      float lit = params.info.z > 0.5 ? through(from, p, h.w) : 1.0;
+      sum += c.rgb * strength * facing * lit;
+      continue;
+    }
     // The nearest point of what glows.
     vec2 e = pos;
     if (abs(shape - kArea) < 0.5) {
@@ -205,7 +220,7 @@ void main() {
       if (ground) {
         incidence = dist < 1e-3 ? 1.0 : clamp(v.y / dist, 0.0, 1.0);
       }
-      float shade = params.info.z > 0.5 ? through(l, p, max(h.w, 1.0)) : 1.0;
+      float shade = params.info.z > 0.5 ? through(l, p, h.w) : 1.0;
       float amount = strength * reach * incidence * shade;
       sum += c.rgb * amount;
     }

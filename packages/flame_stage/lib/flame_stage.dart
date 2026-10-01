@@ -6,6 +6,7 @@
 library;
 
 export 'src/color_temperature.dart';
+export 'src/daylight.dart';
 export 'src/light_field.dart'
     show
         Ambience,

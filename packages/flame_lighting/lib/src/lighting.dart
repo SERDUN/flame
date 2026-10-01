@@ -239,10 +239,12 @@ class Lighting extends Component with OnStage, Ambience, FrameStep {
     Rect? clip,
   }) {
     final field = frame.light;
-    final reach = _bounds(field, i);
-    if (!reach.overlaps(frame.view)) {
+    final view = frame.view.inflate(frame.view.width * 0.01);
+    final bounds = _bounds(field, i);
+    if (!bounds.overlaps(view)) {
       return;
     }
+    final reach = bounds.intersect(view);
     final projection = frame.projection;
     final line = projection?.line;
     final wall = line == null
@@ -289,8 +291,11 @@ class Lighting extends Component with OnStage, Ambience, FrameStep {
     }
   }
 
-  /// Where light [i] can reach on screen.
+  /// Where light [i] can reach on screen: the sun everywhere.
   Rect _bounds(LightField field, int i) {
+    if (field.isSunOf(i)) {
+      return Rect.largest;
+    }
     final r = field.reachOf(i);
     final x = field.xOf(i);
     final y = field.yOf(i);
@@ -318,8 +323,15 @@ class Lighting extends Component with OnStage, Ambience, FrameStep {
     if (a <= 0) {
       return;
     }
-    final center = Offset(field.xOf(i), field.yOf(i));
     final color = field.colorOf(i);
+    if (field.isSunOf(i)) {
+      paint
+        ..shader = null
+        ..color = color.withValues(alpha: a);
+      canvas.drawRect(area, paint);
+      return;
+    }
+    final center = Offset(field.xOf(i), field.yOf(i));
     paint.shader = Gradient.radial(
       center,
       field.radiusOf(i),
@@ -342,6 +354,10 @@ class Lighting extends Component with OnStage, Ambience, FrameStep {
   /// pane, a tube - fully, so it shows as bright as it is drawn, and the
   /// halo the haze makes round it, as much light as it is ([exposure]).
   void _glowItself(Canvas canvas, LightField field, int i, double exposure) {
+    if (field.isSunOf(i)) {
+      // The sun is not in the scene.
+      return;
+    }
     final center = Offset(field.xOf(i), field.yOf(i));
     final source = field.sourceRadiusOf(i);
     switch (field.shapeOf(i)) {
@@ -371,9 +387,10 @@ class Lighting extends Component with OnStage, Ambience, FrameStep {
             ..strokeWidth = math.max(source, field.extentXOf(i) * 0.02),
         );
         _emit.style = PaintingStyle.fill;
+      case LightShape.directional:
+        break;
       case LightShape.point:
       case LightShape.cone:
-      case LightShape.directional:
         if (source > 0) {
           // As the bulb is drawn: full to 0.55 of 1.6 source radii.
           _emit.shader = Gradient.radial(
