@@ -54,6 +54,12 @@ mixin Ground on Component {
   /// than on the street line: below 1 behind it, above 1 in front.
   double scaleAt(double depth) => farDistance / distanceAt(depth);
 
+  /// The depth at which things are [scale] times as big, and as fast across
+  /// the view, as on the street line: what a parallax layer drawn at that
+  /// scale stands at.
+  double depthOfScale(double scale) =>
+      (scale - 1) / (farDistance * (1 / nearDistance - 1 / farDistance));
+
   /// World y where something at [depth] meets the ground: the street line
   /// for anything on or behind it (the line hides the ground behind), lower
   /// the nearer it stands.
