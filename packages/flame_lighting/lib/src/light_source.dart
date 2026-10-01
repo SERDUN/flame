@@ -185,7 +185,7 @@ class LightSource extends PositionComponent with OnStage, LightCarrier {
     final dir = Offset(math.cos(light.direction), math.sin(light.direction));
     final a = at - dir * half;
     final b = at + dir * half;
-    final width = math.max(light.sourceRadius, 2.0);
+    final width = math.max(light.sourceRadius, light.extent.x * 0.02);
     if (haze > 0) {
       // Wider, fainter strokes round the tube: its glow in the wet air.
       _glow
