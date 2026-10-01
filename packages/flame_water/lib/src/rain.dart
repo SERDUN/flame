@@ -6,6 +6,7 @@ import 'package:flame/components.dart';
 import 'package:flame/game.dart';
 import 'package:flame_lighting/flame_lighting.dart';
 import 'package:flame_water/src/rain_catcher.dart';
+import 'package:flame_water/src/rain_deflector.dart';
 import 'package:flame_water/src/rain_drops.dart';
 import 'package:flame_water/src/reflection_pass.dart';
 import 'package:flutter/foundation.dart' show visibleForTesting;
@@ -33,9 +34,13 @@ class Rain extends Component with Reflectable {
   Rain({
     this.intensity = 1,
     Vector2? wind,
-    this.density = 0.3,
+    this.windAt,
+    this.cloudTop,
+    this.releaseShare,
+    this.density = 15,
     this.metre = 50,
     this.drying = 1,
+    this.color = const Color(0xFFD6E0EE),
     int seed = 7,
     super.priority = 1100,
   }) : wind = wind ?? Vector2(1.6, 0),
@@ -44,11 +49,43 @@ class Rain extends Component with Reflectable {
   /// How hard it rains: 1 a steady rain, 2 a downpour, 0.3 a drizzle, 0 dry.
   double intensity;
 
-  /// The wind, metres per second (y down).
+  /// The wind, metres per second (y down), the same everywhere - unless
+  /// [windAt] says how it blows where each drop is.
   Vector2 wind;
 
-  /// Drops per world unit of the view's width per second, at intensity 1.
+  /// The wind at a world point, metres per second, written into `out`
+  /// (asked for every drop every step, so it fills a vector rather than
+  /// making one); `null`: [wind] everywhere.
+  void Function(Vector2 at, Vector2 out)? windAt;
+
+  /// World y where drops leave the cloud; `null`: just above the view.
+  double Function()? cloudTop;
+
+  /// Share of the drops that fall from the cloud at world x, `0..1`: where
+  /// the cloud is, how thick the rain under it is; `null`: everywhere alike.
+  double Function(double x)? releaseShare;
+
+  /// Drops per metre of the view's width per second, at intensity 1.
   double density;
+
+  /// The rain's colour: the light on each drop tints it.
+  Color color;
+
+  /// How many drops bounced off a [RainDeflector] since the last call, and
+  /// how fast they hit it on average, metres per second: what a game sounds
+  /// rain on an umbrella by.
+  ({int count, double speed}) takeBounces() {
+    final result = (
+      count: _bounces,
+      speed: _bounces == 0 ? 0.0 : _bounceSpeed / _bounces / metre,
+    );
+    _bounces = 0;
+    _bounceSpeed = 0;
+    return result;
+  }
+
+  int _bounces = 0;
+  double _bounceSpeed = 0;
 
   /// World units in a metre.
   double metre;
@@ -72,6 +109,12 @@ class Rain extends Component with Reflectable {
   int get dropsInAir => _drops.length;
   @visibleForTesting
   int get droplets => _droplets.length;
+  @visibleForTesting
+  Iterable<double> get dropXs => _drops.map((d) => d.at.x);
+  @visibleForTesting
+  Iterable<double> get dropYs => _drops.map((d) => d.at.y);
+  @visibleForTesting
+  Iterable<Vector2> get dropVelocities => _drops.map((d) => d.velocity);
 
   /// Drops landed so far, by what caught them (`null`: the bare ground).
   @visibleForTesting
@@ -83,7 +126,7 @@ class Rain extends Component with Reflectable {
   double _due = 0;
   bool _started = false;
 
-  static const Color _water = Color(0xFFD6E0EE);
+  Color get _water => color;
 
   /// The view drops fall over, and where a drop at a depth lands.
   ({
@@ -118,6 +161,18 @@ class Rain extends Component with Reflectable {
 
   Rect? _lastView;
 
+  final Vector2 _air = Vector2.zero();
+
+  /// The wind's x at [at], metres per second.
+  double _windX(Vector2 at) {
+    final field = windAt;
+    if (field == null) {
+      return wind.x;
+    }
+    field(at, _air);
+    return _air.x;
+  }
+
   /// How far past the view drops are born and kept, world units: a metre,
   /// so the wind carries them into the view rather than they pop in.
   double get _margin => metre;
@@ -137,15 +192,24 @@ class Rain extends Component with Reflectable {
     // goes as one over its distance - half as far, twice as fast.
     final perspective = scale(depth);
     final fall = terminal * metre * perspective;
+    // It lands somewhere over the view; it left the cloud upwind of there by
+    // as far as the wind carries it on the way down.
+    final top = cloudTop?.call() ?? view.top - _margin;
+    final landing = land(depth);
+    final target =
+        view.left - _margin + _random.nextDouble() * (view.width + 2 * _margin);
+    final windX = _windX(Vector2(target, (top + landing) / 2)) * metre;
+    final fallTime = math.max(landing - top, 0) / fall;
+    final born = target - windX * perspective * fallTime;
     return _Drop(
       at: Vector2(
-        view.left - _margin + _random.nextDouble() * (view.width + 2 * _margin),
+        born,
         // Spread over the way it falls in this step: drops born in one step
         // at one height would fall as a line.
-        view.top - _margin - _random.nextDouble() * fall * lead,
+        top - _random.nextDouble() * fall * lead,
       ),
-      velocity: Vector2(wind.x * metre * perspective, fall),
-      land: land(depth),
+      velocity: Vector2(windX * perspective, fall),
+      land: landing,
       depth: depth,
       perspective: perspective,
       response: RainDrops.responseSec(terminal),
@@ -166,27 +230,49 @@ class Rain extends Component with Reflectable {
     if (!_started) {
       _started = true;
       // The rain is already falling when the scene opens.
-      final inAir = (density * view.width * intensity * 0.6).round();
+      final inAir = (density * view.width / metre * intensity * 0.6).round();
       for (var i = 0; i < inAir; i++) {
         final drop = _newDrop(view, land, scale, 0);
-        drop.at.y = view.top + _random.nextDouble() * (drop.land - view.top);
+        // Somewhere along its way down already.
+        final share = _random.nextDouble();
+        final fallTime = (drop.land - drop.at.y) / drop.fall;
+        drop.at
+          ..x += drop.velocity.x * fallTime * share
+          ..y += (drop.land - drop.at.y) * share;
+        if (_released(drop)) {
+          _drops.add(drop);
+        }
+      }
+    }
+    _due += dt * density * view.width / metre * intensity;
+    while (_due >= 1) {
+      _due -= 1;
+      final drop = _newDrop(view, land, scale, dt);
+      if (_released(drop)) {
         _drops.add(drop);
       }
     }
-    _due += dt * density * view.width * intensity;
-    while (_due >= 1) {
-      _due -= 1;
-      _drops.add(_newDrop(view, land, scale, dt));
-    }
-    final catchers = _world().descendants().whereType<RainCatcher>().toList();
+    final world = _world();
+    final catchers = world.descendants().whereType<RainCatcher>().toList();
+    final deflectors = world.descendants().whereType<RainDeflector>().toList();
     for (final d in _drops) {
       final from = d.at.y;
-      // It takes up the wind as fast as its size lets it.
+      _from.setFrom(d.at);
+      // It takes up the wind where it is as fast as its size lets it.
+      final field = windAt;
+      if (field == null) {
+        _air.setFrom(wind);
+      } else {
+        field(d.at, _air);
+      }
       final k = RainDrops.follow(dt, d.response);
       d.velocity
-        ..x += (wind.x * metre * d.perspective - d.velocity.x) * k
-        ..y += (d.fall + wind.y * metre - d.velocity.y) * k;
+        ..x += (_air.x * metre * d.perspective - d.velocity.x) * k
+        ..y += (d.fall + _air.y * metre - d.velocity.y) * k;
       d.at.addScaled(d.velocity, dt);
+      if (_deflect(d, deflectors)) {
+        continue;
+      }
       d.caught = _catch(d, from, catchers);
     }
     _drops.removeWhere(
@@ -197,11 +283,37 @@ class Rain extends Component with Reflectable {
     );
     for (final p in _droplets) {
       p.age += dt;
-      p.velocity.y += 900 * dt;
+      p.velocity.y += 18 * metre * dt;
       p.at.addScaled(p.velocity, dt);
     }
     _droplets.removeWhere((p) => p.age >= p.life || p.at.y > p.floor);
     _shade();
+  }
+
+  final Vector2 _from = Vector2.zero();
+
+  /// Whether the cloud lets [d] fall where it was born.
+  bool _released(_Drop d) {
+    final share = releaseShare;
+    return share == null || _random.nextDouble() < share(d.at.x);
+  }
+
+  /// Whether a deflector on its way turned [d] back (moving it and its
+  /// velocity as it says).
+  bool _deflect(_Drop d, List<RainDeflector> deflectors) {
+    for (final deflector in deflectors) {
+      final speed = d.velocity.length;
+      if (deflector.deflect(_from, d.at, d.velocity, d.depth)) {
+        // Heard once, as it falls on it; flying off, it may touch it again.
+        if (!d.bounced) {
+          d.bounced = true;
+          _bounces++;
+          _bounceSpeed += speed;
+        }
+        return true;
+      }
+    }
+    return false;
   }
 
   /// Whether a catcher (or the ground) stopped [d] on its way from [from]:
@@ -289,12 +401,12 @@ class Rain extends Component with Reflectable {
         _Droplet(
           at: at.clone(),
           velocity: Vector2(
-            side * (20 + 70 * _random.nextDouble()) * size,
-            -(90 + 120 * _random.nextDouble()) * size,
+            side * (0.4 + 1.4 * _random.nextDouble()) * metre * size,
+            -(1.8 + 2.4 * _random.nextDouble()) * metre * size,
           ),
-          floor: at.y + 1,
+          floor: at.y + 0.02 * metre,
           life: 0.35,
-          width: 1 + 1.5 * d.depth,
+          width: (0.02 + 0.03 * d.depth) * metre,
         ),
       );
     }
@@ -413,7 +525,7 @@ class Rain extends Component with Reflectable {
         hy,
         hx - bx,
         hy - by,
-        0.8 + 1.4 * d.depth * (0.6 + 0.4 * d.strength),
+        (0.016 + 0.028 * d.depth * (0.6 + 0.4 * d.strength)) * metre,
         d.color.toARGB32(),
       );
     }
@@ -478,6 +590,9 @@ class _Drop {
   final double strength;
 
   bool caught = false;
+
+  /// Whether it has bounced off a deflector already.
+  bool bounced = false;
 
   /// How it looks this frame.
   Color color = const Color(0x00000000);
