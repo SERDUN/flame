@@ -120,6 +120,20 @@ class Rain extends Component with Reflectable {
   /// rain, for a scene looking at one thing up close.
   double nearest = 1;
 
+  /// The depth the eye is focused at: drops there are drawn sharp, and the
+  /// farther a drop is from it - nearer the eye or farther off - the more it
+  /// is out of focus. 0 is the street line, where a game's walker usually is.
+  double focusDepth = 0;
+
+  /// How out of focus the rest of the rain is: the blur, in world units per
+  /// metre, of a drop whose perspective differs from the focused depth's by
+  /// one. A thin lens blurs a point at distance z to a disc that grows with
+  /// |1/z - 1/z_focus|, and the perspective is 1/z, so the blur is this times
+  /// the difference in perspective. The light of a blurred streak spreads
+  /// over its wider width, so it is fainter by as much as it is wider. 0, the
+  /// default, draws every drop sharp.
+  double aperture = 0;
+
   /// The rain over the world [component] is in, if there is one.
   static Rain? of(Component component) => _lookup.of(component);
   static final WorldLookup<Rain> _lookup = WorldLookup();
@@ -135,6 +149,9 @@ class Rain extends Component with Reflectable {
   Iterable<double> get dropYs => _drops.map((d) => d.at.y);
   @visibleForTesting
   Iterable<Vector2> get dropVelocities => _drops.map((d) => d.velocity);
+  @visibleForTesting
+  Iterable<({double depth, double width, double alpha})> get dropLooks =>
+      _drops.map((d) => (depth: d.depth, width: d.width, alpha: d.color.a));
 
   /// Drops landed so far, by what caught them (`null`: the bare ground).
   @visibleForTesting
@@ -174,6 +191,12 @@ class Rain extends Component with Reflectable {
       scale: ground == null ? _plainScale : ground.scaleAt,
     );
   }
+
+  /// A drop's streak in focus: thicker for a nearer, heavier drop.
+  double _sharpWidth(_Drop d) => math.max(
+    (0.016 + 0.028 * d.depth * (0.6 + 0.4 * d.strength)) * metre,
+    0.002 * metre,
+  );
 
   /// With no ground: speed on the screen as one over the distance, the
   /// nearest drops two and a half times as fast as on the street line.
@@ -481,8 +504,28 @@ class Rain extends Component with Reflectable {
   /// is drawn again in every water's reflection.
   void _shade() {
     final lighting = Lighting.of(this);
-    final span = Ground.of(this)?.depthSpan ?? 0;
+    final ground = Ground.of(this);
+    final span = ground?.depthSpan ?? 0;
+    final scale = ground == null ? _plainScale : ground.scaleAt;
+    final focus = scale(focusDepth);
+    // How much of a sharp streak's light is left per unit of its width once
+    // it is blurred to [width].
+    double sharpShare(
+      double sharp,
+      double perspective,
+      void Function(double) width,
+    ) {
+      final blurred = sharp + aperture * (perspective - focus).abs() * metre;
+      width(blurred);
+      return blurred <= 0 ? 1 : sharp / blurred;
+    }
+
     for (final d in _drops) {
+      final focusShare = sharpShare(
+        _sharpWidth(d),
+        d.perspective,
+        (w) => d.width = w,
+      );
       final speed = d.velocity.length;
       // A drop is seen by the light it throws to the eye - from the lamps
       // round it, far more from one it is in front of - and a streak is
@@ -492,19 +535,32 @@ class Rain extends Component with Reflectable {
       final trueSpeed = math.max(speed / (metre * d.perspective), 0.5);
       final exposure = d.diameter / trueSpeed / _referenceExposure;
       if (lighting == null) {
-        d.color = _water.withValues(alpha: (visibility * exposure).clamp(0, 1));
+        d.color = _water.withValues(
+          alpha: (visibility * exposure * focusShare).clamp(0, 1),
+        );
         continue;
       }
       final lit = lighting.dropLightAt(d.at, d.depth * span);
-      d.color = Color.lerp(
-        _water,
-        lit.color,
-        (lit.light - (1 - lighting.darkness)) * 0.8,
-      )!.withValues(alpha: (visibility * lit.scattered * exposure).clamp(0, 1));
+      d.color =
+          Color.lerp(
+            _water,
+            lit.color,
+            (lit.light - (1 - lighting.darkness)) * 0.8,
+          )!.withValues(
+            alpha: (visibility * lit.scattered * exposure * focusShare).clamp(
+              0,
+              1,
+            ),
+          );
     }
     for (final p in _droplets) {
+      final focusShare = sharpShare(
+        p.width,
+        scale(p.depth),
+        (w) => p.drawnWidth = w,
+      );
       if (lighting == null) {
-        p.color = _water.withValues(alpha: 0.9);
+        p.color = _water.withValues(alpha: (0.9 * focusShare).clamp(0, 1));
         continue;
       }
       final (:light, :color) = lighting.lightAt(p.at);
@@ -512,7 +568,7 @@ class Rain extends Component with Reflectable {
         _water,
         color,
         (light - (1 - lighting.darkness)) * 0.8,
-      )!.withValues(alpha: (0.9 * light).clamp(0, 1));
+      )!.withValues(alpha: (0.9 * light * focusShare).clamp(0, 1));
     }
   }
 
@@ -634,10 +690,11 @@ class Rain extends Component with Reflectable {
     }
     // Each streak is a strip three vertices wide: full down its middle,
     // clear at its edges - soft-edged as a line drawn smooth, which bare
-    // triangles are not. Four triangles, twelve vertices.
-    if (_positions.length < quads * 24) {
-      _positions = Float32List(quads * 24 * 2);
-      _colors = Int32List(quads * 12 * 2);
+    // triangles are not. Four triangles, twelve vertices; out of focus, four
+    // more fade its ends out over the blur.
+    if (_positions.length < quads * 48) {
+      _positions = Float32List(quads * 48 * 2);
+      _colors = Int32List(quads * 24 * 2);
     }
     var v = 0;
     var c = 0;
@@ -647,7 +704,15 @@ class Rain extends Component with Reflectable {
       _colors[c++] = argb;
     }
 
-    void quad(double hx, double hy, double tx, double ty, double w, int argb) {
+    void quad(
+      double hx,
+      double hy,
+      double tx,
+      double ty,
+      double w,
+      int argb, {
+      double blur = 0,
+    }) {
       var nx = ty - hy;
       var ny = hx - tx;
       final len = math.sqrt(nx * nx + ny * ny);
@@ -659,6 +724,20 @@ class Rain extends Component with Reflectable {
         ny *= w / len;
       }
       final clear = argb & 0x00FFFFFF;
+      if (blur > 1e-6 && len >= 1e-6) {
+        // Out of focus the ends are as soft as the sides: each runs out to
+        // clear over the blur, past the head and behind the tail.
+        final ux = (hx - tx) / len * blur;
+        final uy = (hy - ty) / len * blur;
+        for (final s in const [-1.0, 1.0]) {
+          point(hx + s * nx, hy + s * ny, clear);
+          point(hx, hy, argb);
+          point(hx + ux, hy + uy, clear);
+          point(tx + s * nx, ty + s * ny, clear);
+          point(tx, ty, argb);
+          point(tx - ux, ty - uy, clear);
+        }
+      }
       // tail edge, tail middle, head middle; tail edge, head middle, head
       // edge - on each side.
       for (final s in const [-1.0, 1.0]) {
@@ -692,8 +771,9 @@ class Rain extends Component with Reflectable {
         hy,
         hx - bx,
         hy - by,
-        (0.016 + 0.028 * d.depth * (0.6 + 0.4 * d.strength)) * metre,
+        d.width,
         d.color.toARGB32(),
+        blur: d.width - _sharpWidth(d),
       );
     }
     for (final p in _droplets) {
@@ -704,10 +784,10 @@ class Rain extends Component with Reflectable {
       final y = p.at.y + shift;
       quad(
         p.at.x,
-        y - p.width / 2,
+        y - p.drawnWidth / 2,
         p.at.x,
-        y + p.width / 2,
-        p.width,
+        y + p.drawnWidth / 2,
+        p.drawnWidth,
         p.color.toARGB32(),
       );
     }
@@ -766,6 +846,9 @@ class _Drop {
 
   /// How it looks this frame.
   Color color = const Color(0x00000000);
+
+  /// Its streak's width this frame, blurred as far as it is out of focus.
+  double width = 0;
 }
 
 class _Droplet {
@@ -787,6 +870,9 @@ class _Droplet {
   double age = 0;
 
   /// How it looks this frame.
+  /// Its width as drawn this frame, blurred as far as it is out of focus.
+  double drawnWidth = 0;
+
   Color color = const Color(0x00000000);
 }
 

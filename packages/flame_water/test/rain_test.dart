@@ -348,4 +348,43 @@ void main() {
       expect(await lit(RainSlice(rain, from: -0.9, to: -0.5)), 0);
     },
   );
+
+  testWithFlameGame(
+    'out of focus a drop is wider and fainter, with as much light',
+    (game) async {
+      game.camera.viewfinder.anchor = Anchor.topLeft;
+      final sharp = Rain(seed: 3);
+      final focused = Rain(seed: 3)..aperture = 0.1;
+      game.world.addAll([_Ground(), sharp, focused]);
+      await game.ready();
+      await _rainFor(game, 1);
+
+      final before = sharp.dropLooks.toList();
+      final after = focused.dropLooks.toList();
+      expect(after, hasLength(before.length));
+      var near = 0;
+      var inFocus = 0;
+      for (var i = 0; i < before.length; i++) {
+        final (a, b) = (before[i], after[i]);
+        expect(b.depth, a.depth);
+        expect(b.width, greaterThanOrEqualTo(a.width));
+        if (a.alpha < 0.99) {
+          // The streak's light is its brightness across its width.
+          expect(b.width * b.alpha, closeTo(a.width * a.alpha, 0.02 * a.width));
+        }
+        if (a.depth.abs() < 0.02) {
+          inFocus++;
+          // Only the focused plane is sharp; next to it the blur barely starts.
+          expect(b.width, lessThan(1.3 * a.width));
+        }
+        if (a.depth > 0.8) {
+          near++;
+          expect(b.width, greaterThan(2 * a.width));
+          expect(b.alpha, lessThan(a.alpha));
+        }
+      }
+      expect(inFocus, greaterThan(0));
+      expect(near, greaterThan(0));
+    },
+  );
 }
