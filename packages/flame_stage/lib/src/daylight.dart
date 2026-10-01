@@ -22,6 +22,7 @@ import 'package:flutter/foundation.dart' show immutable;
 @immutable
 class Daylight {
   const Daylight({
+    required this.sunElevation,
     required this.skyColor,
     required this.skyLight,
     required this.sunColor,
@@ -86,6 +87,7 @@ class Daylight {
       0.75 + 0.25 * glow,
     );
     return Daylight(
+      sunElevation: h,
       skyColor: skyColor,
       skyLight: skyLux / lampLux,
       sunColor: sunColor,
@@ -94,6 +96,9 @@ class Daylight {
       skyHorizon: horizon,
     );
   }
+
+  /// The sun's elevation it was worked out for, degrees.
+  final double sunElevation;
 
   /// The colour of the sky's light.
   final Color skyColor;
