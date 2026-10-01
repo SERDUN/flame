@@ -24,14 +24,15 @@ class _Water extends PositionComponent with LightMirror {
   @override
   void renderMirroredGlow(
     Canvas canvas,
-    void Function(Canvas, double) glow,
+    void Function(Canvas, double, [double Function(double)?]) glow,
   ) {
     canvas
       ..save()
       ..clipRect(toAbsoluteRect())
       ..translate(0, 800)
       ..scale(1, -1);
-    glow(canvas, headroom);
+    // Mirrored about y 400: what stands on `base` moves by twice the gap.
+    glow(canvas, headroom, (base) => -(base - 400) * 2);
     canvas.restore();
   }
 }
@@ -222,6 +223,25 @@ void main() {
       expect(at(560, 405), lessThan(under));
       expect(at(400, 540), lessThan(under));
       expect(at(100, 405), lessThan(5), reason: 'outside the cone');
+    },
+  );
+
+  testWithFlameGame(
+    'a lamp standing nearer is mirrored about where it stands',
+    (game) async {
+      await _setUp(
+        game,
+        [
+          // The bulb at y 300 on a post standing on y 420, below the
+          // water's line at 400: its glow mirrors to 540, not 500.
+          LightSource(position: Vector2(400, 300))..standsAt = 420,
+          _Water(),
+        ],
+        wall: const Color(0xFF000000),
+      );
+      final at = await _render(game);
+      expect(at(400, 540), greaterThan(150));
+      expect(at(400, 500), lessThan(at(400, 540) ~/ 2));
     },
   );
 

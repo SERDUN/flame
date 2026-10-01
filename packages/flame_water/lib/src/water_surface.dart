@@ -266,7 +266,12 @@ class WaterSurface extends PositionComponent
   @override
   void renderMirroredGlow(
     Canvas canvas,
-    void Function(Canvas canvas, double headroom) glow,
+    void Function(
+      Canvas canvas,
+      double headroom, [
+      double Function(double base)? shift,
+    ])
+    glow,
   ) {
     final strength = _shown.clamp(0.0, 1.0);
     if (strength <= 0 || _dry) {
@@ -287,7 +292,7 @@ class WaterSurface extends PositionComponent
         _glowSlot,
         program,
         rect,
-        (c) => _mirror(c, line, origin, () => glow(c, glowGain)),
+        (c) => _mirror(c, line, origin, () => glow(c, glowGain, mirrorShift)),
         gain: strength * glowGain,
         paint: _glowPaint,
       );
@@ -307,7 +312,7 @@ class WaterSurface extends PositionComponent
       _smeared(
         canvas,
         streak,
-        () => _mirror(canvas, line, origin, () => glow(canvas, 1)),
+        () => _mirror(canvas, line, origin, () => glow(canvas, 1, mirrorShift)),
       );
       canvas.restore();
     }

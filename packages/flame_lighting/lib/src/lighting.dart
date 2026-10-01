@@ -75,6 +75,17 @@ class Lighting extends Component {
   static double get headroom => _headroom;
   static double _headroom = 1;
 
+  /// While a mirror takes the glow: how far to move what stands on a given
+  /// ground for it to be mirrored about where it stands.
+  static double Function(double base)? _shift;
+
+  /// How far [emissive] is moved in the mirror drawing now, world units.
+  static double _shiftOf(Emissive emissive) {
+    final base = emissive.standsAt;
+    final shift = _shift;
+    return base == null || shift == null ? 0 : shift(base);
+  }
+
   final Paint _layer = Paint();
   final Paint _dark = Paint();
   final Paint _cut = Paint()..blendMode = BlendMode.dstOut;
@@ -236,12 +247,14 @@ class Lighting extends Component {
       for (final mirror in _mirrors) {
         mirror.renderMirroredGlow(
           canvas,
-          (c, headroom) {
+          (c, headroom, [shift]) {
             _headroom = headroom < 1 ? 1 : headroom;
+            _shift = shift;
             try {
               _renderMirrorGlow(world, c, lights);
             } finally {
               _headroom = 1;
+              _shift = null;
             }
           },
         );
@@ -510,7 +523,12 @@ class Lighting extends Component {
     final air = glow * (0.2 + 0.5 * haze) / _headroom;
     if (air > 0) {
       for (final light in lights) {
+        final dy = _shiftOf(light);
+        canvas
+          ..save()
+          ..translate(0, dy);
         _drawLight(canvas, light, _mirrorAir, air, light.strength);
+        canvas.restore();
       }
     }
     _renderGlow(world, canvas);
@@ -526,10 +544,15 @@ class Lighting extends Component {
         continue;
       }
       final placed = child is PositionComponent;
-      if (placed) {
+      final dy = child is Emissive ? _shiftOf(child) : 0.0;
+      final moved = placed || dy != 0;
+      if (moved) {
         canvas
           ..save()
-          ..transform2D(child.transform);
+          ..translate(0, dy);
+        if (placed) {
+          canvas.transform2D(child.transform);
+        }
       }
       if (child is Emissive) {
         child.renderEmissive(canvas);
@@ -537,7 +560,7 @@ class Lighting extends Component {
       if (child.children.isNotEmpty) {
         _renderGlow(child, canvas);
       }
-      if (placed) {
+      if (moved) {
         canvas.restore();
       }
     }
