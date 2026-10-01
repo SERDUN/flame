@@ -14,6 +14,12 @@ mixin Reflectable on Component {
   /// lower in the view, and water mirrors it about where it stands. `null`:
   /// it stands on the line the water mirrors about.
   double? get reflectionBase => null;
+
+  /// How far in front of the street line it stands, as a depth of the
+  /// world's `Ground` (below 0 behind it); `null`: on the line. Water mirrors
+  /// it about where that depth meets the ground - unless [reflectionBase]
+  /// says outright.
+  double? get groundDepth => null;
 }
 
 /// The reflection being drawn right now, if any.

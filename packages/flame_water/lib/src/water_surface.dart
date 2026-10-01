@@ -210,11 +210,11 @@ class WaterSurface extends PositionComponent
       // Rain behind the street line never reaches water on the ground.
       return null;
     }
+    // Where a drop at its depth meets the ground: the world's projection, or
+    // with no ground, across this water from its top to its bottom.
     final origin = absoluteTopLeftPosition;
-    final band =
-        Ground.of(this)?.groundBand() ??
-        Rect.fromLTWH(origin.x, origin.y, size.x, size.y);
-    final y = band.top + 4 + depth * (band.height - 8);
+    final y =
+        Ground.of(this)?.yAt(depth) ?? origin.y + depth.clamp(0, 1) * size.y;
     if (y <= fromY || y > toY || !covers(Vector2(x, y))) {
       return null;
     }
@@ -586,6 +586,17 @@ class WaterSurface extends PositionComponent
     canvas.restore();
   }
 
+  /// Where [thing] stands, world y, if not on the line the water mirrors
+  /// about: as it says, or where its depth puts it on the world's ground.
+  double? _baseOf(Reflectable thing) {
+    final base = thing.reflectionBase;
+    if (base != null) {
+      return base;
+    }
+    final depth = thing.groundDepth;
+    return depth == null ? null : Ground.of(this)?.yAt(depth);
+  }
+
   /// How far to move something (world units, down) for the mirror about
   /// the water line to show it mirrored about [base] instead - the line it
   /// stands on, or a drop the spot it falls to.
@@ -719,7 +730,7 @@ class WaterSurface extends PositionComponent
       }
       if (reflects(child)) {
         if (_beside(child)) {
-          final base = child is Reflectable ? child.reflectionBase : null;
+          final base = child is Reflectable ? _baseOf(child) : null;
           if (base == null) {
             child.renderTree(canvas);
           } else {

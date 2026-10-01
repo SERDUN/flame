@@ -86,7 +86,12 @@ class Rain extends Component with Reflectable {
   static const Color _water = Color(0xFFD6E0EE);
 
   /// The view drops fall over, and where a drop at a depth lands.
-  ({Rect view, double Function(double depth) land})? _frame() {
+  ({
+    Rect view,
+    double Function(double depth) land,
+    double Function(double depth) scale,
+  })?
+  _frame() {
     final game = findGame();
     final view =
         CameraComponent.currentCamera?.visibleWorldRect ??
@@ -96,38 +101,48 @@ class Rain extends Component with Reflectable {
       return null;
     }
     _lastView = view;
-    final ground = Ground.of(this)?.groundBand();
+    final ground = Ground.of(this);
     return (
       view: view,
-      land: ground == null
-          ? (_) => view.bottom
-          // Behind the street line a drop never reaches the ground in view:
-          // it ends at the line, behind whatever stands there.
-          : (depth) => depth < 0
-                ? ground.top
-                : ground.top + 4 + depth * (ground.height - 8),
+      // Where a drop at its depth meets the ground, and how much faster than
+      // on the street line it crosses the view: the world's projection. Behind
+      // the street line it ends at the line, behind whatever stands there.
+      land: ground == null ? (_) => view.bottom : ground.yAt,
+      scale: ground == null ? _plainScale : ground.scaleAt,
     );
   }
 
+  /// With no ground: speed on the screen as one over the distance, the
+  /// nearest drops two and a half times as fast as on the street line.
+  static double _plainScale(double depth) => 1 / (1 - 0.6 * depth);
+
   Rect? _lastView;
 
-  _Drop _newDrop(Rect view, double Function(double) land, double lead) {
+  /// How far past the view drops are born and kept, world units: a metre,
+  /// so the wind carries them into the view rather than they pop in.
+  double get _margin => metre;
+
+  _Drop _newDrop(
+    Rect view,
+    double Function(double) land,
+    double Function(double) scale,
+    double lead,
+  ) {
     // A share of the rain falls behind the street line (negative depth):
     // onto roofs and behind the houses, never onto the road.
     final depth = behind + (1 - behind) * _random.nextDouble();
     final diameter = RainDrops.diameterMm(_random.nextDouble(), intensity);
     final terminal = RainDrops.terminalSpeed(diameter);
-    // A near drop crosses the view faster, as anything near does.
     // Seen nearer, a drop crosses the view faster: its speed on the screen
     // goes as one over its distance - half as far, twice as fast.
-    final perspective = 1 / (1 - 0.6 * depth);
+    final perspective = scale(depth);
     final fall = terminal * metre * perspective;
     return _Drop(
       at: Vector2(
-        view.left - 40 + _random.nextDouble() * (view.width + 80),
+        view.left - _margin + _random.nextDouble() * (view.width + 2 * _margin),
         // Spread over the way it falls in this step: drops born in one step
         // at one height would fall as a line.
-        view.top - 30 - _random.nextDouble() * fall * lead,
+        view.top - _margin - _random.nextDouble() * fall * lead,
       ),
       velocity: Vector2(wind.x * metre * perspective, fall),
       land: land(depth),
@@ -147,13 +162,13 @@ class Rain extends Component with Reflectable {
     if (frame == null) {
       return;
     }
-    final (:view, :land) = frame;
+    final (:view, :land, :scale) = frame;
     if (!_started) {
       _started = true;
       // The rain is already falling when the scene opens.
       final inAir = (density * view.width * intensity * 0.6).round();
       for (var i = 0; i < inAir; i++) {
-        final drop = _newDrop(view, land, 0);
+        final drop = _newDrop(view, land, scale, 0);
         drop.at.y = view.top + _random.nextDouble() * (drop.land - view.top);
         _drops.add(drop);
       }
@@ -161,7 +176,7 @@ class Rain extends Component with Reflectable {
     _due += dt * density * view.width * intensity;
     while (_due >= 1) {
       _due -= 1;
-      _drops.add(_newDrop(view, land, dt));
+      _drops.add(_newDrop(view, land, scale, dt));
     }
     final catchers = _world().descendants().whereType<RainCatcher>().toList();
     for (final d in _drops) {
@@ -175,7 +190,10 @@ class Rain extends Component with Reflectable {
       d.caught = _catch(d, from, catchers);
     }
     _drops.removeWhere(
-      (d) => d.caught || d.at.x < view.left - 200 || d.at.x > view.right + 200,
+      (d) =>
+          d.caught ||
+          d.at.x < view.left - 4 * _margin ||
+          d.at.x > view.right + 4 * _margin,
     );
     for (final p in _droplets) {
       p.age += dt;
