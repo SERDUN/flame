@@ -38,9 +38,9 @@ class Substance {
     restitution: 0.1,
     slip: 0.6,
     loudness: 0.35,
-    soundHz: 3600,
-    ringSec: 0.0015,
-    hitSec: 0.003,
+    soundHz: 6000,
+    ringSec: 0,
+    hitSec: 0.002,
     friction: 0.8,
   );
 
@@ -54,9 +54,9 @@ class Substance {
     restitution: 0.1,
     slip: 0.5,
     loudness: 0.3,
-    soundHz: 3000,
-    ringSec: 0.0015,
-    hitSec: 0.003,
+    soundHz: 5000,
+    ringSec: 0,
+    hitSec: 0.002,
     friction: 0.9,
   );
 
@@ -70,9 +70,9 @@ class Substance {
     restitution: 0.12,
     slip: 0.6,
     loudness: 0.35,
-    soundHz: 3400,
-    ringSec: 0.0015,
-    hitSec: 0.003,
+    soundHz: 6000,
+    ringSec: 0,
+    hitSec: 0.002,
     friction: 0.9,
   );
 
@@ -84,9 +84,9 @@ class Substance {
     restitution: 0.3,
     slip: 0.95,
     loudness: 0.6,
-    soundHz: 5200,
+    soundHz: 4000,
     ringSec: 0.03,
-    hitSec: 0.002,
+    hitSec: 0.0015,
     friction: 0.4,
   );
 
@@ -100,7 +100,7 @@ class Substance {
     loudness: 1,
     soundHz: 2600,
     ringSec: 0.12,
-    hitSec: 0.002,
+    hitSec: 0.0015,
     friction: 0.5,
   );
 
@@ -112,9 +112,9 @@ class Substance {
     restitution: 0.35,
     slip: 0.85,
     loudness: 0.7,
-    soundHz: 1100,
+    soundHz: 1300,
     ringSec: 0.004,
-    hitSec: 0.018,
+    hitSec: 0.012,
     friction: 0.7,
   );
 
@@ -145,8 +145,9 @@ class Substance {
     slip: 0.7,
     splashAbove: 90,
     loudness: 0.2,
-    soundHz: 1500,
-    hitSec: 0.012,
+    soundHz: 3000,
+    ringSec: 0,
+    hitSec: 0.008,
     friction: 0.8,
   );
 
@@ -161,7 +162,7 @@ class Substance {
     slip: 0.3,
     splashAbove: 110,
     loudness: 0.15,
-    soundHz: 600,
+    soundHz: 800,
     ringSec: 0,
     hitSec: 0.01,
   );
@@ -178,7 +179,7 @@ class Substance {
     loudness: 0.45,
     soundHz: 1600,
     ringSec: 0.01,
-    hitSec: 0.004,
+    hitSec: 0.003,
     friction: 0.7,
   );
 
@@ -192,9 +193,9 @@ class Substance {
     slip: 1,
     splashAbove: 100,
     loudness: 0.4,
-    soundHz: 1600,
-    ringSec: 0.025,
-    hitSec: 0.004,
+    soundHz: 2500,
+    ringSec: 0.02,
+    hitSec: 0.003,
     friction: 0.1,
   );
 
@@ -229,14 +230,16 @@ class Substance {
   /// How loud rain is on it, `0..1`: a tin roof 1, cloth near nothing.
   final double loudness;
 
-  /// Where the sound of a drop striking it sits, Hz: a tin roof's ring, a
-  /// puddle's bubble (some 1.5 kHz for a millimetre one), the dull thud of
-  /// cloth low down.
+  /// Where the sound of a drop striking it sits, Hz. A strike is a click of
+  /// every frequency, and the surface takes off the highs above this: asphalt
+  /// and stone clicks bright (some 6 kHz), cloth and earth thud low. A
+  /// surface that rings rings about here: a tin roof, glass, a puddle's
+  /// bubble (some 3 kHz for a millimetre one, Minnaert).
   final double soundHz;
 
   /// How long it rings on after a drop, seconds, to a third: sheet metal a
-  /// tenth of a second, glass and a bubble in water a few hundredths, cloth
-  /// and earth not at all.
+  /// tenth of a second, glass and a bubble in water a few hundredths, stone,
+  /// cloth and earth not at all.
   final double ringSec;
 
   /// How long the strike itself lasts, seconds: a hard thing a few
