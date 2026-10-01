@@ -711,7 +711,11 @@ class WaterSurface extends PositionComponent
         ..setFloat(pool.height / 2)
         ..setFloat(_softEdge ? edgeSoftness.clamp(0.0, 1.0) : 0)
         ..setFloat(shape == WaterShape.ellipse ? 1 : 0)
-        ..setFloat(scale);
+        ..setFloat(scale)
+        // Padding: the rings start on a 16-byte boundary (see the shader).
+        ..setFloat(0)
+        ..setFloat(0)
+        ..setFloat(0);
       ripples.forEachNewest(WaterShader.maxRings, (x, y, radius, opacity) {
         u.setFloats([x, y, radius, waveAmplitude * opacity]);
         count++;

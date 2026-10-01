@@ -31,14 +31,31 @@ uniform float uElevTop;       // sine of the angle the eye looks down, top row
 uniform float uElevBottom;    // ... and bottom row
 uniform float uFresnel;       // 1: mirror as much as water does at that angle
 uniform float uSpread;        // how long a rough surface smears a point, units
-uniform vec4 uBase;           // the water (or the wet ground) under it
-uniform vec4 uTint;           // laid over the reflection
+// Colours and the outline come as single floats: a vector after a lone float
+// is laid out on its own boundary on Vulkan, not where the floats are set in
+// order, and the frame is lost.
+uniform float uBaseR;         // the water (or the wet ground) under it,
+uniform float uBaseG;         // premultiplied
+uniform float uBaseB;
+uniform float uBaseA;
+uniform float uTintR;         // laid over the reflection, premultiplied
+uniform float uTintG;
+uniform float uTintB;
+uniform float uTintA;
 uniform float uFade;          // how much it fades from the line down, 0..1
 uniform float uLine;          // the water line, local y
-uniform vec4 uPool;           // the water's outline: centre, half extents
+uniform float uPoolX;         // the water's outline: its centre ...
+uniform float uPoolY;
+uniform float uPoolW;         // ... and half extents
+uniform float uPoolH;
 uniform float uSoft;          // share of an ellipse's radius its rim fades
 uniform float uRound;         // 1 an ellipse, 0 a rectangle
 uniform float uPixels;        // pixels of the image per local unit
+// Three floats of padding: the rings start 32 floats in, on a 16-byte
+// boundary, wherever a vector array is laid out.
+uniform float uPad0;
+uniform float uPad1;
+uniform float uPad2;
 uniform vec4 uRings[kMaxRings]; // centre x, centre y, radius, amplitude
 uniform sampler2D uReflection;
 
@@ -114,7 +131,7 @@ vec4 mirrored(vec2 uv) {
 // How much water there is at p: 1 inside the outline, easing to nothing
 // over an ellipse's soft rim.
 float pool(vec2 p) {
-    vec2 d = (p - uPool.xy) / max(uPool.zw, vec2(1e-3));
+    vec2 d = (p - vec2(uPoolX, uPoolY)) / max(vec2(uPoolW, uPoolH), vec2(1e-3));
     if (uRound < 0.5) {
         return (abs(d.x) <= 1.0 && abs(d.y) <= 1.0) ? 1.0 : 0.0;
     }
@@ -168,7 +185,9 @@ void main() {
     float below = clamp((p.y - uLine) / max(uSize.y - uLine, 1.0), 0.0, 1.0);
     vec4 mirror = color * uGain * reflectance * (1.0 - uFade * below);
     // The mirror over the water, the tint over both; all premultiplied.
-    vec4 c = mirror + uBase * (1.0 - clamp(mirror.a, 0.0, 1.0));
-    c = uTint + c * (1.0 - uTint.a);
+    vec4 base = vec4(uBaseR, uBaseG, uBaseB, uBaseA);
+    vec4 tint = vec4(uTintR, uTintG, uTintB, uTintA);
+    vec4 c = mirror + base * (1.0 - clamp(mirror.a, 0.0, 1.0));
+    c = tint + c * (1.0 - tint.a);
     fragColor = c * water;
 }
