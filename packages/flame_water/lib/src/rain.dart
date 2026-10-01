@@ -244,6 +244,45 @@ class Rain extends Component with Reflectable {
   /// fallen from the cloud.
   double _start(Rect view, double top) => math.max(top, view.top - _margin);
 
+  /// Where drops started last step.
+  double _startY = double.infinity;
+
+  /// Fills the air between [from] and [to] (world y, [from] the start over
+  /// the view) with the drops that would be there had the rain been falling
+  /// all along: released over as long as the slowest drop takes down, each
+  /// as far on as it would be by now, those outside the band or already
+  /// down left out. Small and far drops cross the view more slowly than a
+  /// 2 mm one and so hang in the air longer.
+  void _fill(
+    Rect view,
+    double Function(double) land,
+    double Function(double) scale,
+    double from,
+    double to,
+  ) {
+    final lowest = math.max(land(behind), land(nearest));
+    final slowest =
+        RainDrops.terminalSpeed(RainDrops.minMm) *
+        metre *
+        math.min(scale(behind), scale(nearest));
+    final longest = math.max(math.min(lowest, to) - from, 0) / slowest;
+    final released = (density * view.width / metre * intensity * longest)
+        .round();
+    for (var i = 0; i < released; i++) {
+      final drop = _newDrop(view, land, scale, 0);
+      final age = _random.nextDouble() * longest;
+      final way = (drop.land - drop.at.y) / drop.fall;
+      final y = drop.at.y + drop.fall * age;
+      if (age >= way || y >= to || !_released(drop)) {
+        continue;
+      }
+      drop.at
+        ..x += drop.velocity.x * age
+        ..y = y;
+      _drops.add(drop);
+    }
+  }
+
   /// How long a drop falling at [fall] from [top] to [landing] is inside the
   /// view's height.
   double _inViewTime(Rect view, double top, double landing, double fall) =>
@@ -365,28 +404,18 @@ class Rain extends Component with Reflectable {
     }
     final (:view, :land, :scale) = frame;
     _trackView(view, dt);
+    final top = cloudTop?.call() ?? view.top - _margin;
+    final start = _start(view, top);
     if (!_started) {
       _started = true;
-      // The rain is already falling when the scene opens: as many drops as
-      // fall over a whole way down from the cloud, spread along it.
-      final top = cloudTop?.call() ?? view.top - _margin;
-      final way =
-          math.max(land(0) - _start(view, top), 0) /
-          (RainDrops.terminalSpeed(2) * metre);
-      final inAir = (density * view.width / metre * intensity * way).round();
-      for (var i = 0; i < inAir; i++) {
-        final drop = _newDrop(view, land, scale, 0);
-        // Somewhere along its way down already.
-        final share = _random.nextDouble();
-        final fallTime = (drop.land - drop.at.y) / drop.fall;
-        drop.at
-          ..x += drop.velocity.x * fallTime * share
-          ..y += (drop.land - drop.at.y) * share;
-        if (_released(drop)) {
-          _drops.add(drop);
-        }
-      }
+      // The rain is already falling when the scene opens.
+      _fill(view, land, scale, start, double.infinity);
+    } else if (start < _startY - 1e-6) {
+      // The view reaches higher than it did (it grew, or rose): the air it
+      // now shows over the old start holds drops already.
+      _fill(view, land, scale, start, _startY);
     }
+    _startY = start;
     // As many per metre over the ground the view will cross, not only the
     // view.
     _due +=
