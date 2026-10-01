@@ -232,12 +232,42 @@ class WaterSurface extends PositionComponent
     }
     // Where a drop at its depth meets the ground: the world's projection, or
     // with no ground, across this water from its top to its bottom.
-    final origin = absoluteTopLeftPosition;
-    final y = _projection?.yAt(depth) ?? origin.y + depth.clamp(0, 1) * size.y;
-    if (y <= fromY || y > toY || !covers(Vector2(x, y))) {
+    final y = _projection?.yAt(depth) ?? _catchTop + depth.clamp(0, 1) * size.y;
+    if (y <= fromY || y > toY || !_coversAt(x, y)) {
       return null;
     }
     return y;
+  }
+
+  // Where the water lies this step, world coordinates: its outline's centre
+  // and half extents.
+  double _catchTop = 0;
+  double _poolX = 0;
+  double _poolY = 0;
+  double _poolW = 0;
+  double _poolH = 0;
+
+  @override
+  void prepareCatch() {
+    final origin = absoluteTopLeftPosition;
+    _catchTop = origin.y;
+    _poolX = origin.x + size.x / 2;
+    _poolY = origin.y + size.y / 2;
+    _poolW = size.x * _fill / 2;
+    _poolH = size.y * _fill / 2;
+  }
+
+  /// Whether world ([x], [y]) lies on the water as [prepareCatch] found it.
+  bool _coversAt(double x, double y) {
+    if (_poolW <= 0 || _poolH <= 0) {
+      return false;
+    }
+    final dx = (x - _poolX) / _poolW;
+    final dy = (y - _poolY) / _poolH;
+    return switch (shape) {
+      WaterShape.rect => dx.abs() <= 1 && dy.abs() <= 1,
+      WaterShape.ellipse => dx * dx + dy * dy <= 1,
+    };
   }
 
   @override
@@ -733,10 +763,8 @@ class WaterSurface extends PositionComponent
 
   /// Whether [worldPoint] lies on the water.
   bool covers(Vector2 worldPoint) {
-    final origin = absoluteTopLeftPosition;
-    return outline().contains(
-      Offset(worldPoint.x - origin.x, worldPoint.y - origin.y),
-    );
+    prepareCatch();
+    return _coversAt(worldPoint.x, worldPoint.y);
   }
 
   @override

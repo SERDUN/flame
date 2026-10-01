@@ -447,6 +447,27 @@ Future<int> _brightness(FlameGame game) async {
 }
 
 void _nightTests() {
+  testWithFlameGame('a slice on the stage draws what one off it would', (
+    game,
+  ) async {
+    game.camera.viewfinder.anchor = Anchor.topLeft;
+    final rain = Rain(intensity: 2)..drawsItself = false;
+    final front = RainSlice(rain, from: 0);
+    game.world.addAll([_Ground(), rain, front]);
+    await game.ready();
+    await _rainFor(game, 1);
+    Future<List<int>> pixels(Component slice) async {
+      final recorder = PictureRecorder();
+      slice.render(Canvas(recorder));
+      final image = await recorder.endRecording().toImage(800, 600);
+      return (await image.toByteData())!.buffer.asUint8List();
+    }
+
+    // The mounted one draws the drops the rain sorted to it; the loose one
+    // picks them out itself.
+    expect(await pixels(front), await pixels(RainSlice(rain, from: 0)));
+  });
+
   testWithFlameGame('rain is as bright under the night as over it', (
     game,
   ) async {

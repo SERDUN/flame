@@ -16,6 +16,11 @@ mixin RainCatcher on OnStage {
   /// not caught here.
   double? catchDrop(double x, double fromY, double toY, double depth);
 
+  /// Called once a step before the rain asks about its drops: work out here
+  /// what every [catchDrop] would otherwise work out again - where it is,
+  /// its outline - so asking about a drop is plain arithmetic.
+  void prepareCatch() {}
+
   /// How near the eye its front stands, as a drop's depth; `null` if it
   /// lies along the ground (water, a road). Rain falling nearer the eye
   /// than that passes in front of it: something standing on the street
