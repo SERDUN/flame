@@ -73,6 +73,7 @@ class WaterSurface extends PositionComponent
     this.edgeSoftness = 0.35,
     RippleRings? ripples,
     this.rippleColor = const Color(0x99FFFFFF),
+    this.rippleWidth = 1.2,
     this.reflects = _isReflectable,
     this.quality = WaterQuality.rippled,
     this.resolution = 1,
@@ -158,6 +159,10 @@ class WaterSurface extends PositionComponent
   /// Colour of the ripple rings at full depth; shallower water shows them
   /// fainter.
   Color rippleColor;
+
+  /// How thick a ring's line is, world units: 1.2 in pixels, 1.2 cm in a
+  /// world measured in metres.
+  double rippleWidth;
 
   /// Which components the water mirrors, and with them everything under
   /// them. By default the [Reflectable] ones.
@@ -333,6 +338,7 @@ class WaterSurface extends PositionComponent
   Paint _ringPaint() {
     final plain = (0.5 + 0.5 * depth.clamp(0.0, 1.0)) * wetness.clamp(0.0, 1.0);
     return _ripplePaint
+      ..strokeWidth = rippleWidth
       ..color = rippleColor.withValues(alpha: rippleColor.a * plain);
   }
 
@@ -340,7 +346,7 @@ class WaterSurface extends PositionComponent
   /// every point over a range of heights. A real blur, continuous - not
   /// copies of the point at steps.
   void _smeared(Canvas canvas, double spread, void Function() draw) {
-    if (spread < 0.5) {
+    if (spread * resolution < 0.5) {
       canvas.save();
       draw();
       canvas.restore();
@@ -373,9 +379,7 @@ class WaterSurface extends PositionComponent
   final Paint _layer = Paint();
   final Paint _fadePaint = Paint()..blendMode = BlendMode.dstIn;
   final Paint _tintPaint = Paint();
-  final Paint _ripplePaint = Paint()
-    ..style = PaintingStyle.stroke
-    ..strokeWidth = 1.2;
+  final Paint _ripplePaint = Paint()..style = PaintingStyle.stroke;
 
   /// How much of its shape a pool fills now, across: standing water
   /// shrinks as the ground dries - its area goes with the water in it, so
@@ -642,7 +646,11 @@ class WaterSurface extends PositionComponent
   }) {
     // The smear is done in the shader: the image need be no finer than it.
     final sigma = streak / 3;
-    final scale = resolution * (sigma < 0.5 ? 1 : (2.5 / sigma).clamp(0.25, 1));
+    // Under half a pixel of smear is none; above, the image need be no finer
+    // than a few pixels a sigma.
+    final pixels = sigma * resolution;
+    final scale =
+        resolution * (pixels < 0.5 ? 1 : (2.5 / pixels).clamp(0.25, 1));
     final width = (size.x * scale).ceil();
     final height = (size.y * scale).ceil();
     if (width <= 0 || height <= 0) {
@@ -687,7 +695,8 @@ class WaterSurface extends PositionComponent
         ..setFloat(pool.width / 2)
         ..setFloat(pool.height / 2)
         ..setFloat(_softEdge ? edgeSoftness.clamp(0.0, 1.0) : 0)
-        ..setFloat(shape == WaterShape.ellipse ? 1 : 0);
+        ..setFloat(shape == WaterShape.ellipse ? 1 : 0)
+        ..setFloat(scale);
       ripples.forEachNewest(WaterShader.maxRings, (x, y, radius, opacity) {
         u.setFloats([x, y, radius, waveAmplitude * opacity]);
         count++;
