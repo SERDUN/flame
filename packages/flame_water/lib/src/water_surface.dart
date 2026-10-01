@@ -93,8 +93,13 @@ class WaterSurface extends PositionComponent
     this.film = false,
     this.gpuWaves = false,
     this.glowGain = 10,
+    this.substance = Substance.asphalt,
+    double? basinMm,
+    double? catchment,
     double wetness = 1,
-  }) : ripples = ripples ?? RippleRings.forDepth(waterDepth),
+  }) : basinMm = basinMm ?? (film ? substance.holdsMm : 20),
+       catchment = catchment ?? (film ? 1 : 3),
+       ripples = ripples ?? RippleRings.forDepth(waterDepth),
        waveAmplitude = waveAmplitude ?? 1.5 + 3.5 * waterDepth.clamp(0.0, 1.0),
        wavelength =
            wavelength ??
@@ -155,15 +160,29 @@ class WaterSurface extends PositionComponent
   /// [ripples] and [waveAmplitude] are given outright.
   final double waterDepth;
 
-  /// Water dries as long as it is deep: a film on the asphalt goes at the
-  /// usual rate, a puddle ten times as deep takes ten times as long. Unless
-  /// set outright.
+  /// What it lies on: the ground its water soaks into, and how dark it goes
+  /// wet.
   @override
-  double get dryRate => _dryRate ?? 0.002 / math.max(waterDepth, 0.1);
+  final Substance substance;
+
+  /// How deep the hollow it lies in is, mm: as much water as it holds. A
+  /// film holds what its ground does; a puddle, by default, 20 mm.
+  final double basinMm;
+
+  /// How much of the rain falling round it runs into it: 1 a film, which
+  /// gets only the rain on it; a puddle in its hollow, by default, 3 times
+  /// its own share.
+  final double catchment;
 
   @override
-  set dryRate(double value) => _dryRate = value;
-  double? _dryRate;
+  double get capacityMm => basinMm;
+
+  @override
+  double get rainShare => sheltered ? 0 : catchment;
+
+  /// A drop meets standing water, or the film on the ground.
+  @override
+  Substance get surface => film ? substance : Substance.water;
 
   final RippleRings ripples;
 
@@ -637,12 +656,12 @@ class WaterSurface extends PositionComponent
   final Paint _tintPaint = Paint();
   final Paint _ripplePaint = Paint()..style = PaintingStyle.stroke;
 
-  /// How much of its shape a pool fills now, across: standing water
-  /// shrinks as the ground dries - its area goes with the water in it, so
-  /// on barely wet ground a puddle is a small patch, and on dry ground there
-  /// is none. A film always covers its ground; its wetness shows in its
-  /// mirror.
-  double get _fill => film ? 1 : math.sqrt(wetness.clamp(0.0, 1.0));
+  /// How much of its shape a pool fills now, across: a hollow is a shallow
+  /// cone, whose water's width goes as the cube root of the water in it -
+  /// half full, it spreads over four fifths; nearly dry, a small patch. A
+  /// film always covers its ground; its wetness shows in its mirror.
+  double get _fill =>
+      film ? 1 : math.pow(wetness.clamp(0.0, 1.0), 1 / 3).toDouble();
 
   /// Whether there is any water to draw.
   bool get _dry => film ? _shown <= 0 : _fill <= 0;

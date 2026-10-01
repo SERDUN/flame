@@ -9,14 +9,14 @@ import 'package:flutter_test/flutter_test.dart';
 void main() {
   // Renders the rainy night for a while: the whole wet world runs without
   // an error. With WET_WORLD_FRAME=<path> the last frame is saved to look at,
-  // at WET_WORLD_SECONDS; WET_WORLD_WETNESS, _RAIN, _DRYING and _SKY (the
+  // at WET_WORLD_SECONDS; WET_WORLD_WETNESS, _RAIN, _HUMIDITY and _SKY (the
   // sky's light) set the weather.
   testWithGame<RainyNightExample>(
     'the rainy night renders',
     () => RainyNightExample(
       wetness: _env('WET_WORLD_WETNESS', 1),
       rain: _env('WET_WORLD_RAIN', 1),
-      drying: _env('WET_WORLD_DRYING', 1),
+      humidity: _env('WET_WORLD_HUMIDITY', 0.95),
       skyLight: _env('WET_WORLD_SKY', 0.15),
     ),
     (game) async {

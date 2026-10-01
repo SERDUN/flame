@@ -27,7 +27,8 @@ import 'package:flutter/foundation.dart' show visibleForTesting;
 /// things stand on, a near one low in the view - and a near drop looks
 /// longer, brighter and faster. On its way it may be caught by a
 /// [RainCatcher] (a roof, a puddle, the road): the first one it reaches
-/// takes it, and it bursts into droplets there if the catcher splashes.
+/// takes it, and it bursts into droplets there if it hits harder than what
+/// the catcher is made of lets it ([Substance.splashAbove]).
 ///
 /// It reads everything from the stage's frame: the view, the street's
 /// projection, the light. Under a `Lighting` a drop is as bright as the
@@ -37,7 +38,12 @@ import 'package:flutter/foundation.dart' show visibleForTesting;
 /// so it carries no more than that light leaves out. [Rain.of] finds the
 /// rain over a world, for what depends on it (water astir, things getting
 /// wet and drying).
-class Rain extends Component with OnStage, Reflectable {
+///
+/// It is the stage's [Weather] too: it rains [rainMmPerHour] (its
+/// [intensity] of a steady 6 mm an hour), in its [wind], in air of its
+/// [humidity] and [temperature], under its [cloudCover], the world's time
+/// running at its [pace] - what every `Wettable` fills and dries by.
+class Rain extends Component with OnStage, Reflectable, Weather {
   Rain({
     this.intensity = 1,
     Vector2? wind,
@@ -46,7 +52,10 @@ class Rain extends Component with OnStage, Reflectable {
     this.releaseShare,
     this.density = 15,
     this.metre = 50,
-    this.drying = 1,
+    this.humidity = 0.95,
+    this.temperature = 12,
+    this.cloudCover = 1,
+    this.pace = 1,
     this.color = const Color(0xFFD6E0EE),
     int seed = 7,
     super.priority = 1100,
@@ -58,6 +67,7 @@ class Rain extends Component with OnStage, Reflectable {
 
   /// The wind, metres per second (y down), the same everywhere - unless
   /// [windAt] says how it blows where each drop is.
+  @override
   Vector2 wind;
 
   /// The wind at a world point, metres per second, written into `out`
@@ -78,29 +88,49 @@ class Rain extends Component with OnStage, Reflectable {
   /// The rain's colour: the light on each drop tints it.
   Color color;
 
-  /// How many drops bounced off a [RainDeflector] since the last call, and
-  /// how fast they hit it on average, metres per second: what a game sounds
-  /// rain on an umbrella by.
-  ({int count, double speed}) takeBounces() {
+  /// How many drops bounced off a [RainDeflector] since the last call, how
+  /// fast they hit it on average, metres per second, and how loud what they
+  /// hit is on average ([Substance.loudness]): what a game sounds rain on
+  /// an umbrella by.
+  ({int count, double speed, double loudness}) takeBounces() {
     final result = (
       count: _bounces,
       speed: _bounces == 0 ? 0.0 : _bounceSpeed / _bounces / metre,
+      loudness: _bounces == 0 ? 0.0 : _bounceLoudness / _bounces,
     );
     _bounces = 0;
     _bounceSpeed = 0;
+    _bounceLoudness = 0;
     return result;
   }
 
   int _bounces = 0;
   double _bounceSpeed = 0;
+  double _bounceLoudness = 0;
 
   /// World units in a metre.
   double metre;
 
-  /// How fast wet things dry in this weather: 1 the usual, 0 not at all
-  /// (a still, cold, damp night), 5 in a warm wind. Each `Wettable` dries at
-  /// its own rate times this.
-  double drying;
+  // As the weather of its stage: the rain it is, and the air it falls in.
+
+  @override
+  double get rainMmPerHour => intensity * WeatherState.tunedRainMmPerHour;
+
+  @override
+  double humidity;
+
+  @override
+  double temperature;
+
+  @override
+  double cloudCover;
+
+  @override
+  double pace;
+
+  /// What the ground is, where no catcher takes a drop: whether a drop
+  /// splashes on it.
+  Substance ground = Substance.asphalt;
 
   /// How far behind the street line rain falls too, as a depth below 0: the
   /// rain over the roofs and behind the houses, which a [RainCatcher] there
@@ -505,6 +535,7 @@ class Rain extends Component with OnStage, Reflectable {
           _drops.setBounced(i);
           _bounces++;
           _bounceSpeed += speed;
+          _bounceLoudness += deflector.surface.loudness;
         }
         return true;
       }
@@ -544,14 +575,12 @@ class Rain extends Component with OnStage, Reflectable {
       landed.update(null, (n) => n + 1, ifAbsent: () => 1);
       // The bare ground; behind the street line, nothing to see.
       if (depth >= 0) {
-        _burst(i, x, land);
+        _burst(i, x, land, ground);
       }
       return true;
     }
     landed.update(by.runtimeType, (n) => n + 1, ifAbsent: () => 1);
-    if (by.splashes) {
-      _burst(i, x, at);
-    }
+    _burst(i, x, at, by.surface);
     by.onDrop(Vector2(x, at), _drops.strength(i));
     return true;
   }
@@ -566,22 +595,19 @@ class Rain extends Component with OnStage, Reflectable {
     return math.sqrt(weber) * math.pow(reynolds, 0.25);
   }
 
-  /// Above this [impactNumber] a drop splashes on a rough solid surface; below
-  /// it the drop only spreads and wets.
-  static const double splashThreshold = 57.7;
-
-  /// Drop [i] bursting at ([x], [y]), if it hits hard enough to splash: a
-  /// few droplets thrown up and out, more the harder it hits, higher for a
-  /// near, heavy drop. A fine drop only wets.
-  void _burst(int i, double x, double y) {
+  /// Drop [i] bursting at ([x], [y]) on [on], if it hits hard enough to
+  /// splash there: a few droplets thrown up and out, more the harder it hits,
+  /// higher for a near, heavy drop. A fine drop only wets.
+  void _burst(int i, double x, double y, Substance on) {
     final depth = _drops.depth(i);
     final speed = _velocity.length / (metre * _drops.perspective(i));
     final k = impactNumber(_drops.diameter(i), speed);
-    if (k <= splashThreshold) {
+    final splashAbove = on.splashAbove;
+    if (k <= splashAbove) {
       return;
     }
     final size = (0.5 + 0.5 * depth) * _drops.strength(i);
-    final count = (1 + 2 * (k / splashThreshold - 1) + size * 2).round().clamp(
+    final count = (1 + 2 * (k / splashAbove - 1) + size * 2).round().clamp(
       1,
       7,
     );

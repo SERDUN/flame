@@ -31,8 +31,9 @@ mixin RainCatcher on OnStage {
   /// Of two catchers stopping a drop at the same height, the higher takes it.
   int get catchOrder => 0;
 
-  /// Whether a drop bursts into droplets where it lands here.
-  bool get splashes => true;
+  /// What a drop meets on it: the drop bursts into droplets if it hits
+  /// harder than its [Substance.splashAbove].
+  Substance get surface => Substance.asphalt;
 
   /// A drop landed here at [at] (world), [strength] `0..1` (a heavy drop
   /// against a fine one).

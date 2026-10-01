@@ -5,6 +5,7 @@ import 'package:flame/game.dart';
 import 'package:flame_stage/src/light_field.dart';
 import 'package:flame_stage/src/shadow.dart';
 import 'package:flame_stage/src/street_projection.dart';
+import 'package:flame_stage/src/weather.dart';
 
 /// What a frame of a scene holds, made once at its start by the [Stage] and
 /// read by everything after: the view, the street's projection, the light.
@@ -16,6 +17,12 @@ class StageFrame {
 
   /// Seconds since the stage started.
   double time = 0;
+
+  /// Seconds the last step took.
+  double dt = 0;
+
+  /// The weather now; a still dry day without a [Weather].
+  final WeatherState weather = WeatherState();
 
   /// The part of the world in view, world coordinates.
   Rect view = Rect.zero;
@@ -211,8 +218,10 @@ class Stage extends Component {
     frame
       ..index += 1
       ..time += dt
+      ..dt = dt
       ..view = _view() ?? frame.view
       ..projection = _currentProjection();
+    frame.weather.read(members<Weather>().firstOrNull);
     _gatherLight();
   }
 
@@ -241,7 +250,10 @@ class Stage extends Component {
     }
     final field = frame.light;
     final ambiences = members<Ambience>();
-    field.begin(ambiences.isEmpty ? null : ambiences.first);
+    field.begin(
+      ambiences.isEmpty ? null : ambiences.first,
+      weather: frame.weather,
+    );
     final projection = frame.projection;
     for (final carrier in members<LightCarrier>()) {
       final placed = carrier is PositionComponent
@@ -257,6 +269,6 @@ class Stage extends Component {
         field.add(light, _at.x, _at.y, angle, frame.time, projection);
       }
     }
-    field.finish();
+    field.finish(frame.dt);
   }
 }

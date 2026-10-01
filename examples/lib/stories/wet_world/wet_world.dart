@@ -25,7 +25,7 @@ WidgetbookComponent wetWorldStories() {
           glow: _number(context, 'glow', 0.35),
           haze: _number(context, 'haze', 0.5),
           rain: _number(context, 'rain', 1),
-          drying: _number(context, 'drying speed', 1),
+          humidity: _number(context, 'humidity', 0.95),
           wetness: _number(context, 'ground wetness', 1),
         ),
         codeLink: _forkLink('rainy_night_example.dart'),
@@ -68,7 +68,7 @@ class _RainyNight extends StatefulWidget {
     required this.glow,
     required this.haze,
     required this.rain,
-    required this.drying,
+    required this.humidity,
     required this.wetness,
   });
 
@@ -76,7 +76,7 @@ class _RainyNight extends StatefulWidget {
   final double glow;
   final double haze;
   final double rain;
-  final double drying;
+  final double humidity;
   final double wetness;
 
   @override
@@ -89,7 +89,7 @@ class _RainyNightState extends State<_RainyNight> {
     glow: widget.glow,
     haze: widget.haze,
     rain: widget.rain,
-    drying: widget.drying,
+    humidity: widget.humidity,
     wetness: widget.wetness,
   );
 
@@ -101,7 +101,7 @@ class _RainyNightState extends State<_RainyNight> {
       glow: widget.glow,
       haze: widget.haze,
       rain: widget.rain,
-      drying: widget.drying,
+      humidity: widget.humidity,
     );
     if (widget.wetness != old.wetness) {
       _game.setWetness(widget.wetness);

@@ -42,8 +42,9 @@ class Lighting extends Component with OnStage, Ambience, FrameStep {
     this.sky = const Color(0xFFFFFFFF),
     this.skyLight = 40,
     this.adaptation = 1,
+    this.adaptsIn = 0,
     this.glow = 0.35,
-    this.haze = 0.4,
+    this.haze,
     this.useBuffer = true,
     this.bufferScale = 0.5,
     super.priority = 1000,
@@ -62,7 +63,11 @@ class Lighting extends Component with OnStage, Ambience, FrameStep {
   double glow;
 
   @override
-  double haze;
+  double adaptsIn;
+
+  /// How thick the air is, `0..1`; `null`: as the stage's weather makes it.
+  @override
+  double? haze;
 
   /// Whether to add the lights up on the GPU where it can ([LightBuffer]).
   /// Off, every light is drawn on the canvas.

@@ -1,4 +1,3 @@
-import 'dart:math' as math;
 import 'dart:ui';
 
 import 'package:flame/components.dart';
@@ -31,10 +30,13 @@ class _Roof extends Component with OnStage, RainCatcher {
 }
 
 class _Wall extends Component with Wettable {
-  _Wall({this.sheltered = false});
+  _Wall({this.sheltered = false, this.substance = Substance.asphalt});
 
   @override
   final bool sheltered;
+
+  @override
+  final Substance substance;
 }
 
 /// An umbrella's canopy at depth 0: a dome over (400, 300), 80 wide, 30 tall,
@@ -96,7 +98,8 @@ void main() {
     (
       game,
     ) async {
-      final rain = Rain();
+      // Ten world minutes a second.
+      final rain = Rain(pace: 600);
       final open = _Wall();
       final covered = _Wall(sheltered: true);
       game.world.addAll([rain, open, covered]);
@@ -128,66 +131,77 @@ void main() {
   });
 
   testWithFlameGame(
-    'a steady rain holds things where wetting and drying meet',
+    'a drizzle fills a road slowly, a downpour at once',
     (game) async {
-      final wall = _Wall();
-      final rain = Rain(intensity: 0.3);
-      game.world.addAll([rain, wall]);
+      final road = _Wall();
+      // A world minute a second.
+      final rain = Rain(intensity: 0.3, pace: 60);
+      game.world.addAll([rain, road]);
       await game.ready();
-      await _rainFor(game, 120);
-      // wetRate 0.3 x 0.3 against dryRate 0.02: 0.09 / 0.11.
-      expect(wall.wetness, closeTo(0.09 / 0.11, 0.01), reason: 'a drizzle');
+      await _rainFor(game, 20);
+      // 1.8 mm an hour in, 0.5 soaking away, into the 1 mm asphalt holds:
+      // 1.3 mm an hour for 20 minutes.
+      expect(road.wetness, closeTo(1.3 / 3, 0.02), reason: 'a drizzle');
       rain.intensity = 2;
-      await _rainFor(game, 60);
-      expect(wall.wetness, closeTo(0.6 / 0.62, 0.01), reason: 'a downpour');
+      await _rainFor(game, 10);
+      expect(road.wetness, 1, reason: 'a downpour fills it and runs off');
     },
   );
 
   testWithFlameGame(
-    'after the rain things dry to nothing, as fast as the weather dries',
+    'after the rain things dry as fast as the air takes the water',
     (game) async {
-      final wall = _Wall()..wetness = 1;
-      final rain = Rain(intensity: 0);
-      game.world.addAll([rain, wall]);
+      // Glass: nothing soaks into it, only the air takes its water.
+      final pane = _Wall(substance: Substance.glass)..wetness = 1;
+      // An hour a second, dry air.
+      final rain = Rain(intensity: 0, humidity: 0.5, pace: 3600);
+      game.world.addAll([rain, pane]);
       await game.ready();
-      await _rainFor(game, 10);
-      expect(wall.wetness, closeTo(math.exp(-0.2), 0.01));
-      final before = wall.wetness;
-      rain.drying = 4;
-      await _rainFor(game, 10);
-      expect(wall.wetness, closeTo(before * math.exp(-0.8), 0.01));
-      rain.drying = 0;
-      final still = wall.wetness;
-      await _rainFor(game, 10);
-      expect(wall.wetness, closeTo(still, 1e-9), reason: 'no drying at all');
+      game.update(0);
+      final evaporation = Stage.maybeOf(
+        pane,
+      )!.frame.weather.evaporationMmPerHour;
+      final before = pane.waterMm;
+      // Half an hour, in fifteen steps.
+      for (var i = 0; i < 15; i++) {
+        game.update(1 / 30);
+      }
+      expect(pane.waterMm, closeTo(before - evaporation * 0.5, 1e-6));
+      rain.humidity = 1;
+      final still = pane.waterMm;
+      await _rainFor(game, 0.5);
+      expect(pane.waterMm, closeTo(still, 1e-9), reason: 'saturated air');
     },
   );
 
-  testWithFlameGame('a puddle dries slower than a wall', (game) async {
-    final wall = _Wall()
-      ..wetness = 1
-      ..dryRate = 0.05;
+  testWithFlameGame('a puddle dries slower than a road', (game) async {
+    final road = _Wall()..wetness = 1;
     final puddle = WaterSurface()..wetness = 1;
-    game.world.addAll([Rain(intensity: 0), wall, puddle]);
+    game.world.addAll([Rain(intensity: 0, pace: 3600), road, puddle]);
     await game.ready();
-    await _rainFor(game, 30);
-    expect(puddle.wetness, greaterThan(wall.wetness * 3));
+    await _rainFor(game, 2);
+    expect(road.wetness, 0, reason: 'its millimetre gone in two hours');
+    expect(puddle.wetness, greaterThan(0.8), reason: '20 mm in its hollow');
   });
 
-  test('water dries as long as it is deep', () {
-    final film = WaterSurface(waterDepth: 0.1, film: true);
-    final puddle = WaterSurface();
-    expect(film.dryRate, closeTo(0.02, 1e-9), reason: 'as the asphalt');
-    expect(puddle.dryRate, closeTo(film.dryRate / 10, 1e-9));
-    puddle.dryRate = 0.05;
-    expect(puddle.dryRate, 0.05, reason: 'set outright');
-  });
+  test(
+    'standing water holds what its hollow does, a film what its ground does',
+    () {
+      final film = WaterSurface(waterDepth: 0.1, film: true);
+      final puddle = WaterSurface();
+      expect(film.capacityMm, Substance.asphalt.holdsMm);
+      expect(film.rainShare, 1);
+      expect(puddle.capacityMm, 20);
+      expect(puddle.rainShare, 3, reason: 'it collects from round it');
+      expect(puddle.surface, Substance.water);
+    },
+  );
 
   test('a drop splashes only if it hits hard enough', () {
     // A 1 mm drop at its terminal ~4 m/s splashes; a 0.5 mm drizzle drop at
     // ~2 m/s only wets.
-    expect(Rain.impactNumber(1, 4), greaterThan(Rain.splashThreshold));
-    expect(Rain.impactNumber(0.5, 2), lessThan(Rain.splashThreshold));
+    expect(Rain.impactNumber(1, 4), greaterThan(Substance.asphalt.splashAbove));
+    expect(Rain.impactNumber(0.5, 2), lessThan(Substance.asphalt.splashAbove));
   });
 
   testWithFlameGame('a puddle shrinks on drier ground', (game) async {
@@ -216,7 +230,7 @@ void main() {
       height: 30,
     );
     expect(hit, isTrue);
-    expect(velocity.y, closeTo(-300 * RainBounce.restitution, 1e-6));
+    expect(velocity.y, closeTo(-300 * Substance.canvas.restitution, 1e-6));
     expect(to.y, lessThan(270.0), reason: 'put back above the surface');
     final miss = Vector2(600, 275);
     expect(

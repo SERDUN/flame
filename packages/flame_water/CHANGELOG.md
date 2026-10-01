@@ -12,3 +12,5 @@
 - `WaterSurface`: a stretch of water that mirrors the `Reflectable` part of the world about its water line, clipped to its shape, faded with depth and tinted, without rendering off screen.
 - `ReflectionPass`: tells a component it is being drawn as a reflection.
 - `RippleRings`: rings spreading from where drops hit, flattened for a side view.
+- `Wettable` holds water in mm: rain in, evaporation and soaking out, run-off past what its `Substance` holds; `Rain` is the stage's `Weather`.
+- A drop's bounce, splash and loudness come from what it meets (`RainCatcher.surface`, `RainDeflector.surface`).
