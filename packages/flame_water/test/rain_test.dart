@@ -316,4 +316,36 @@ void main() {
     expect(front, greaterThan(behind), reason: 'more, and bigger, in front');
     expect(behind + front, greaterThanOrEqualTo(all));
   });
+
+  testWithFlameGame(
+    'a veil far behind is drawn by the slice holding its depth',
+    (
+      game,
+    ) async {
+      game.camera.viewfinder.anchor = Anchor.topLeft;
+      final rain = Rain(intensity: 2)
+        ..drawsItself = false
+        ..veils = [-1];
+      await game.world.addAll([_Ground(), rain]);
+      await game.ready();
+      await _rainFor(game, 0.5);
+      Future<int> lit(Component slice) async {
+        final recorder = PictureRecorder();
+        slice.render(Canvas(recorder));
+        final image = await recorder.endRecording().toImage(800, 600);
+        final bytes = (await image.toByteData())!;
+        var n = 0;
+        for (var i = 3; i < bytes.lengthInBytes; i += 4) {
+          if (bytes.getUint8(i) > 0) {
+            n++;
+          }
+        }
+        return n;
+      }
+
+      // Nothing but the veil falls behind -0.5: the drops start at -0.25.
+      expect(await lit(RainSlice(rain, to: -0.5)), greaterThan(0));
+      expect(await lit(RainSlice(rain, from: -0.9, to: -0.5)), 0);
+    },
+  );
 }

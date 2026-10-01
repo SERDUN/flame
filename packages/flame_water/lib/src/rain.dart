@@ -100,6 +100,21 @@ class Rain extends Component with Reflectable {
   /// (a roof) catches and the ground never sees.
   double behind = -0.25;
 
+  /// Depths behind the street line where the rain is a veil rather than
+  /// drops: so much of it so far off that each drop is a fine faint streak
+  /// and the air turns pale. Drawn from a formula, not simulated - each streak
+  /// falls on its own phase and wraps round the view - as big, as fast and as
+  /// far across as its depth on the world's `Ground` makes it, slanted by the
+  /// wind, with the haze that much rain lays over what is behind it; at the
+  /// nearest veil, in heavy rain, the spray the drops kick up along the
+  /// ground. Each is drawn by the [RainSlice] whose depths hold it.
+  List<double> veils = const [];
+
+  /// Streaks of a veil per metre of the view at a depth as big as the street
+  /// line, at intensity 1; a farther veil holds more of them (they cover more
+  /// air) and shows each smaller.
+  double veilDensity = 17.5;
+
   /// The nearest depth rain falls at: 1 down to the nearest ground in view.
   /// With [behind] 0 and this 0 all of it falls on the street line - flat
   /// rain, for a scene looking at one thing up close.
@@ -224,9 +239,37 @@ class Rain extends Component with Reflectable {
     );
   }
 
+  // A veil's streaks: where across the view, how far down their fall, how
+  // fast against the others - fixed once, for every veil.
+  static const int _veilMax = 1600;
+  late final Float64List _veilX = _spread();
+  late final Float64List _veilPhase = _spread();
+  late final Float64List _veilSpeed = Float64List.fromList([
+    for (var i = 0; i < _veilMax; i++) 0.8 + 0.4 * _random.nextDouble(),
+  ]);
+  Float64List _spread() => Float64List.fromList([
+    for (var i = 0; i < _veilMax; i++) _random.nextDouble(),
+  ]);
+  double _veilTime = 0;
+  double _veilSlope = 0;
+  Float32List _veilLines = Float32List(0);
+  final Paint _veilStreak = Paint();
+  final Paint _veilHaze = Paint();
+  final Paint _veilSpray = Paint();
+
   @override
   void update(double dt) {
     super.update(dt);
+    _veilTime += dt;
+    // The veil's slant eases after the wind, so a gust sweeps through it
+    // rather than snapping it.
+    final seen = _lastView;
+    if (seen != null) {
+      final fall = RainDrops.terminalSpeed(2);
+      final windX = _windX(Vector2(seen.center.dx, seen.center.dy));
+      final target = (windX / fall).clamp(-3.0, 3.0);
+      _veilSlope += (target - _veilSlope) * (1 - math.exp(-dt / 0.4));
+    }
     final frame = _frame();
     if (frame == null) {
       return;
@@ -478,6 +521,82 @@ class Rain extends Component with Reflectable {
   Int32List _colors = Int32List(0);
   final Paint _paint = Paint();
 
+  /// The veil at [depth]: haze, streaks, and at the nearest veil the spray.
+  void _renderVeil(Canvas canvas, double depth) {
+    final view = _lastView;
+    final ground = Ground.of(this);
+    final rain = intensity.clamp(0.0, 2.5);
+    if (view == null || ground == null || rain <= 0.01) {
+      return;
+    }
+    final scale = ground.scaleAt(depth);
+    // The rain between the eye and what is behind the veil pales it: the
+    // more, the harder it rains and the farther off.
+    final haze = (0.15 * rain * (1 - scale)).clamp(0.0, 0.3);
+    _veilHaze.color = color.withValues(alpha: color.a * haze);
+    canvas.drawRect(view.inflate(metre), _veilHaze);
+
+    final count = math.min(
+      _veilMax,
+      (veilDensity * view.width / metre / scale * rain).round(),
+    );
+    if (_veilLines.length < count * 4) {
+      _veilLines = Float32List(count * 4);
+    }
+    final height = view.height;
+    final slope = _veilSlope;
+    final width = view.width + height * slope.abs();
+    // How far the veil has moved against the view, as anything at its depth
+    // does (parallax).
+    final shift = view.center.dx * (1 - scale);
+    final fallSpeed = RainDrops.terminalSpeed(2) * metre * scale;
+    final length = 0.34 * scale * metre;
+    var n = 0;
+    for (var i = 0; i < count; i++) {
+      // Each veil its own streaks: offset by the depth.
+      final k = (i + (depth * 997).round()) % _veilMax;
+      final fallen =
+          (_veilPhase[k] + _veilTime * fallSpeed * _veilSpeed[k] / height) %
+          1.0;
+      final y = view.top + fallen * height;
+      final along = _veilX[k] * width - shift + (y - view.top) * slope;
+      final x =
+          view.left -
+          (slope > 0 ? height * slope : 0) +
+          (along % width + width) % width;
+      _veilLines
+        ..[n++] = x
+        ..[n++] = y
+        ..[n++] = x - slope * length
+        ..[n++] = y - length;
+    }
+    _veilStreak
+      ..color = color.withValues(alpha: color.a * 0.4 * math.sqrt(scale))
+      ..strokeWidth = 0.018 * scale * metre;
+    canvas.drawRawPoints(
+      PointMode.lines,
+      Float32List.sublistView(_veilLines, 0, n),
+      _veilStreak,
+    );
+
+    // Heavy rain bursting on the ground throws up a low mist along it.
+    if (depth == veils.reduce(math.max)) {
+      final spray = (0.35 * (rain - 0.8)).clamp(0.0, 0.35);
+      if (spray > 0) {
+        final line = ground.yAt(0);
+        final top = line - 0.7 * metre;
+        _veilSpray.shader = Gradient.linear(Offset(0, line), Offset(0, top), [
+          color.withValues(alpha: color.a * spray),
+          color.withValues(alpha: 0),
+        ]);
+        canvas.drawRect(
+          Rect.fromLTRB(view.left - metre, top, view.right + metre, line),
+          _veilSpray,
+        );
+      }
+    }
+  }
+
   /// Whether it draws itself; off when [RainSlice]s draw it by depth, each
   /// in its own place among the components.
   bool drawsItself = true;
@@ -497,6 +616,14 @@ class Rain extends Component with Reflectable {
     double to = double.infinity,
   }) {
     final mirror = ReflectionPass.current;
+    if (mirror == null) {
+      // A veil is far behind; water does not need it.
+      for (final depth in veils) {
+        if (depth >= from && depth < to) {
+          _renderVeil(canvas, depth);
+        }
+      }
+    }
     // In water, only what stands across from it.
     final area = ReflectionPass.area;
     final left = area?.left ?? double.negativeInfinity;

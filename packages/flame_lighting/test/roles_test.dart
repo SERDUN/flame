@@ -64,6 +64,8 @@ void _projectionTests() {
       );
       expect(road.projectX(500, 0, 400), 500);
       expect(road.sinElevation(1), greaterThan(road.sinElevation(0)));
+      expect(road.scaleAt(road.depthOfScale(0.35)), closeTo(0.35, 1e-9));
+      expect(road.depthOfScale(1), 0);
     },
   );
 }
