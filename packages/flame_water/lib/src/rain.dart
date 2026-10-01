@@ -140,14 +140,21 @@ class Rain extends Component with OnStage, Reflectable, Weather {
   double _heardSeconds = 0;
   StreetProjection? _heardFrom;
 
-  void _heard(int i, Substance on, double x, double y, double speed) {
+  void _heard(
+    int i,
+    Substance on,
+    double x,
+    double y,
+    double speed, {
+    double? atDepth,
+  }) {
     final listener = this.listener;
     double r2;
     if (listener == null) {
       final p = _drops.perspective(i);
       r2 = 1 / (p * p);
     } else {
-      final ahead = _heardFrom?.ahead(_drops.depth(i)) ?? 0;
+      final ahead = _heardFrom?.ahead(atDepth ?? _drops.depth(i)) ?? 0;
       final dx = x - listener.x;
       final dy = y - listener.y;
       final dz = ahead - listener.z;
@@ -589,7 +596,14 @@ class Rain extends Component with OnStage, Reflectable, Weather {
           _bounces++;
           _bounceSpeed += speed;
           _bounceLoudness += deflector.surface.loudness;
-          _heard(i, deflector.surface, _from.x, _from.y, speed);
+          _heard(
+            i,
+            deflector.surface,
+            _from.x,
+            _from.y,
+            speed,
+            atDepth: deflector.standsAtDepth,
+          );
         }
         return true;
       }

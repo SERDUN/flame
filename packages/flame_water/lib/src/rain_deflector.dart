@@ -23,6 +23,11 @@ mixin RainDeflector on OnStage {
   /// ([RainBounce.offDome] with its restitution and slip) and how loud rain
   /// is on it.
   Substance get surface => Substance.canvas;
+
+  /// The depth it stands at, where a drop it turns is heard from
+  /// (`Rain.takeImpacts`): a thin thing meets the drops of a slab of depths
+  /// round it, but they strike it where it is. `null`: where the drop is.
+  double? get standsAtDepth => null;
 }
 
 /// How a drop bounces off a curved surface.

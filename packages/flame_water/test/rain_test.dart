@@ -42,9 +42,12 @@ class _Wall extends Component with Wettable {
 /// An umbrella's canopy at depth 0: a dome over (400, 300), 80 wide, 30 tall,
 /// meeting only the drops falling within [thickness] of the street line.
 class _Canopy extends Component with OnStage, RainDeflector {
-  _Canopy({this.thickness = 0.1});
+  _Canopy({this.thickness = 0.1, this.standsAtDepth});
 
   final double thickness;
+
+  @override
+  final double? standsAtDepth;
 
   @override
   bool deflect(Vector2 from, Vector2 to, Vector2 velocity, double depth) =>
@@ -345,6 +348,31 @@ void main() {
     expect(on, contains(Substance.canvas), reason: "RainDeflector's default");
     expect(on, contains(Substance.asphalt));
   });
+
+  testWithFlameGame(
+    'a canopy is heard from the depth it stands at, not the slab it turns',
+    (game) async {
+      Future<double> canopy(double? standsAt) async {
+        game.camera.viewfinder.anchor = Anchor.topLeft;
+        final rain = Rain(intensity: 2)..listener = Vector3(400, 320, 0);
+        game.world.addAll([
+          _Ground(),
+          _Canopy(thickness: 0.3, standsAtDepth: standsAt),
+          rain,
+        ]);
+        await game.ready();
+        await _rainFor(game, 4);
+        final heard = rain.takeImpacts().on;
+        game.world.removeAll(game.world.children.toList());
+        await game.ready();
+        return heard
+            .where((s) => s.on == Substance.canvas)
+            .fold<double>(0, (e, s) => e + s.energy);
+      }
+
+      expect(await canopy(0), greaterThan(await canopy(null)));
+    },
+  );
 
   testWithFlameGame('no canopy depth, no bounce', (game) async {
     game.camera.viewfinder.anchor = Anchor.topLeft;
