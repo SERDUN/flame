@@ -3,6 +3,7 @@ import 'dart:ui';
 
 import 'package:flame/components.dart';
 import 'package:flame_lighting/src/glossy.dart';
+import 'package:flame_lighting/src/light_buffer.dart';
 import 'package:flame_lighting/src/light_reflector.dart';
 import 'package:flame_lighting/src/light_shader.dart';
 import 'package:flame_lighting/src/light_source.dart';
@@ -26,13 +27,20 @@ import 'package:flame_stage/flame_stage.dart';
 /// sheen. Surfaces that mirror ([LightReflector]) draw the lights in them
 /// last, over the night.
 ///
+/// Where flutter_gpu is on, every light is added up once a frame into a
+/// float image of the view ([LightBuffer]) before anything draws, and the
+/// night, the light cast and every sheen are each one draw of it; elsewhere
+/// (the web, tests) each light is drawn on the canvas.
+///
 /// By day with no light on, it draws nothing at all.
-class Lighting extends Component with OnStage, Ambience {
+class Lighting extends Component with OnStage, Ambience, FrameStep {
   Lighting({
     this.ambient = const Color(0xFF060A16),
     this.darkness = 0.65,
     this.glow = 0.35,
     this.haze = 0.4,
+    this.useBuffer = true,
+    this.bufferScale = 0.5,
     super.priority = 1000,
   });
 
@@ -47,6 +55,102 @@ class Lighting extends Component with OnStage, Ambience {
 
   @override
   double haze;
+
+  /// Whether to add the lights up on the GPU where it can ([LightBuffer]).
+  /// Off, every light is drawn on the canvas.
+  bool useBuffer;
+
+  /// How fine the light buffer is against the screen, each way: light
+  /// changes slowly across the view, and half the pixels is plenty.
+  double bufferScale;
+
+  LightBuffer? _buffer;
+  bool _bufferAsked = false;
+  Image? _lightImage;
+  Rect _lightArea = Rect.zero;
+
+  @override
+  void onMount() {
+    super.onMount();
+    if (_bufferAsked || !useBuffer || LightBuffer.available == false) {
+      return;
+    }
+    _bufferAsked = true;
+    LightBuffer.create().then((buffer) {
+      if (isRemoved || isRemoving) {
+        buffer?.dispose();
+        return;
+      }
+      _buffer = buffer;
+    });
+  }
+
+  @override
+  void onRemove() {
+    _buffer?.dispose();
+    _buffer = null;
+    _bufferAsked = false;
+    _lightImage = null;
+    super.onRemove();
+  }
+
+  /// Adds the frame's lights up into the buffer, before anything draws,
+  /// so a wet wall drawn before the night reads this frame's light.
+  @override
+  void prepareFrame(Canvas canvas, StageFrame frame) {
+    _lightImage = null;
+    final buffer = _buffer;
+    if (buffer == null || !useBuffer || LightShader.compose == null) {
+      return;
+    }
+    if (!frame.light.isLit || frame.light.count == 0) {
+      return;
+    }
+    final view = frame.view.inflate(frame.view.width * 0.01);
+    final m = canvas.getTransform();
+    final pixels = math.sqrt(m[0] * m[0] + m[1] * m[1]) * bufferScale;
+    _lightArea = view;
+    _lightImage = buffer.render(
+      frame,
+      view,
+      (view.width * pixels).ceil(),
+      (view.height * pixels).ceil(),
+    );
+  }
+
+  final Paint _compose = Paint();
+  final Paint _composeAdd = Paint()..blendMode = BlendMode.plus;
+
+  /// Lays the light buffer over [area] with [paint]: the night at [dark]
+  /// (mode 0), or the light cast at [amount] (mode 1).
+  void _drawBuffer(
+    Canvas canvas,
+    Rect area,
+    Paint paint, {
+    required int mode,
+    double dark = 0,
+    double amount = 0,
+  }) {
+    final shader = LightShader.compose!;
+    final image = _lightImage!;
+    final a = _lightArea;
+    shader
+      ..setFloat(0, a.left)
+      ..setFloat(1, a.top)
+      ..setFloat(2, a.width)
+      ..setFloat(3, a.height)
+      ..setFloat(4, ambient.r)
+      ..setFloat(5, ambient.g)
+      ..setFloat(6, ambient.b)
+      ..setFloat(7, dark)
+      ..setFloat(8, mode.toDouble())
+      ..setFloat(9, amount)
+      ..setFloat(10, 0)
+      ..setFloat(11, 0)
+      ..setImageSampler(0, image, filterQuality: FilterQuality.low);
+    canvas.drawRect(area, paint..shader = shader);
+    paint.shader = null;
+  }
 
   /// The lighting of the world [component] is in, if it has one.
   static Lighting? of(Component component) =>
@@ -78,6 +182,25 @@ class Lighting extends Component with OnStage, Ambience {
     }
     final dark = field.darkness * (1 - lift.clamp(0.0, 1.0));
 
+    if (_lightImage != null) {
+      if (dark > 0) {
+        _drawBuffer(canvas, view, _compose, mode: 0, dark: dark);
+      }
+      if (field.glow > 0) {
+        _drawBuffer(canvas, view, _composeAdd, mode: 1, amount: field.glow);
+      }
+    } else {
+      _castAll(canvas, frame, view, dark);
+    }
+    for (final mirror in stage!.members<LightReflector>()) {
+      mirror.renderReflectedLights(canvas, frame);
+    }
+  }
+
+  /// The canvas path: every light cut out of the night layer, and its light
+  /// cast added, one draw a light and plane.
+  void _castAll(Canvas canvas, StageFrame frame, Rect view, double dark) {
+    final field = frame.light;
     if (dark > 0) {
       canvas
         ..saveLayer(view, _layer)
@@ -97,9 +220,6 @@ class Lighting extends Component with OnStage, Ambience {
           _cast(canvas, frame, i, _add, field.glow);
         }
       }
-    }
-    for (final mirror in stage!.members<LightReflector>()) {
-      mirror.renderReflectedLights(canvas, frame);
     }
   }
 
@@ -258,9 +378,13 @@ class Lighting extends Component with OnStage, Ambience {
     canvas
       ..save()
       ..clipPath(area);
-    for (var i = 0; i < field.count; i++) {
-      if (field.shapeOf(i) != LightShape.directional) {
-        _cast(canvas, frame, i, _sheen, gloss * 0.45, clip: bounds);
+    if (_lightImage != null) {
+      _drawBuffer(canvas, bounds, _sheen, mode: 1, amount: gloss * 0.45);
+    } else {
+      for (var i = 0; i < field.count; i++) {
+        if (field.shapeOf(i) != LightShape.directional) {
+          _cast(canvas, frame, i, _sheen, gloss * 0.45, clip: bounds);
+        }
       }
     }
     final every = math.max(wet.rivuletSpacing, 1e-3);

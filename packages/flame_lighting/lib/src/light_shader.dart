@@ -40,7 +40,10 @@ abstract final class LightShader {
   /// Forgets the program, so lights are drawn as before it was loaded: for
   /// tests of that path.
   @visibleForTesting
-  static void reset() => _program = null;
+  static void reset() {
+    _program = null;
+    _compose = null;
+  }
 
   /// Loads the program from [directory], the key the app bundles it under;
   /// the package's own tests, where it is the app, pass `shaders`.
@@ -48,6 +51,20 @@ abstract final class LightShader {
     String directory = 'packages/flame_lighting/shaders',
   }) async {
     _program ??= await FragmentProgram.fromAsset('$directory/light.frag');
+    _compose ??= await FragmentProgram.fromAsset(
+      '$directory/light_compose.frag',
+    );
+  }
+
+  static FragmentProgram? _compose;
+
+  /// The shader the light buffer is laid over the scene with
+  /// (`shaders/light_compose.frag`); `null` before [load] finishes.
+  static FragmentShader? get compose {
+    final program = _compose;
+    return program == null
+        ? null
+        : _shaders[program] ??= program.fragmentShader();
   }
 
   /// Capsules the shader takes.
@@ -68,7 +85,6 @@ abstract final class LightShader {
   static const int projectionEye = projectionTop + 4;
   static const int planeMode = projectionTop + 5;
   static const int drawAmount = projectionTop + 6;
-  static const int falloffMode = projectionTop + 7;
   static const int shadowCount = projectionTop + 8;
 
   static final Float32List _floats = Float32List(vectors * 4);
@@ -97,8 +113,7 @@ abstract final class LightShader {
     }
     f
       ..[planeMode] = plane == LightPlane.ground ? 1 : 0
-      ..[drawAmount] = amount
-      ..[falloffMode] = field.isPhysicalOf(i) ? 1 : 0;
+      ..[drawAmount] = amount;
     if (shadows != null) {
       final n = shadows.count < maxShadows ? shadows.count : maxShadows;
       f

@@ -6,6 +6,7 @@
 library;
 
 export 'src/glossy.dart' show Glossy;
+export 'src/light_buffer.dart' show LightBuffer;
 export 'src/light_reflector.dart' show LightReflector;
 export 'src/light_shader.dart' show LightPlane, LightShader;
 export 'src/light_source.dart' show LightSource;

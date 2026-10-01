@@ -5,3 +5,4 @@
 - `Glossy`: a wet surface the lights glint off, with damp trails where light falls.
 - `LightReflector`: a surface (water, a wet road) that mirrors the frame's lights over the night.
 - `LightShader`: the one shader every light is drawn with.
+- `LightBuffer`: where flutter_gpu is on, every light added up once a frame into a float image; the night, the light cast and every sheen are one draw each of it.
