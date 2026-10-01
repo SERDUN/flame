@@ -43,3 +43,27 @@ abstract class WaveField {
 
   void dispose();
 }
+
+/// Keeps [keep] of the drops waiting in [drops] (u, v, radius, depth each),
+/// spread evenly over them, each taking on the depth of those left out
+/// beside it: as much rain strikes the surface, in fewer places.
+void thinDrops(List<double> drops, int keep) {
+  final count = drops.length ~/ 4;
+  if (count <= keep) {
+    return;
+  }
+  if (keep <= 0) {
+    drops.clear();
+    return;
+  }
+  final weight = count / keep;
+  for (var i = 0; i < keep; i++) {
+    final from = (i * weight).floor() * 4;
+    drops
+      ..[i * 4] = drops[from]
+      ..[i * 4 + 1] = drops[from + 1]
+      ..[i * 4 + 2] = drops[from + 2]
+      ..[i * 4 + 3] = drops[from + 3] * weight;
+  }
+  drops.removeRange(keep * 4, drops.length);
+}
