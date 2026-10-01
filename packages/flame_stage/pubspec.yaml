@@ -1,0 +1,23 @@
+name: flame_stage
+resolution: workspace
+description: The stage a 2.5D side-view Flame scene plays on - its depth projection, who is on it, what a frame of it holds, and the light that falls on it.
+version: 0.1.0
+publish_to: none
+homepage: https://github.com/SERDUN/flame/tree/serdun/packages/flame_stage
+topics:
+  - flame
+
+environment:
+  sdk: ">=3.12.0 <4.0.0"
+  flutter: ">=3.44.0"
+
+dependencies:
+  flame: ^2.0.0-dev.0
+  flutter:
+    sdk: flutter
+
+dev_dependencies:
+  flame_lint: ^1.4.4-dev.0
+  flame_test: ^3.0.0-dev.0
+  flutter_test:
+    sdk: flutter
