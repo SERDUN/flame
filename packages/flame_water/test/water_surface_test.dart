@@ -6,7 +6,10 @@ import 'package:flame_water/flame_water.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 class _Block extends RectangleComponent with Reflectable {
-  _Block({super.position, super.size, super.paint});
+  _Block({super.position, super.size, super.paint, this.reflectionBase});
+
+  @override
+  final double? reflectionBase;
 }
 
 const _red = Color(0xFFFF0000);
@@ -35,7 +38,6 @@ WaterSurface _surface({double squash = 1}) => WaterSurface(
   size: Vector2(100, 40),
   shape: WaterShape.rect,
   color: _water,
-  reflectivity: 1,
   squash: squash,
   fade: 0,
 );
@@ -65,6 +67,29 @@ void main() {
       expect(pixel(50, 130), _water, reason: 'nothing reflected past 20');
       expect(pixel(10, 110), _water, reason: 'not reflectable');
       expect(pixel(80, 110), _water);
+    },
+  );
+
+  testWithFlameGame(
+    'something standing nearer is mirrored about where it stands',
+    (game) async {
+      final surface = _surface();
+      await game.world.addAll([
+        // 10 tall, standing on y 105 - below the water line at 100, as
+        // something nearer the eye stands lower in the view.
+        _Block(
+          position: Vector2(40, 85),
+          size: Vector2(20, 10),
+          paint: Paint()..color = _red,
+          reflectionBase: 105,
+        ),
+        surface,
+      ]);
+      await game.ready();
+      final pixel = await _draw(surface);
+      // Its bottom 10 above its base mirrors to 10 below it: 115..125.
+      expect(pixel(50, 120), _red, reason: 'mirrored about its own base');
+      expect(pixel(50, 108), _water, reason: 'not about the water line');
     },
   );
 
@@ -107,6 +132,33 @@ void main() {
     expect(surface.covers(Vector2(50, 90)), isFalse);
     surface.splash(Vector2(50, 120));
     expect(surface.ripples.count, 1);
+  });
+
+  testWithFlameGame('a puddle fades out towards its rim, no hard line', (
+    game,
+  ) async {
+    final surface = WaterSurface(
+      position: Vector2(0, 100),
+      size: Vector2(100, 40),
+      color: _water,
+      fade: 0,
+      edgeSoftness: 0.5,
+    );
+    await game.world.addAll([
+      _Block(
+        position: Vector2(0, 40),
+        size: Vector2(100, 60),
+        paint: Paint()..color = _red,
+      ),
+      surface,
+    ]);
+    await game.ready();
+    final pixel = await _draw(surface);
+    final middle = pixel(50, 120).r;
+    final nearRim = pixel(8, 120).r;
+    expect(middle, greaterThan(0.9));
+    expect(nearRim, inExclusiveRange(0.02, middle), reason: 'thinning out');
+    expect(pixel(1, 101).a, lessThan(0.05), reason: 'nothing past the rim');
   });
 }
 

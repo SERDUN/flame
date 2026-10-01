@@ -2,6 +2,7 @@ import 'dart:math' as math;
 import 'dart:ui';
 
 import 'package:flame/components.dart';
+import 'package:flame_lighting/flame_lighting.dart';
 import 'package:flame_water/flame_water.dart';
 
 /// The line the street stands on, in the samples' 800x450 world.
@@ -21,11 +22,92 @@ class Sky extends PositionComponent with Reflectable {
   void render(Canvas canvas) => canvas.drawRect(size.toRect(), _paint);
 }
 
-/// A row of house fronts against the sky, with a few lit windows.
-class Houses extends PositionComponent with Reflectable {
-  Houses() : super(position: Vector2(0, 170), size: Vector2(800, 160));
+/// A row of house fronts against the sky, with a few lit windows. With
+/// `lit` each lit window gives a little warm light, one of them flickering.
+///
+/// What the rain does to them is theirs: they get wet ([Wettable]), and as
+/// wet as they are they darken and the lamps glint off their fronts
+/// ([Glossy], [WetSheen]); rain behind the street line breaks on their
+/// roofs and window sills ([RainCatcher]).
+class Houses extends PositionComponent
+    with Reflectable, Glossy, Wettable, WetSheen, RainCatcher {
+  Houses({bool lit = false})
+    : super(position: Vector2(0, 170), size: Vector2(800, 160)) {
+    // The scene opens in the rain: the houses are wet already. Upright,
+    // they shed their water fast once the rain stops.
+    wetness = 1;
+    dryRate = 0.05;
+    // Brick and plaster: they soak water up and darken.
+    porosity = 0.6;
+    if (!lit) {
+      return;
+    }
+    const w = 800 / 7;
+    for (var i = 0; i < _heights.length; i++) {
+      for (var j = 0; j < 3; j++) {
+        if ((i + j).isEven) {
+          add(
+            LightSource(
+              position: Vector2(i * w + 25 + j * 28, size.y - _heights[i] + 31),
+              radius: 46,
+              intensity: 0.55,
+              color: const Color(0xFFFFC870),
+              flicker: i == 3 && j == 1 ? 0.6 : 0,
+              sourceRadius: 2.5,
+              seed: i * 3 + j,
+            ),
+          );
+        }
+      }
+    }
+  }
 
   static const _heights = [120.0, 150.0, 100.0, 140.0, 110.0, 160.0, 125.0];
+  static const double _w = 800 / 7;
+
+  // They stand on the street line: rain in front of it passes them by.
+  @override
+  double get frontDepth => 0;
+
+  @override
+  Path glossArea() {
+    final origin = absoluteTopLeftPosition;
+    final path = Path();
+    for (var i = 0; i < _heights.length; i++) {
+      final h = _heights[i];
+      path.addRect(
+        Rect.fromLTWH(origin.x + i * _w + 4, origin.y + size.y - h, _w - 8, h),
+      );
+    }
+    return path;
+  }
+
+  /// Where rain breaks on the houses, world coordinates: every roof, and the
+  /// sill under every lit window - as (left, right, y).
+  Iterable<(double, double, double)> _ledges() sync* {
+    final origin = absoluteTopLeftPosition;
+    for (var i = 0; i < _heights.length; i++) {
+      final top = origin.y + size.y - _heights[i];
+      yield (origin.x + i * _w + 4, origin.x + (i + 1) * _w - 4, top);
+      for (var j = 0; j < 3; j++) {
+        if ((i + j).isEven) {
+          final left = origin.x + i * _w + 16 + j * 28;
+          yield (left, left + 18, top + 41);
+        }
+      }
+    }
+  }
+
+  @override
+  double? catchDrop(double x, double fromY, double toY, double depth) {
+    for (final (left, right, y) in _ledges()) {
+      if (x >= left && x <= right && fromY < y && toY >= y) {
+        return y;
+      }
+    }
+    return null;
+  }
+
   final Paint _wall = Paint()..color = const Color(0xFF1C2230);
   final Paint _window = Paint()..color = const Color(0xFFE8C77A);
 
@@ -49,42 +131,66 @@ class Houses extends PositionComponent with Reflectable {
 }
 
 /// A street lamp: a post and a warm bulb. In a reflection the bulb blurs into
-/// a glow, as a light does in water.
+/// a glow, as a light does in water. With `lit` it holds its lights: a cone
+/// down onto the street and a small halo round the bulb.
 class Lamp extends PositionComponent with Reflectable {
-  Lamp({required double x})
+  Lamp({required double x, bool lit = false})
     : super(
         position: Vector2(x, groundLine),
         anchor: Anchor.bottomCenter,
         size: Vector2(20, 150),
+        children: [
+          if (lit) ...[
+            // A street lamp lights the street for some metres round.
+            LightSource(
+              position: Vector2(10, 16),
+              radius: 420,
+              coneAngle: 1.9,
+              intensity: 0.95,
+              sourceRadius: 5,
+            ),
+            // The bulb's own glow; the air's halo round it is the cone's.
+            LightSource(
+              position: Vector2(10, 16),
+              radius: 36,
+              intensity: 0.9,
+              sourceRadius: 0,
+            ),
+          ],
+        ],
       );
 
   final Paint _post = Paint()..color = const Color(0xFF0E1118);
   final Paint _bulb = Paint()..color = const Color(0xFFFFE3A0);
-  final Paint _glow = Paint()
-    ..color = const Color(0x88FFD27A)
-    ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8);
 
   @override
   void render(Canvas canvas) {
     canvas
       ..drawRect(Rect.fromLTWH(8, 12, 4, size.y - 12), _post)
       ..drawRect(const Rect.fromLTWH(0, 6, 20, 8), _post);
-    final bulb = Offset(size.x / 2, 16);
-    if (ReflectionPass.isActive) {
-      canvas.drawCircle(bulb, 10, _glow);
-    }
-    canvas.drawCircle(bulb, 5, _bulb);
+    canvas.drawCircle(Offset(size.x / 2, 16), 5, _bulb);
   }
 }
 
 /// A walker under an umbrella, going back and forth along the street.
-class Walker extends PositionComponent with Reflectable {
-  Walker({this.speed = 60})
+///
+/// With `lit` the walker carries a torch: a narrow cool beam from the hand,
+/// forward and a little down onto the road, turning round with the walker.
+class Walker extends PositionComponent with Reflectable, Facing {
+  Walker({this.speed = 60, bool lit = false})
     : super(
         position: Vector2(120, groundLine),
         anchor: Anchor.bottomCenter,
         size: Vector2(40, 90),
-      );
+      ) {
+    if (lit) {
+      // By the hip, in the leading hand; it turns with the walker itself.
+      add(Torch(hold: Vector2(28, 50)));
+    }
+  }
+
+  @override
+  double get facing => _direction;
 
   final double speed;
   double _direction = 1;
@@ -123,43 +229,52 @@ class Walker extends PositionComponent with Reflectable {
   }
 }
 
-/// The road from the ground line down: dark asphalt, not a mirror itself.
-class Road extends PositionComponent {
+/// The road from the ground line down: dark asphalt, not a mirror itself -
+/// the ground ([Ground]) lights lay pools on and rain lands on.
+class Road extends PositionComponent with Ground {
   Road() : super(position: Vector2(0, groundLine), size: Vector2(800, 120));
 
   final Paint _paint = Paint()..color = const Color(0xFF191C22);
+
+  @override
+  Rect groundBand() => toAbsoluteRect();
 
   @override
   void render(Canvas canvas) => canvas.drawRect(size.toRect(), _paint);
 }
 
 /// The street without its water: sky, houses, a lamp, the walker, the road.
-List<Component> street() => [
+/// With [lit] the lamps and windows give light.
+List<Component> street({bool lit = false}) => [
   Sky(),
-  Houses(),
-  Lamp(x: 560),
-  Lamp(x: 220),
+  Houses(lit: lit),
+  Lamp(x: 560, lit: lit),
+  Lamp(x: 220, lit: lit),
   Road(),
-  Walker(),
+  Walker(lit: lit),
 ];
 
-/// A film of water over the whole road: a faint, squeezed mirror.
-/// Drops on the road make small, short rings in its film of water, bending
-/// its faint mirror as a puddle's rings bend its clear one.
-WaterSurface wetRoad({double reflectivity = 0.14}) => WaterSurface(
+/// A film of water over the whole road: water like a puddle's, mirroring as
+/// much, only lying rough on the asphalt - so everything it mirrors, the
+/// street and the lamps alike, runs down it into a smear, and the rain keeps
+/// it astir.
+WaterSurface wetRoad({double reflectivity = 0.85}) => WaterSurface(
   position: Vector2(0, groundLine),
   size: Vector2(800, 120),
   shape: WaterShape.rect,
-  waterLine: groundLine,
   color: const Color(0x00000000),
   reflectivity: reflectivity,
-  squash: 0.6,
   fade: 0.9,
   tint: const Color(0x2219202A),
-  ripples: RippleRings(capacity: 64, lifeSec: 0.45, maxRadius: 10),
-  rippleColor: const Color(0x22FFFFFF),
-  waveAmplitude: 2.5,
-);
+  // A film of water: drops break on it into small quick rings.
+  depth: 0.1,
+  rippleColor: const Color(0xCCFFFFFF),
+  // Rough asphalt under the water: everything it mirrors runs down it.
+  streak: 45,
+  // A film: it comes and goes with the rain; the rain keeps it astir.
+  film: true,
+  chopPerRain: 4,
+)..porosity = 0.4;
 
 /// A puddle lying on the road in front of the walker: its water line is the
 /// line the street stands on, so feet meet their reflection. It shows the same
@@ -171,35 +286,18 @@ WaterSurface puddle({
   required double width,
   double top = 345,
   double height = 34,
-  double reflectivity = 0.75,
-  double squash = 0.6,
+  double reflectivity = 1,
   double fade = 0.7,
 }) => WaterSurface(
   position: Vector2(left, top),
   size: Vector2(width, height),
-  waterLine: groundLine,
   color: const Color(0x66151A22),
   reflectivity: reflectivity,
-  squash: squash,
   fade: fade,
   tint: const Color(0x2230405A),
-  rippleColor: const Color(0x55FFFFFF),
-  waveAmplitude: 5,
+  // Water to spare (depth 1, the default): drops set off wide slow rings.
+  rippleColor: const Color(0x66FFFFFF),
+  // Still water: nearly a clear mirror.
+  streak: 6,
+  chopPerRain: 1.2,
 );
-
-/// Where a drop lands: in the first puddle that covers the spot, else on the
-/// wet [road], where it makes a weaker ring.
-void landOn(
-  List<WaterSurface> puddles,
-  WaterSurface? road,
-  Vector2 at,
-  double strength,
-) {
-  for (final p in puddles) {
-    if (p.covers(at)) {
-      p.splash(at, strength: strength);
-      return;
-    }
-  }
-  road?.splash(at, strength: strength * 0.7);
-}

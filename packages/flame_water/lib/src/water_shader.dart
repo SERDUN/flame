@@ -7,7 +7,7 @@ abstract final class WaterShader {
   static FragmentProgram? _program;
 
   /// Rings one surface bends its reflection with at a time: the newest ones.
-  static const int maxRings = 16;
+  static const int maxRings = 32;
 
   /// The loaded program; `null` before [load] finishes.
   static FragmentProgram? get program => _program;

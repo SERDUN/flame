@@ -8,7 +8,13 @@ import 'package:flame_water/src/water_surface.dart';
 /// characters, the lights - not the HUD, not debug overlays, not the water
 /// itself. A component can still tell it is being drawn as a reflection
 /// through [ReflectionPass.isActive], and draw itself more simply there.
-mixin Reflectable on Component {}
+mixin Reflectable on Component {
+  /// World y of the line where it meets the ground, if not the water's
+  /// line: seen from the side, something standing nearer the eye stands
+  /// lower in the view, and water mirrors it about where it stands. `null`:
+  /// it stands on the line the water mirrors about.
+  double? get reflectionBase => null;
+}
 
 /// The reflection being drawn right now, if any.
 ///
