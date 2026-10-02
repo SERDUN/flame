@@ -68,7 +68,7 @@ abstract final class LightShader {
   }
 
   /// Capsules the shader takes.
-  static const int maxShadows = 8;
+  static const int maxShadows = 24;
 
   /// Where the capsules start, in vec4s; two vec4 each.
   static const int capsules = 8;

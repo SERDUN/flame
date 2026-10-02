@@ -17,7 +17,7 @@
 precision highp float;
 
 const int kMaxLights = 16;
-const int kMaxShadows = 8;
+const int kMaxShadows = 24;
 
 const float kCone = 1.0;
 const float kArea = 2.0;

@@ -20,7 +20,7 @@ precision highp float;
 
 #include <flutter/runtime_effect.glsl>
 
-const int kShadows = 8;
+const int kShadows = 24;
 const int kCapsules = 8;
 
 uniform vec4 u[kCapsules + kShadows * 2];

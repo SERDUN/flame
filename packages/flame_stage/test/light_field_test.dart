@@ -220,4 +220,20 @@ void main() {
     // A distant bulb: next to nothing.
     expect(under(20).exposure, greaterThan(dark.exposure * 0.8));
   });
+
+  test('the capsules nearest the middle of the view come first', () {
+    final shadows = ShadowSet()
+      ..capsule(900, 0, 900, 10, radius: 1)
+      ..capsule(10, 0, 10, 10, radius: 1)
+      ..capsule(400, 0, 400, 10, radius: 1);
+    shadows.nearestFirst(0, 5);
+    expect(
+      [for (var i = 0; i < 3; i++) shadows.data[i * ShadowSet.stride]],
+      [
+        10,
+        400,
+        900,
+      ],
+    );
+  });
 }

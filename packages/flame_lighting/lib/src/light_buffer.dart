@@ -31,7 +31,7 @@ abstract class LightBuffer {
   static const int maxLights = 16;
 
   /// Capsules of shadow it takes.
-  static const int maxShadows = 8;
+  static const int maxShadows = 24;
 
   /// Floats of its parameters (`Params` in light_buffer.frag).
   static const int floats = 4 * (4 + maxLights * 5 + maxShadows * 2);

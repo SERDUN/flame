@@ -32,6 +32,35 @@ class ShadowSet {
   /// Starts a frame over: nothing in the way.
   void clear() => count = 0;
 
+  /// Puts the capsules nearest world ([x], [y]) first, so a shader that takes
+  /// only so many takes the ones in the middle of the view: the walker before
+  /// a fence at its edge.
+  void nearestFirst(double x, double y) {
+    if (count < 2) {
+      return;
+    }
+    final order = List<int>.generate(count, (i) => i)
+      ..sort((a, b) => _distance2(a, x, y).compareTo(_distance2(b, x, y)));
+    final sorted = Float32List(data.length);
+    for (var k = 0; k < count; k++) {
+      sorted.setRange(
+        k * stride,
+        (k + 1) * stride,
+        data,
+        order[k] * stride,
+      );
+    }
+    data = sorted;
+  }
+
+  // Squared distance from world (x, y) to capsule i's middle.
+  double _distance2(int i, double x, double y) {
+    final o = i * stride;
+    final dx = (data[o] + data[o + 2]) / 2 - x;
+    final dy = (data[o + 1] + data[o + 3]) / 2 - y;
+    return dx * dx + dy * dy;
+  }
+
   /// Adds a capsule from ([ax], [ay]) to ([bx], [by]), world coordinates,
   /// [radius] round it, standing [ahead] world units in front of the street
   /// line and [thickness] deep there; [opacity] of the light it stops,

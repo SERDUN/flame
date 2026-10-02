@@ -248,6 +248,9 @@ class Stage extends Component {
     for (final caster in members<ShadowCaster>()) {
       caster.castShadow(frame.shadows);
     }
+    // A shader takes only so many: those in the middle of the view first.
+    final middle = frame.view.center;
+    frame.shadows.nearestFirst(middle.dx, middle.dy);
     final field = frame.light;
     final ambiences = members<Ambience>();
     field.begin(
