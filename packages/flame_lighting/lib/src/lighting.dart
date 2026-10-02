@@ -43,13 +43,14 @@ class Lighting extends Component with OnStage, Ambience, FrameStep {
     this.skyLight = 40,
     this.adaptation = 1,
     this.adaptsIn = 0,
+    double? darkAdaptsIn,
     this.glow = 0.35,
     this.haze,
     this.useBuffer = true,
     this.bufferScale = 0.5,
     this.lightsBackdrop = true,
     super.priority = 1000,
-  });
+  }) : darkAdaptsIn = darkAdaptsIn ?? 4 * adaptsIn;
 
   /// Whether the lights fall on what was drawn before the world (a sky in
   /// the camera's backdrop). Off, the world below the lighting's priority is
@@ -74,6 +75,9 @@ class Lighting extends Component with OnStage, Ambience, FrameStep {
 
   @override
   double adaptsIn;
+
+  @override
+  double darkAdaptsIn;
 
   /// How thick the air is, `0..1`; `null`: as the stage's weather makes it.
   @override

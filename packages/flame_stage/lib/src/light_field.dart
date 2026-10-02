@@ -340,9 +340,13 @@ mixin Ambience on OnStage {
   /// than the sky's own colour. 1 (a lamp's worth) by default.
   double get adaptation => 1;
 
-  /// How long the eye takes to adapt to brighter light, seconds; to dimmer
-  /// light it takes four times as long. 0: at once.
+  /// How long the eye takes to adapt to brighter light, seconds. 0: at once.
   double get adaptsIn => 0;
+
+  /// How long it takes to adapt to dimmer light, seconds: far longer - the
+  /// cones gain back most of their sensitivity over a minute or two, the
+  /// rods over many. Four times [adaptsIn] by default.
+  double get darkAdaptsIn => 4 * adaptsIn;
 
   /// How thick the air is with rain and mist, `0..1`: it haloes every
   /// light; `null`: as thick as the stage's weather makes it.
@@ -491,6 +495,7 @@ class LightField {
       skyLight: ambience.skyLight,
       adaptation: ambience.adaptation,
       adaptsIn: ambience.adaptsIn,
+      darkAdaptsIn: ambience.darkAdaptsIn,
       haze: ambience.haze ?? weather?.haze ?? 0,
       glow: ambience.glow,
     );
@@ -503,10 +508,12 @@ class LightField {
     required double skyLight,
     double adaptation = 1,
     double adaptsIn = 0,
+    double? darkAdaptsIn,
     double haze = 0,
     double glow = 0,
   }) {
     _adaptsIn = math.max(adaptsIn, 0);
+    _darkAdaptsIn = math.max(darkAdaptsIn ?? 4 * adaptsIn, 0);
     count = 0;
     _sunLevel = 0;
     lit = true;
@@ -522,12 +529,13 @@ class LightField {
 
   double _adaptation = 1;
   double _adaptsIn = 0;
+  double _darkAdaptsIn = 0;
   bool _adapted = false;
 
   /// Ends a frame's field: what the eye adapts to, now that every light is
-  /// in, after [dt] seconds of adapting - quickly to brighter light, four
-  /// times as slowly to dimmer (the eye's cones and rods), by the
-  /// ambience's [Ambience.adaptsIn]. The first frame sees as adapted.
+  /// in, after [dt] seconds of adapting - quickly to brighter light
+  /// ([Ambience.adaptsIn]), slowly to dimmer ([Ambience.darkAdaptsIn]: the
+  /// eye's cones and rods). The first frame sees as adapted.
   ///
   /// The eye adapts to all it sees in [view] ([seenLevel]), the street
   /// before it laid out by [projection]; with no view, to the sky and the
@@ -545,7 +553,7 @@ class LightField {
     }
     // In steps of brightness, not of the number.
     final brighter = target < exposure;
-    final tau = brighter ? _adaptsIn : 4 * _adaptsIn;
+    final tau = brighter ? _adaptsIn : math.max(_darkAdaptsIn, 1e-6);
     final k = 1 - math.exp(-dt / tau);
     exposure = math.exp(
       math.log(exposure) + (math.log(target) - math.log(exposure)) * k,
