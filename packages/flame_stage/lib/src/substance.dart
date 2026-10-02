@@ -130,8 +130,9 @@ class Substance {
     slip: 0.3,
     splashAbove: 120,
     loudness: 0.1,
-    soundHz: 1800,
+    soundHz: 700,
     ringSec: 0,
+    hitSec: 0.02,
     friction: 0.8,
   );
 
@@ -145,8 +146,9 @@ class Substance {
     slip: 0.7,
     splashAbove: 90,
     loudness: 0.2,
-    soundHz: 1800,
+    soundHz: 3000,
     ringSec: 0,
+    hitSec: 0.008,
     friction: 0.8,
   );
 
@@ -161,8 +163,9 @@ class Substance {
     slip: 0.3,
     splashAbove: 110,
     loudness: 0.15,
-    soundHz: 1800,
+    soundHz: 800,
     ringSec: 0,
+    hitSec: 0.01,
   );
 
   /// Wood: a bench, a fence.
@@ -175,8 +178,9 @@ class Substance {
     restitution: 0.15,
     slip: 0.6,
     loudness: 0.45,
-    soundHz: 1800,
-    ringSec: 0,
+    soundHz: 1600,
+    ringSec: 0.01,
+    hitSec: 0.003,
     friction: 0.7,
   );
 
@@ -190,8 +194,9 @@ class Substance {
     slip: 1,
     splashAbove: 100,
     loudness: 0.4,
-    soundHz: 1800,
-    ringSec: 0,
+    soundHz: 2500,
+    ringSec: 0.02,
+    hitSec: 0.003,
     friction: 0.1,
   );
 
