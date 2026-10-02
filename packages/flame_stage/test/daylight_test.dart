@@ -94,6 +94,24 @@ void main() {
     expect(LightField.airGlow(null, street), 0, reason: 'no weather, no air');
   });
 
+  test(
+    'a deep fog puts the sun out and dims the day; a shallow one hardly',
+    () {
+      final clear = Daylight.at(sunElevation: 30);
+      final shallow = Daylight.at(sunElevation: 30, fogOpticalDepth: 0.1);
+      final deep = Daylight.at(sunElevation: 30, fogOpticalDepth: 6);
+      expect(shallow.sunLight, greaterThan(clear.sunLight * 0.8));
+      expect(deep.sunLight, lessThan(clear.sunLight * 1e-4));
+      final day = clear.skyLight + clear.sunLight;
+      expect(deep.skyLight, lessThan(day * 0.6), reason: 'the fog takes light');
+      expect(
+        deep.skyLight,
+        greaterThan(day * 0.2),
+        reason: 'and lets it through',
+      );
+    },
+  );
+
   test('a cloud off to one side covers the sky, not the sun', () {
     final aside = Daylight.at(sunElevation: 30, cloudCover: 0.5, sunCover: 0);
     final over = Daylight.at(sunElevation: 30, cloudCover: 0.5, sunCover: 1);

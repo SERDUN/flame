@@ -63,6 +63,7 @@ class Daylight {
     double cloudCover = 0,
     double? sunCover,
     double cloudOpticalDepth = overcastOpticalDepth,
+    double fogOpticalDepth = 0,
     double townGlowLux = 1.5,
     double moonLux = 0.05,
   }) {
@@ -86,20 +87,30 @@ class Daylight {
     final sky = (1 - cover) * clearSky + cover * through * clearTotal;
     final disc = up <= 0 ? 0.0 : math.exp(-tau / math.max(up, 0.05));
     final behind = (sunCover ?? cover).clamp(0.0, 1.0);
-    final sun = direct * ((1 - behind) + behind * disc);
+    final above = direct * ((1 - behind) + behind * disc);
+    // Under it all a fog (fogOpticalDepth), over the whole sky: it scatters
+    // as a cloud does, letting through its share of all the light that falls
+    // on it, the sun's disc dimmed by its depth over the sun's way.
+    final fog = math.max(fogOpticalDepth, 0.0);
+    final fogThrough = cloudTransmittance(fog);
+    final sun = above * (up <= 0 ? 0.0 : math.exp(-fog / math.max(up, 0.05)));
+    final scattered = math.max((above * up + sky) * fogThrough - sun * up, 0.0);
     final night =
-        moonLux * ((1 - cover) + cover * through) +
-        townGlowLux * cover * reflected;
-    final skyLux = math.max(sky, 0) + night;
+        (moonLux * ((1 - cover) + cover * through) +
+            townGlowLux * cover * reflected) *
+        fogThrough;
+    final skyLux = scattered + night;
 
     // Colours: the sun reddens through the air; the clear sky is blue, the
     // twilight sky bluer, an overcast one grey, a town's glow on clouds
     // sodium orange.
     final sunColor = _transmitted(mass);
     final clearColor = h > 0 ? colorOfKelvin(11000) : colorOfKelvin(16000);
-    final skyColorDay = _mix(clearColor, colorOfKelvin(6800), cover);
+    // A fog greys the sky as a cloud does, as much as it is deep.
+    final greyed = 1 - (1 - cover) * math.exp(-fog);
+    final skyColorDay = _mix(clearColor, colorOfKelvin(6800), greyed);
     final skyColor = _mixWeighted([
-      (skyColorDay, math.max(sky, 0)),
+      (skyColorDay, scattered),
       (colorOfKelvin(4100), moonLux),
       (colorOfKelvin(2200), townGlowLux * cover * reflected),
     ]);
