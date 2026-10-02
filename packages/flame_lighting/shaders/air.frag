@@ -45,7 +45,7 @@ float distanceAt(float depth) {
 // A layer summed from the ground up to h (AirBank._layerUpTo).
 float layerUpTo(float h, float top, float s) {
     float x = (h - top) / s;
-    float soft = x > 30.0 ? x : log(1.0 + exp(max(x, -60.0)));
+    float soft = x > 30.0 ? x : log(1.0 + exp(clamp(x, -60.0, 30.0)));
     return h - s * soft;
 }
 
