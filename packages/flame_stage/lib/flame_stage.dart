@@ -24,7 +24,8 @@ export 'src/light_field.dart'
 export 'src/shadow.dart' show ShadowCaster, ShadowSet, UprightShadow;
 export 'src/sky_view.dart';
 export 'src/stage.dart' show FrameStep, Ground, OnStage, Stage, StageFrame;
-export 'src/street_projection.dart' show DepthCamera, StreetProjection;
+export 'src/street_projection.dart'
+    show DepthCamera, GroundLift, StreetProjection;
 export 'src/substance.dart';
 export 'src/water_medium.dart';
 export 'src/weather.dart';

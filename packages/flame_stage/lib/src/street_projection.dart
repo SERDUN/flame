@@ -40,6 +40,115 @@ class DepthCamera {
   int get hashCode => Object.hash(spanPerBand, nearPerBand, eyePerBand);
 }
 
+/// How high the ground stands along the street, world units up, at world x:
+/// the hills a road climbs and falls. The street line at x is that much
+/// above where it stands on level ground, and the ground in front of it at
+/// x the same - a hill is a rise across the whole view at that x.
+///
+/// Sampled once a frame over a span of x (`GroundLift.sampled`); between
+/// samples in a straight line, past the span as at its ends.
+@immutable
+class GroundLift {
+  /// Level ground everywhere.
+  const GroundLift.level() : from = 0, step = 1, samples = null;
+
+  /// The ground's height [at] each of [count] points from [from] to [to].
+  factory GroundLift.sampled(
+    double from,
+    double to,
+    int count,
+    double Function(double x) at,
+  ) {
+    final n = math.max(count, 2);
+    final step = (to - from) / (n - 1);
+    final samples = Float64List(n);
+    var level = true;
+    for (var i = 0; i < n; i++) {
+      final v = at(from + step * i);
+      samples[i] = v;
+      if (v != 0) {
+        level = false;
+      }
+    }
+    if (level || !(step > 0)) {
+      return const GroundLift.level();
+    }
+    return GroundLift._(from, step, samples);
+  }
+
+  const GroundLift._(this.from, this.step, this.samples);
+
+  /// Where the samples start, and how far apart they are, world units.
+  final double from;
+  final double step;
+
+  /// The ground's height at each sample; `null` for level ground.
+  final Float64List? samples;
+
+  /// Whether the ground is level all along.
+  bool get isLevel => samples == null;
+
+  /// How high the ground stands at world [x].
+  double at(double x) {
+    final s = samples;
+    if (s == null) {
+      return 0;
+    }
+    final u = (x - from) / step;
+    if (u <= 0) {
+      return s.first;
+    }
+    if (u >= s.length - 1) {
+      return s.last;
+    }
+    final i = u.floor();
+    final t = u - i;
+    return s[i] + (s[i + 1] - s[i]) * t;
+  }
+
+  /// The lowest and the highest the ground stands from [left] to [right].
+  (double, double) rangeIn(double left, double right) {
+    final s = samples;
+    if (s == null) {
+      return (0, 0);
+    }
+    var low = math.min(at(left), at(right));
+    var high = math.max(at(left), at(right));
+    for (var i = 0; i < s.length; i++) {
+      final x = from + step * i;
+      if (x > left && x < right) {
+        low = math.min(low, s[i]);
+        high = math.max(high, s[i]);
+      }
+    }
+    return (low, high);
+  }
+
+  @override
+  bool operator ==(Object other) {
+    if (other is! GroundLift) {
+      return false;
+    }
+    final a = samples;
+    final b = other.samples;
+    if (a == null || b == null) {
+      return a == b;
+    }
+    if (from != other.from || step != other.step || a.length != b.length) {
+      return false;
+    }
+    for (var i = 0; i < a.length; i++) {
+      if (a[i] != b[i]) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  @override
+  int get hashCode => Object.hash(from, step, samples?.length);
+}
+
 @immutable
 /// The one depth projection of a side-view street, as it is in one frame.
 ///
@@ -60,17 +169,23 @@ class DepthCamera {
 /// A value: made once a frame from the band the scene's `Ground` gives, and
 /// asked freely after - no call goes back to the camera or the tree.
 class StreetProjection {
-  StreetProjection(this.band, {this.camera = DepthCamera.street})
-    : span = band.height * camera.spanPerBand,
-      eyeHeight = band.height * camera.eyePerBand,
-      nearDistance = band.height * camera.nearPerBand,
-      farDistance = band.height * (camera.nearPerBand + camera.spanPerBand);
+  StreetProjection(
+    this.band, {
+    this.camera = DepthCamera.street,
+    this.lift = const GroundLift.level(),
+  }) : span = band.height * camera.spanPerBand,
+       eyeHeight = band.height * camera.eyePerBand,
+       nearDistance = band.height * camera.nearPerBand,
+       farDistance = band.height * (camera.nearPerBand + camera.spanPerBand);
 
   /// The ground band, world coordinates: its top edge is the street line.
   final Rect band;
 
   /// How the eye stands before it.
   final DepthCamera camera;
+
+  /// How high the ground stands along the street: its hills.
+  final GroundLift lift;
 
   /// How far in front of the street line the nearest ground in view lies,
   /// world units.
@@ -133,6 +248,35 @@ class StreetProjection {
   /// nearest in view.
   double depthAt(double y) => ((y - band.top) / band.height).clamp(0.0, 1.0);
 
+  /// How high the ground stands at world [x], world units: its hill there.
+  double liftAt(double x) => lift.at(x);
+
+  /// World y of the street line at world [x]: [line], raised by the hill.
+  double lineAt(double x) => line - lift.at(x);
+
+  /// World y where something at [depth] meets the ground at world [x]:
+  /// [yAt], raised by the hill there.
+  double groundYAt(double x, double depth) => yAt(depth) - lift.at(x);
+
+  /// The depth of the ground seen at world ([x], [y]), the hill there taken
+  /// out.
+  double depthAtPoint(double x, double y) => depthAt(y + lift.at(x));
+
+  /// The ground's height for shaders: [count] samples evenly over world x
+  /// from [left] to [right], written into [into] from [at].
+  void writeLift(
+    Float32List into,
+    int at,
+    double left,
+    double right,
+    int count,
+  ) {
+    final step = count > 1 ? (right - left) / (count - 1) : 0.0;
+    for (var i = 0; i < count; i++) {
+      into[at + i] = lift.at(left + step * i);
+    }
+  }
+
   /// World x at which something at road position [x] and [depth] is seen
   /// while the view is centred on [focusX]: things nearer the eye slide by
   /// faster, farther ones slower (parallax).
@@ -163,8 +307,11 @@ class StreetProjection {
 
   @override
   bool operator ==(Object other) =>
-      other is StreetProjection && other.band == band && other.camera == camera;
+      other is StreetProjection &&
+      other.band == band &&
+      other.camera == camera &&
+      other.lift == lift;
 
   @override
-  int get hashCode => Object.hash(band, camera);
+  int get hashCode => Object.hash(band, camera, lift);
 }

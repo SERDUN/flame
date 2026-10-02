@@ -87,6 +87,10 @@ mixin Ground on OnStage implements LiesFlat, AtDepth {
 
   /// How the eye stands before the street.
   DepthCamera get depthCamera => DepthCamera.street;
+
+  /// How high the ground stands at world [x], world units up: the road's
+  /// hills. Level by default.
+  double groundLiftAt(double x) => 0;
 }
 
 /// A step of a frame's drawing that comes before anything is drawn: a
@@ -216,6 +220,9 @@ class Stage extends Component {
   /// is built - made from the ground at once.
   StreetProjection? get projection => frame.projection ?? _currentProjection();
 
+  /// Samples of the ground's height over the band.
+  static const int _liftSamples = 128;
+
   StreetProjection? _currentProjection() {
     final grounds = members<Ground>();
     if (grounds.isEmpty) {
@@ -223,13 +230,26 @@ class Stage extends Component {
     }
     final ground = grounds.first;
     final band = ground.groundBand();
+    // The hills over the band, a sample every quarter of a metre-ish: the
+    // band spans the view and some.
+    final lift = GroundLift.sampled(
+      band.left,
+      band.right,
+      _liftSamples,
+      ground.groundLiftAt,
+    );
     final known = _projection;
     if (known != null &&
         known.band == band &&
-        known.camera == ground.depthCamera) {
+        known.camera == ground.depthCamera &&
+        known.lift == lift) {
       return known;
     }
-    return _projection = StreetProjection(band, camera: ground.depthCamera);
+    return _projection = StreetProjection(
+      band,
+      camera: ground.depthCamera,
+      lift: lift,
+    );
   }
 
   @override
