@@ -91,10 +91,15 @@ class RainVeil {
     // over another, so this one pales by what the air between it and the
     // next veil towards the eye takes: together they leave what is behind
     // each as much as the whole way lets through.
-    double through(double at) =>
-        math.exp(-3.912 * projection.distanceAt(at) / metre / visibilityM);
+    double through(double at) => WeatherState.transmittanceOf(
+      projection.distanceAt(at) / metre,
+      visibilityM,
+    );
     final haze = 1 - through(depth) / (nearer == null ? 1 : through(nearer));
-    _haze.color = color.withValues(alpha: color.a * haze);
+    // The air's own light, as much as it takes of what is behind: the rain's
+    // colour (the light in the air), the opacity the air's alone - not the
+    // drops' own.
+    _haze.color = color.withValues(alpha: haze);
     canvas.drawRect(view.inflate(metre), _haze);
 
     final program = _program;

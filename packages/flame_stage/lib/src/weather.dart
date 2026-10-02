@@ -102,11 +102,22 @@ class WeatherState {
 
   /// How far one sees, m (Koschmieder): clear air some 20 km, rain and mist
   /// scatter the light and bring it in.
-  double get visibilityM {
+  double get visibilityM => visibilityMOf(rainMmPerHour, humidity: humidity);
+
+  /// How far one sees, m, in rain of [rainMmPerHour] through air of
+  /// [humidity]: clear air's extinction, the rain's (growing as the rain to
+  /// the 0.63), a mist's near saturation.
+  static double visibilityMOf(double rainMmPerHour, {double humidity = 0.8}) {
     final rain = 3.5e-4 * math.pow(math.max(rainMmPerHour, 0), 0.63);
     final mist = 2e-3 * math.pow(((humidity - 0.9) / 0.1).clamp(0.0, 1.0), 2);
     return 1 / (1 / 20000 + rain + mist);
   }
+
+  /// The share of the light that crosses [metres] of air one sees
+  /// [visibilityM] through (Koschmieder: exp(-3.912 d / V)); the rest is the
+  /// air's own light, the haze.
+  static double transmittanceOf(double metres, double visibilityM) =>
+      math.exp(-3.912 * math.max(metres, 0) / math.max(visibilityM, 1e-3));
 
   /// Takes [weather]'s state; with none, a still dry day.
   void read(Weather? weather) {
