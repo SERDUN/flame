@@ -84,10 +84,58 @@ class Lighting extends Component with OnStage, Ambience, FrameStep {
 
   /// This frame's light buffer - every light added up where it falls, with
   /// its shadows, unexposed - and the world rect it covers; null without a
-  /// buffer. A mirror reads the light in the air from it, so it shows what
-  /// is lit above it and nothing else.
+  /// buffer.
   Image? get lightImage => _lightImage;
   Rect get lightArea => _lightArea;
+
+  /// [lightImage] at a thirty-second of its size each way, over the same
+  /// [lightArea]: the light as it fills the air, half a metre soft in a
+  /// world in metres. Light in the air is scattered all through its depth,
+  /// so a thin post throws next to no shadow in it and a cone has no edge;
+  /// and a wet road blurs what it mirrors. A mirror reads the light in the
+  /// air from this. Made once a frame, when first asked for.
+  Image? get lightImageSoft {
+    final image = _lightImage;
+    if (image == null) {
+      return null;
+    }
+    if (identical(_softOf, image)) {
+      return _soft;
+    }
+    // Halved five times, each a bilinear 2 x 2 average: a true box filter
+    // whether or not the image has mipmaps (one step down by 32 would only
+    // pick a few of the pixels, and a thin shadow could survive it).
+    var current = image;
+    for (var step = 0; step < 5; step++) {
+      final w = math.max(1, current.width ~/ 2);
+      final h = math.max(1, current.height ~/ 2);
+      final recorder = PictureRecorder();
+      Canvas(recorder).drawImageRect(
+        current,
+        Rect.fromLTWH(
+          0,
+          0,
+          current.width.toDouble(),
+          current.height.toDouble(),
+        ),
+        Rect.fromLTWH(0, 0, w.toDouble(), h.toDouble()),
+        _softPaint,
+      );
+      final next = recorder.endRecording().toImageSync(w, h);
+      if (!identical(current, image)) {
+        current.dispose();
+      }
+      current = next;
+    }
+    _soft?.dispose();
+    _soft = current;
+    _softOf = image;
+    return _soft;
+  }
+
+  Image? _soft;
+  Image? _softOf;
+  static final Paint _softPaint = Paint()..filterQuality = FilterQuality.low;
 
   @override
   void onMount() {
@@ -111,6 +159,9 @@ class Lighting extends Component with OnStage, Ambience, FrameStep {
     _buffer = null;
     _bufferAsked = false;
     _lightImage = null;
+    _soft?.dispose();
+    _soft = null;
+    _softOf = null;
     super.onRemove();
   }
 

@@ -302,9 +302,10 @@ vec3 lights(vec2 p, float s) {
 }
 
 // The light in the air the lighting laid above the street, seen in the
-// mirror at p: read from its buffer where the mirror puts p back, and smeared
-// down by the surface's roughness as the street's reflection is (a sigma of
-// uSpread, five taps).
+// mirror at p: read from its buffer - a soft copy, half a metre across: light
+// in the air has no edges, and a thin post throws no shadow in it - where the
+// mirror puts p back, and smeared down by the surface's roughness as the
+// street's reflection is (a sigma of uSpread, five taps).
 vec3 airMirrored(vec2 p) {
     vec3 sum = vec3(0.0);
     for (int k = -2; k <= 2; k++) {

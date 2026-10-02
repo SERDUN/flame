@@ -527,12 +527,12 @@ class WaterSurface extends PositionComponent
             WaterShader.lights + count * WaterShader.lightFloats,
             _lights,
           );
-    // The light in the air as the lighting lays it above the street - its
-    // shadows, its depth, its cones as they fall - read at the point the
+    // The light in the air as the lighting lays it above the street, soft
+    // as it fills the air ([Lighting.lightImageSoft]), read at the point the
     // mirror shows, and added as the lighting adds it (its glow, exposed).
     // Without a buffer, worked out per light in the shader.
     final lighting = Lighting.of(this);
-    final buffer = lighting?.lightImage;
+    final buffer = lighting?.lightImageSoft;
     if (buffer != null) {
       final area = lighting!.lightArea;
       final origin = absoluteTopLeftPosition;
@@ -547,7 +547,7 @@ class WaterSurface extends PositionComponent
     WaterShader.upload(shader, f);
     final blank = _blank ??= _makeBlank();
     shader
-      ..setImageSampler(0, buffer ?? blank)
+      ..setImageSampler(0, buffer ?? blank, filterQuality: FilterQuality.low)
       ..setImageSampler(1, _waves?.heights ?? blank);
     canvas.drawRect(rect, _glowPaint..shader = shader);
   }
