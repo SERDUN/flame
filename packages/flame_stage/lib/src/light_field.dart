@@ -662,7 +662,9 @@ class LightField {
       ..[o + _extentY] = light.extent.y
       ..[o + _source] = light.sourceRadius
       ..[o + _stands] =
-          light.standsAt ?? projection?.yAt(light.depth) ?? double.nan
+          light.standsAt ??
+          projection?.groundYAt(x, light.depth) ??
+          double.nan
       ..[o + _falloff] = light.falloff.index.toDouble()
       ..[o + _half] = half
       ..[o + _edge] = edge
@@ -708,11 +710,11 @@ class LightField {
     var n = 0;
     for (var j = 0; j < down; j++) {
       final y = view.top + view.height * (j + 0.5) / down;
-      final inFront = projection != null && y > projection.line
-          ? projection.ahead(projection.depthAt(y))
-          : 0.0;
       for (var i = 0; i < across; i++) {
         final x = view.left + view.width * (i + 0.5) / across;
+        final inFront = projection != null && y > projection.lineAt(x)
+            ? projection.ahead(projection.depthAtPoint(x, y))
+            : 0.0;
         var level = skyLevel;
         for (var l = 0; l < count; l++) {
           final amount = reach(l, x, y, inFront);

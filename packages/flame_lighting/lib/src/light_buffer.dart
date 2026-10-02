@@ -34,7 +34,15 @@ abstract class LightBuffer {
   static const int maxShadows = 24;
 
   /// Floats of its parameters (`Params` in light_buffer.frag).
-  static const int floats = 4 * (4 + maxLights * 5 + maxShadows * 2);
+  static const int floats =
+      4 * (4 + maxLights * 5 + maxShadows * 2 + liftSamples ~/ 4 + 1);
+
+  /// Samples of the ground's height across the band.
+  static const int liftSamples = 32;
+
+  /// Where they start, in floats, and the band's span after them.
+  static const int liftAt = 4 * (4 + maxLights * 5 + maxShadows * 2);
+  static const int liftSpanAt = liftAt + liftSamples;
 
   /// Where the lights start, in floats.
   static const int lightsAt = 16;
@@ -86,6 +94,15 @@ abstract class LightBuffer {
         ..[6] = projection.nearDistance
         ..[7] = projection.farDistance
         ..[8] = projection.eyeHeight;
+      // The hills across the band; none on level ground.
+      if (!projection.lift.isLevel) {
+        final band = projection.band;
+        projection.writeLift(into, liftAt, band.left, band.right, liftSamples);
+        into
+          ..[liftSpanAt] = band.left
+          ..[liftSpanAt + 1] = band.right
+          ..[liftSpanAt + 2] = liftSamples.toDouble();
+      }
     } else {
       // No street: a wall plane only.
       into

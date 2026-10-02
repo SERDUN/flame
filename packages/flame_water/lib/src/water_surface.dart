@@ -118,9 +118,12 @@ class WaterSurface extends PositionComponent
   /// (`Reflectable.reflectionBase`).
   double? waterLine;
 
-  /// The line the world is mirrored about now, world y.
+  /// The line the world is mirrored about now, world y: the street line where
+  /// the water lies (water stands level, so only on level ground).
   double get _line =>
-      waterLine ?? _projection?.line ?? absoluteTopLeftPosition.y;
+      waterLine ??
+      _projection?.lineAt(absoluteTopLeftPosition.x + size.x / 2) ??
+      absoluteTopLeftPosition.y;
 
   /// The street's projection now, if the stage has a ground.
   StreetProjection? get _projection => stage?.projection;
@@ -326,7 +329,9 @@ class WaterSurface extends PositionComponent
     }
     // Where a drop at its depth meets the ground: the world's projection, or
     // with no ground, across this water from its top to its bottom.
-    final y = _projection?.yAt(depth) ?? _catchTop + depth.clamp(0, 1) * size.y;
+    final y =
+        _projection?.groundYAt(x, depth) ??
+        _catchTop + depth.clamp(0, 1) * size.y;
     if (y <= fromY || y > toY || !_coversAt(x, y)) {
       return null;
     }
@@ -391,9 +396,12 @@ class WaterSurface extends PositionComponent
       return null;
     }
     final origin = absoluteTopLeftPosition;
+    final x = origin.x + size.x / 2;
     return (
-      top: projection.sinElevation(projection.depthAt(origin.y)),
-      bottom: projection.sinElevation(projection.depthAt(origin.y + size.y)),
+      top: projection.sinElevation(projection.depthAtPoint(x, origin.y)),
+      bottom: projection.sinElevation(
+        projection.depthAtPoint(x, origin.y + size.y),
+      ),
     );
   }
 

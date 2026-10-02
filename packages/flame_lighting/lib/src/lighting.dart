@@ -632,10 +632,15 @@ class Lighting extends Component with OnStage, Ambience, FrameStep {
     final reach = bounds.intersect(view);
     final projection = frame.projection;
     final line = projection?.line;
+    // Over hills the street line rises and falls across the light's reach:
+    // the wall reaches down to its lowest, the ground up to its highest, and
+    // the shader keeps each to its own side.
+    final (low, high) =
+        projection?.lift.rangeIn(reach.left, reach.right) ?? (0.0, 0.0);
     final wall = line == null
         ? reach
         : reach.intersect(
-            Rect.fromLTRB(reach.left, reach.top, reach.right, line),
+            Rect.fromLTRB(reach.left, reach.top, reach.right, line - low),
           );
     final planes = [
       if (!wall.isEmpty) (LightPlane.wall, wall),
@@ -645,9 +650,9 @@ class Lighting extends Component with OnStage, Ambience, FrameStep {
           reach.intersect(
             Rect.fromLTRB(
               reach.left,
-              line,
+              line - high,
               reach.right,
-              projection.band.bottom,
+              projection.band.bottom - low,
             ),
           ),
         ),

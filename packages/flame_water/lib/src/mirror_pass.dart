@@ -254,14 +254,17 @@ class MirrorPass implements Mirror {
   }
 
   /// Where [thing] stands, world y, if not on the line the water mirrors
-  /// about: as it says, or where its depth puts it on the street's ground.
+  /// about: as it says, or where its depth puts it on the street's ground -
+  /// round the view's middle, as water lies only on level ground.
   static double? _baseOf(Reflectable thing, StreetProjection? projection) {
     final base = thing.reflectionBase;
     if (base != null) {
       return base;
     }
     final depth = thing.groundDepth;
-    return depth == null ? null : projection?.yAt(depth);
+    return depth == null
+        ? null
+        : projection?.groundYAt(projection.band.center.dx, depth);
   }
 }
 

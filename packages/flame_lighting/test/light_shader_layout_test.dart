@@ -54,7 +54,16 @@ void main() {
   test('the arrays are as long on both sides', () {
     expect(_constant(source, 'kShadows'), LightShader.maxShadows);
     expect(_constant(source, 'kCapsules'), LightShader.capsules);
-    expect(source, contains('uniform vec4 u[kCapsules + kShadows * 2];'));
+    expect(
+      source,
+      contains('uniform vec4 u[kCapsules + kShadows * 2 + kLift + 1];'),
+    );
+    expect(_constant(source, 'kLift') * 4, LightShader.liftSamples);
+    expect(
+      LightShader.liftAt,
+      (LightShader.capsules + LightShader.maxShadows * 2) * 4,
+    );
+    expect(LightShader.vectors * 4, LightShader.liftSpanAt + 4);
     expect(ShadowSet.stride, 2 * 4);
     expect(StreetProjection.uniformFloats, 5);
   });

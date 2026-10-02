@@ -471,7 +471,8 @@ class Rain extends Component with OnStage, Reflectable, Weather {
       ..setY(i, start - _random.nextDouble() * fall * lead)
       ..setVx(i, windX * perspective)
       ..setVy(i, fall)
-      ..setLand(i, landing)
+      // It lands on the ground where it comes down: on a hill, higher.
+      ..setLand(i, landing - (stage?.projection?.liftAt(target) ?? 0))
       ..setDepth(i, depth)
       ..setPerspective(i, perspective)
       ..setResponse(i, RainDrops.responseSec(terminal))

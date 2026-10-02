@@ -22,8 +22,14 @@ precision highp float;
 
 const int kShadows = 24;
 const int kCapsules = 8;
+// Samples of the ground's height across the band (GroundLift), four a vec4,
+// and the band's span after them.
+const int kLift = 8;
 
-uniform vec4 u[kCapsules + kShadows * 2];
+uniform vec4 u[kCapsules + kShadows * 2 + kLift + 1];
+
+#define LIFT0 (kCapsules + kShadows * 2)
+#define LIFT_SPAN u[kCapsules + kShadows * 2 + kLift]   // left, right, samples
 
 // The light (LightField's layout).
 #define L_POS u[0].xy
@@ -68,6 +74,36 @@ const float kSun = 4.0;
 const float kSunDistance = 1e5;
 
 out vec4 fragColor;
+
+// How high the ground stands at world x: its hill there. Level (no
+// samples): nothing.
+float liftAt(float x) {
+    float n = LIFT_SPAN.z;
+    if (n < 1.5) {
+        return 0.0;
+    }
+    float s = clamp((x - LIFT_SPAN.x) / max(LIFT_SPAN.y - LIFT_SPAN.x, 1e-6),
+                    0.0, 1.0) * (n - 1.0);
+    float i0 = min(floor(s), n - 2.0);
+    float t = s - i0;
+    float a = 0.0;
+    float b = 0.0;
+    // A uniform array is read by a loop's own index only.
+    for (int k = 0; k < kLift * 4; k++) {
+        float fk = float(k);
+        if (fk == i0 || fk == i0 + 1.0) {
+            vec4 q = u[LIFT0 + k / 4];
+            int c = k - (k / 4) * 4;
+            float v = c == 0 ? q.x : (c == 1 ? q.y : (c == 2 ? q.z : q.w));
+            if (fk == i0) {
+                a = v;
+            } else {
+                b = v;
+            }
+        }
+    }
+    return mix(a, b, t);
+}
 
 // How far in front of the street line ground at depth d lies.
 float ahead(float d) {
@@ -205,8 +241,16 @@ float airShare(float lit) {
 void main() {
     vec2 frag = FlutterFragCoord().xy;
     vec3 p;
+    // The hill here: the street line and the ground in front of it raised.
+    // Over a hill the planes' rects overlap; each keeps to its own side.
+    float lift = liftAt(frag.x);
+    float line = P_TOP - lift;
+    if (LIFT_SPAN.z > 1.5 && (MODE > 0.5) != (frag.y > line)) {
+        fragColor = vec4(0.0);
+        return;
+    }
     if (MODE > 0.5) {
-        float depth = clamp((frag.y - P_TOP) / P_BAND, 0.0, 1.0);
+        float depth = clamp((frag.y - line) / P_BAND, 0.0, 1.0);
         p = vec3(frag, ahead(depth));
     } else {
         p = vec3(frag, WALL_AHEAD);

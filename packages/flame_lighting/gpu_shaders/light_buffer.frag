@@ -18,6 +18,8 @@ precision highp float;
 
 const int kMaxLights = 16;
 const int kMaxShadows = 24;
+// Samples of the ground's height across the band (GroundLift), four a vec4.
+const int kLift = 8;
 
 const float kCone = 1.0;
 const float kArea = 2.0;
@@ -36,7 +38,25 @@ uniform Params {
                   // one sees through it (Koschmieder), the world's units
   vec4 lights[kMaxLights * 5];   // LightField.writeLight's five vectors each
   vec4 capsules[kMaxShadows * 2];
+  vec4 lift[kLift];   // the ground's height across the band, world units up
+  vec4 liftSpan;      // the band's left and right, samples in use (0: level)
 } params;
+
+// How high the ground stands at world x: its hill there.
+float liftAt(float x) {
+  float n = params.liftSpan.z;
+  if (n < 1.5) {
+    return 0.0;
+  }
+  float u = clamp((x - params.liftSpan.x) /
+                      max(params.liftSpan.y - params.liftSpan.x, 1e-6),
+                  0.0, 1.0) * (n - 1.0);
+  int i = int(min(floor(u), n - 2.0));
+  float t = u - float(i);
+  float a = params.lift[i / 4][i % 4];
+  float b = params.lift[(i + 1) / 4][(i + 1) % 4];
+  return mix(a, b, t);
+}
 
 in vec2 v_uv;
 out vec4 frag_color;
@@ -186,10 +206,12 @@ void main() {
   vec2 frag = params.view.xy + v_uv * params.view.zw;
   // Above the street line, the wall plane at its distance; below it, the
   // ground at the depth of its row.
-  bool ground = params.street.y > 0.0 && frag.y > params.street.x;
+  // The hill here: the street line and the ground in front of it raised.
+  float lift = liftAt(frag.x);
+  bool ground = params.street.y > 0.0 && frag.y > params.street.x - lift;
   vec3 p = vec3(frag, params.look.y);
   if (ground) {
-    float depth = clamp((frag.y - params.street.x) / params.street.y, 0.0, 1.0);
+    float depth = clamp((frag.y + lift - params.street.x) / params.street.y, 0.0, 1.0);
     p.z = aheadAt(depth);
   }
   vec3 sum = vec3(0.0);

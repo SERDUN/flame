@@ -63,7 +63,13 @@ class GroundAir extends Component with OnStage, AtDepth, LiesFlat {
   void render(Canvas canvas) => _drawAir(this, canvas, veils: veils());
 }
 
-final Float32List _floats = Float32List(14 * 4);
+final Float32List _floats = Float32List((14 + _liftSamples ~/ 4 + 1) * 4);
+
+/// Samples of the ground's height across the band, where they start in
+/// floats, and the band's span after them.
+const int _liftSamples = 32;
+const int _liftAt = 14 * 4;
+const int _liftSpanAt = _liftAt + _liftSamples;
 final Paint _paint = Paint();
 
 /// Lays the air over [canvas] as a veil at [depth] (up to the veil at
@@ -126,6 +132,15 @@ void _drawAir(
       f[40 + i] = v;
     }
   }
+  // The hills across the band; none on level ground.
+  if (!projection.lift.isLevel) {
+    final band = projection.band;
+    projection.writeLift(f, _liftAt, band.left, band.right, _liftSamples);
+    f
+      ..[_liftSpanAt] = band.left
+      ..[_liftSpanAt + 1] = band.right
+      ..[_liftSpanAt + 2] = _liftSamples.toDouble();
+  }
   for (var i = 0; i < f.length; i++) {
     shader.setFloat(i, f[i]);
   }
@@ -133,9 +148,13 @@ void _drawAir(
   // depth meets the ground, the ground's air over the ground band.
   final whole = frame.view.inflate(frame.view.width * 0.02);
   final line = projection.yAt(veils == null ? depth : 0);
+  // Over hills the line rises and falls across the view: the veil reaches
+  // down to its lowest, the ground's air up to its highest; the shader
+  // keeps each to its side.
+  final (low, high) = projection.lift.rangeIn(whole.left, whole.right);
   final area = veils == null
-      ? Rect.fromLTRB(whole.left, whole.top, whole.right, line)
-      : Rect.fromLTRB(whole.left, line, whole.right, whole.bottom);
+      ? Rect.fromLTRB(whole.left, whole.top, whole.right, line - low)
+      : Rect.fromLTRB(whole.left, line - high, whole.right, whole.bottom);
   if (area.isEmpty) {
     return;
   }

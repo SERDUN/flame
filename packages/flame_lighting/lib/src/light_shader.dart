@@ -87,7 +87,13 @@ abstract final class LightShader {
   static const int capsules = 8;
 
   /// vec4s in the shader's `u` array.
-  static const int vectors = capsules + maxShadows * 2;
+  static const int vectors = capsules + maxShadows * 2 + liftSamples ~/ 4 + 1;
+
+  /// Samples of the ground's height across the band, and where they start
+  /// in floats; the band's span after them.
+  static const int liftSamples = 32;
+  static const int liftAt = (capsules + maxShadows * 2) * 4;
+  static const int liftSpanAt = liftAt + liftSamples;
 
   // Offsets, in floats: the shader's names. The light's five vec4 come
   // first, as [LightField.writeLight] writes them.
@@ -127,6 +133,15 @@ abstract final class LightShader {
     field.writeLight(i, f, 0);
     if (projection != null) {
       projection.writeUniforms(f, projectionTop);
+      // The hills across the band; none on level ground.
+      if (!projection.lift.isLevel) {
+        final band = projection.band;
+        projection.writeLift(f, liftAt, band.left, band.right, liftSamples);
+        f
+          ..[liftSpanAt] = band.left
+          ..[liftSpanAt + 1] = band.right
+          ..[liftSpanAt + 2] = liftSamples.toDouble();
+      }
     } else {
       // No street: a flat far wall, the ground never asked for.
       f

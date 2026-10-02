@@ -17,8 +17,11 @@ precision highp float;
 
 const int kMaxBanks = 3;
 const int kMaxVeils = 6;
+// Samples of the ground's height across the band (GroundLift), four a vec4,
+// and the band's span after them.
+const int kLift = 8;
 
-uniform vec4 u[6 + kMaxBanks * 2 + kMaxVeils / 4 + 1];
+uniform vec4 u[6 + kMaxBanks * 2 + kMaxVeils / 4 + 1 + kLift + 1];
 
 #define uProjection  u[0]      // band top, band height, near, far distance
 #define uEye         u[1]      // eye height, world units a metre, focus x,
@@ -31,8 +34,39 @@ uniform vec4 u[6 + kMaxBanks * 2 + kMaxVeils / 4 + 1];
                                // (width, slant, top, top's width); an
                                // extinction of 0 for none
 #define uVeils       (4 + kMaxBanks * 2)  // the veils' depths, four a vec4
+#define uLift        (6 + kMaxBanks * 2 + kMaxVeils / 4 + 1)
+#define uLiftSpan    u[uLift + kLift]     // left, right, samples (0: level)
 
 out vec4 fragColor;
+
+// How high the ground stands at world x: its hill there.
+float liftAt(float x) {
+    float n = uLiftSpan.z;
+    if (n < 1.5) {
+        return 0.0;
+    }
+    float s = clamp((x - uLiftSpan.x) / max(uLiftSpan.y - uLiftSpan.x, 1e-6),
+                    0.0, 1.0) * (n - 1.0);
+    float i0 = min(floor(s), n - 2.0);
+    float t = s - i0;
+    float a = 0.0;
+    float b = 0.0;
+    // A uniform array is read by a loop's own index only.
+    for (int k = 0; k < kLift * 4; k++) {
+        float fk = float(k);
+        if (fk == i0 || fk == i0 + 1.0) {
+            vec4 q = u[uLift + k / 4];
+            int c = k - (k / 4) * 4;
+            float v = c == 0 ? q.x : (c == 1 ? q.y : (c == 2 ? q.z : q.w));
+            if (fk == i0) {
+                a = v;
+            } else {
+                b = v;
+            }
+        }
+    }
+    return mix(a, b, t);
+}
 
 float distanceAt(float depth) {
     float near = uProjection.z;
@@ -126,6 +160,9 @@ void main() {
     vec3 eye = vec3(focus / metre, far / metre, uEye.x / metre);
     float depth;
     float height;
+    // The hill here: the street line and the ground in front of it raised;
+    // heights are over the ground under them.
+    top -= liftAt(frag.x);
     if (uEye.w < 0.5) {
         // A veil: over what is drawn above where its depth meets the ground.
         depth = uDepths.x;

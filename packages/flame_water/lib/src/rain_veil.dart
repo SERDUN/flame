@@ -96,16 +96,18 @@ class RainVeil {
     if (nearest) {
       final spray = (0.35 * (intensity - 0.8)).clamp(0.0, 0.35);
       if (spray > 0) {
-        final line = projection.yAt(0);
-        final top = line - 0.7 * metre;
-        _spray.shader = Gradient.linear(Offset(0, line), Offset(0, top), [
-          color.withValues(alpha: color.a * spray),
-          color.withValues(alpha: 0),
-        ]);
-        canvas.drawRect(
-          Rect.fromLTRB(view.left - metre, top, view.right + metre, line),
-          _spray,
-        );
+        // Along the street line, a metre at a time where hills raise it.
+        final level = projection.lift.isLevel;
+        final step = level ? view.width + 2 * metre : metre;
+        for (var x = view.left - metre; x < view.right + metre; x += step) {
+          final line = projection.lineAt(x + step / 2);
+          final top = line - 0.7 * metre;
+          _spray.shader = Gradient.linear(Offset(0, line), Offset(0, top), [
+            color.withValues(alpha: color.a * spray),
+            color.withValues(alpha: 0),
+          ]);
+          canvas.drawRect(Rect.fromLTRB(x, top, x + step, line), _spray);
+        }
       }
     }
   }
