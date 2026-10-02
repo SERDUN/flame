@@ -58,8 +58,9 @@ enum WaterShape {
 /// in its lights mode: worked out from the light's numbers where the mirror
 /// puts it, bent by the same drops as
 /// the street's reflection and smeared down into a long broken streak by a
-/// rough surface ([streak]), as a wet road does. A lamp is as bright in it
-/// as a lamp is ([glowGain]), not as bright as an image's white.
+/// rough surface ([streak]), as a wet road does. A lamp's body in it is the
+/// lamp as its source is drawn times what water reflects at that angle: never
+/// brighter than the lamp, never bigger.
 ///
 /// The surface must not be rotated or scaled, nor its parents: it maps world
 /// coordinates to its own by its absolute top-left corner.
@@ -92,7 +93,6 @@ class WaterSurface extends PositionComponent
     this.chopPerRain = 0,
     this.film = false,
     this.gpuWaves = false,
-    this.glowGain = 10,
     this.substance = Substance.asphalt,
     double? basinMm,
     double? catchment,
@@ -298,13 +298,6 @@ class WaterSurface extends PositionComponent
 
   double _time = 0;
 
-  /// How much brighter than the screen's white a light's source is: a
-  /// still puddle shows a lamp burnt out white, a rough road smears it
-  /// into a streak that is still bright, as a real lamp's is. Only the
-  /// sources: the light the haze scatters round them comes back as bright
-  /// as it is.
-  double glowGain;
-
   /// Water's reflectance seen at an angle whose sine above the surface is
   /// [sinElevation] (Fresnel, Schlick's approximation for water): most of
   /// the light far off, where the eye looks along it, little near, where
@@ -441,9 +434,6 @@ class WaterSurface extends PositionComponent
       // light source draws (full to 0.55 of 1.6 radii, then fading): a sigma
       // of one source radius.
       var body = field.sourceRadiusOf(i);
-      // A bulb is brighter than white; a window or a tube is drawn as
-      // bright as it is.
-      var headroom = glowGain;
       // A cone's outer edge; a tube's half length instead.
       var spreadOrLength = math.cos(field.halfSpreadOf(i));
       switch (shape) {
@@ -452,7 +442,6 @@ class WaterSurface extends PositionComponent
           halfY = field.extentYOf(i) / 2 * squash;
           // A pane's edge, a little soft against its size.
           body = 0.04 * math.min(field.extentXOf(i), field.extentYOf(i));
-          headroom = 1;
         case LightShape.line:
           // Its direction mirrored and squeezed: y flips, by squash.
           final mx = math.cos(angle);
@@ -466,7 +455,6 @@ class WaterSurface extends PositionComponent
           body =
               0.5 *
               math.max(field.sourceRadiusOf(i), field.extentXOf(i) * 0.02);
-          headroom = 1;
           spreadOrLength = field.extentXOf(i) / 2;
         case LightShape.point:
         case LightShape.cone:
@@ -496,7 +484,10 @@ class WaterSurface extends PositionComponent
         ..[o + 16] = math.cos(field.halfSpreadOf(i) - field.edgeOf(i))
         ..[o + 17] = spreadOrLength
         ..[o + 18] = field.isPhysicalOf(i) ? 1 : 0
-        ..[o + 19] = headroom
+        // The source as LightSource draws it - its strength, no more than
+        // white, the eye's exposure aside; the haze round it and what it
+        // casts are light, exposed as the eye makes them.
+        ..[o + 19] = field.strengthOf(i).clamp(0.0, 1.0)
         ..[o + 20] = field.spillOf(i)
         ..[o + 21] = field.spillRadiusOf(i)
         ..[o + 22] = 0
@@ -565,7 +556,7 @@ class WaterSurface extends PositionComponent
           math.sqrt(body * body * squash * squash + down * down) +
           _lights[o + 9];
       final wide = body * body * squash / (sx * sy);
-      final a = (gain * _lights[o + 7] * _lights[o + 19] * wide).clamp(
+      final a = (gain * _lights[o + 19] * wide).clamp(
         0.0,
         1.0,
       );

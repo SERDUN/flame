@@ -13,8 +13,8 @@
 // where it is mirrored - a bulb, a lit window, a tube, with the halo the
 // haze makes round it - at the same bent point, smeared as rough as the
 // surface is. A lamp's streak on a wet road breaks where drops land, as the
-// street's reflection does, and is as bright as the lamp is, not as bright
-// as an image's white.
+// street's reflection does, and is the lamp as it is drawn times what water
+// reflects: never brighter than the lamp itself.
 //
 // Rain keeps the whole surface astir besides: the chop, a small restless
 // wave everywhere, changing fastest from row to row, so a lamp's reflection
@@ -199,7 +199,8 @@ float falloff(float dist, float radius, float physical) {
 //   (half across, half down, direction x, y) of its image's glowing part;
 //   (the y it stands on, radius, direction x, y) as it is, unmirrored - a
 //   cone's way, a tube's length;
-//   (cos full, cos edge or a tube's half length, physical, headroom);
+//   (cos full, cos edge or a tube's half length, physical, its body's
+//   strength as its source is drawn: no more than white, unexposed);
 //   (spill, spill radius, 0, 0): what a cone's source throws all round.
 // Its glowing body and the halo the haze makes round it are smeared up and
 // down by the surface's roughness and across by that times s; the light it
@@ -243,7 +244,7 @@ vec3 lights(vec2 p, float s) {
         float wide = (half_.x + bx) / (half_.x + sqrt(sx2)) *
             ((half_.y + by) / (half_.y + sqrt(sy2)));
         float q = d.x * d.x / sx2 + d.y * d.y / sy2;
-        float body = exp(-0.5 * q) * wide * h.w;
+        float body = exp(-0.5 * q) * wide;
         // Nearly white at its heart, as the source itself is drawn.
         vec3 color = mix(c.rgb, vec3(1.0), 0.6 * exp(-q));
         // The halo: the source's glow in the wet air, as wide as the haze
@@ -254,7 +255,7 @@ vec3 lights(vec2 p, float s) {
         float halo = uHaze * 0.6 *
             exp(-0.5 * (d.x * d.x / hx2 + d.y * d.y / hy2)) *
             (hs * hs * uSquash / sqrt(hx2 * hy2));
-        sum += (color * body + c.rgb * halo) * c.w;
+        sum += color * body * h.w + c.rgb * halo * c.w;
 
         // What it casts on the street, seen in the mirror: the point the
         // mirror shows here, back where it is, and the light reaching it.

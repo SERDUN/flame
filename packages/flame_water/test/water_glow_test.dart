@@ -43,8 +43,6 @@ Future<WaterSurface> _scene(
     fade: 0,
     streak: streak,
     waveAmplitude: 6,
-    // The lamp as bright as white, not burnt out: shifts show.
-    glowGain: 1,
   );
   game.world.addAll([
     if (road) _Road(),
@@ -63,6 +61,47 @@ void main() {
     expect(at(400, 500), greaterThan(200), reason: 'the lamp mirrored');
     expect(at(400, 540), lessThan(20), reason: 'not smeared on still water');
   });
+
+  testWithFlameGame(
+    'the mirrored lamp is never brighter or bigger than the lamp',
+    (game) async {
+      // A strong lamp in a black night, the eye adapted to the dark: its light
+      // is exposed far past white, its source is drawn no brighter than white.
+      await _scene(
+        game,
+        light: LightSource(
+          position: Vector2(400, 300),
+          radius: 60,
+          intensity: 6,
+          sourceRadius: 12,
+        ),
+      );
+      final at = await _render(game);
+      var lamp = 0;
+      var lampLit = 0;
+      for (var y = 270; y < 330; y++) {
+        for (var x = 370; x < 430; x++) {
+          lamp = at(x, y) > lamp ? at(x, y) : lamp;
+          if (at(x, y) > 200) {
+            lampLit++;
+          }
+        }
+      }
+      var mirror = 0;
+      var mirrorLit = 0;
+      for (var y = 401; y < 600; y++) {
+        for (var x = 340; x < 460; x++) {
+          mirror = at(x, y) > mirror ? at(x, y) : mirror;
+          if (at(x, y) > 200) {
+            mirrorLit++;
+          }
+        }
+      }
+      expect(mirror, greaterThan(40), reason: 'it is mirrored');
+      expect(mirror, lessThanOrEqualTo(lamp));
+      expect(mirrorLit, lessThanOrEqualTo(lampLit));
+    },
+  );
 
   testWithFlameGame('a drop by the mirrored lamp bends it', (game) async {
     final water = await _scene(game);
