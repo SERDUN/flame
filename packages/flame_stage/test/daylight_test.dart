@@ -94,6 +94,13 @@ void main() {
     expect(LightField.airGlow(null, street), 0, reason: 'no weather, no air');
   });
 
+  test('a cloud off to one side covers the sky, not the sun', () {
+    final aside = Daylight.at(sunElevation: 30, cloudCover: 0.5, sunCover: 0);
+    final over = Daylight.at(sunElevation: 30, cloudCover: 0.5, sunCover: 1);
+    expect(aside.sunLight, greaterThan(over.sunLight * 100));
+    expect(aside.skyLight, closeTo(over.skyLight, 1e-9));
+  });
+
   test('the harder it rains, the thicker the cloud it falls from', () {
     expect(cloudOpticalDepthOfRain(0), Daylight.overcastOpticalDepth);
     expect(cloudOpticalDepthOfRain(6), greaterThan(cloudOpticalDepthOfRain(1)));

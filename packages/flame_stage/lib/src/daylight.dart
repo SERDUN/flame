@@ -54,10 +54,14 @@ class Daylight {
   /// The day with the sun [sunElevation] degrees above the horizon (below
   /// 0 under it), clouds of optical depth `cloudOpticalDepth` over
   /// [cloudCover] of the sky (`0..1`), with a town's glow of [townGlowLux]
-  /// reflected by them and the moon giving [moonLux].
+  /// reflected by them and the moon giving [moonLux]. The sun's disc is
+  /// behind them as much as `sunCover` says (`0..1`; by default as much as
+  /// they cover the sky): a cloud off to one side covers half the sky and
+  /// may leave the sun out.
   factory Daylight.at({
     required double sunElevation,
     double cloudCover = 0,
+    double? sunCover,
     double cloudOpticalDepth = overcastOpticalDepth,
     double townGlowLux = 1.5,
     double moonLux = 0.05,
@@ -81,7 +85,8 @@ class Daylight {
     final clearTotal = direct * up + clearSky;
     final sky = (1 - cover) * clearSky + cover * through * clearTotal;
     final disc = up <= 0 ? 0.0 : math.exp(-tau / math.max(up, 0.05));
-    final sun = direct * ((1 - cover) + cover * disc);
+    final behind = (sunCover ?? cover).clamp(0.0, 1.0);
+    final sun = direct * ((1 - behind) + behind * disc);
     final night =
         moonLux * ((1 - cover) + cover * through) +
         townGlowLux * cover * reflected;
