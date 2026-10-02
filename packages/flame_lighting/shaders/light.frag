@@ -57,6 +57,8 @@ uniform vec4 u[kCapsules + kShadows * 2];
 // surface. A capsule darkens a way through the air only over its own
 // depth, so its shadow there is as deep as it is thick against the air's.
 #define S_AIR u[7].y
+// How far one sees through the air, in the world's units (Koschmieder).
+#define S_VIS u[7].z
 
 const float kArea = 2.0;
 const float kLine = 3.0;
@@ -163,6 +165,25 @@ float through(vec3 l, vec3 p, float source) {
     return light;
 }
 
+// How much of the glow the air holds a lamp's light makes at a point dist
+// from it, against what the whole air between the eye and the street would
+// (what the lighting scales the glow by): a way through the air passing
+// dist from a light falling off as the inverse square gathers as much of it
+// as a straight stretch pi * dist long lit as at its nearest point. The sun
+// lights all of the air.
+float airShare(float dist) {
+    if (S_AIR <= 0.0) {
+        return 1.0;
+    }
+    float v = max(S_VIS, 1e-3);
+    float lit = min(3.14159265 * dist, S_AIR);
+    float whole = 1.0 - exp(-3.912 * S_AIR / v);
+    if (whole < 1e-6) {
+        return lit / S_AIR;
+    }
+    return (1.0 - exp(-3.912 * lit / v)) / whole;
+}
+
 void main() {
     vec2 frag = FlutterFragCoord().xy;
     vec3 p;
@@ -230,6 +251,6 @@ void main() {
         float ts = 1.0 - dist / spillRadius;
         reach = max(reach, L_SPILL * ts * ts);
     }
-    float a = AMOUNT * L_STRENGTH * reach * incidence * shade;
+    float a = AMOUNT * L_STRENGTH * reach * incidence * shade * airShare(dist);
     fragColor = vec4(L_COLOR * a, a);
 }

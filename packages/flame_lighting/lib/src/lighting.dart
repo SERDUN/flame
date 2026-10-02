@@ -240,6 +240,9 @@ class Lighting extends Component with OnStage, Ambience, FrameStep {
     // against that air - next to none of a post or a walker. An eighth of
     // the buffer each way: it is blurred to half a metre anyway.
     final air = frame.projection?.farDistance ?? 0;
+    // How far one sees through it, in the world's units: how much a lamp's
+    // glow near it counts against the whole air's.
+    final visibility = frame.weather.visibilityM * metre;
     final airW = math.max(1, w ~/ 8);
     final airH = math.max(1, h ~/ 8);
     if (buffer != null && useBuffer) {
@@ -251,6 +254,7 @@ class Lighting extends Component with OnStage, Ambience, FrameStep {
           airW,
           airH,
           air: air,
+          visibility: visibility,
           slot: _airSlot,
         );
       }
@@ -267,6 +271,7 @@ class Lighting extends Component with OnStage, Ambience, FrameStep {
           airW,
           airH,
           air: air,
+          visibility: visibility,
         );
         all.dispose();
         _airLights = airLights;
@@ -309,6 +314,7 @@ class Lighting extends Component with OnStage, Ambience, FrameStep {
     int h, {
     double wall = 0,
     double air = 0,
+    double visibility = 1e9,
   }) {
     final field = frame.light;
     final lights = PictureRecorder();
@@ -316,7 +322,16 @@ class Lighting extends Component with OnStage, Ambience, FrameStep {
       ..scale(w / view.width, h / view.height)
       ..translate(-view.left, -view.top);
     for (var i = 0; i < field.count; i++) {
-      _cast(into, frame, i, _add, 1 / canvasGain, wallAhead: wall, air: air);
+      _cast(
+        into,
+        frame,
+        i,
+        _add,
+        1 / canvasGain,
+        wallAhead: wall,
+        air: air,
+        visibility: visibility,
+      );
     }
     final cast = lights.endRecording().toImageSync(w, h);
     final all = PictureRecorder();
@@ -464,6 +479,17 @@ class Lighting extends Component with OnStage, Ambience, FrameStep {
   /// leave something out of the multiply; otherwise, and in a frame with no
   /// light to multiply by, [draw] is drawn with the world.
   void unlit(Canvas canvas, void Function() draw) {
+    // A picture of the world drawn apart from it (a mirror's) has layers of
+    // its own: out of its multiply, not the world's.
+    if (LitPicture._drawing) {
+      final picture = LitPicture._current;
+      if (picture == null) {
+        draw();
+      } else {
+        picture._unlit(canvas, draw);
+      }
+      return;
+    }
     final layer = _litLayer;
     final frame = stage?.frame;
     if (_unlitDepth > 0 ||
@@ -480,7 +506,12 @@ class Lighting extends Component with OnStage, Ambience, FrameStep {
       layer._turnWith(
         canvas,
         light: () {
-          if (_lightImage != null) {
+          // What the layer holds stands where the cut that would light it
+          // says: the next one still to come, or the street line.
+          final cut = _cutAhead(frame);
+          if (cut != null && cut._image != null) {
+            cut._light(canvas, view);
+          } else if (_lightImage != null) {
             _drawBuffer(canvas, view, _illumination, frame.light, mode: 0);
           } else {
             _illuminateAll(canvas, frame, view);
@@ -494,6 +525,21 @@ class Lighting extends Component with OnStage, Ambience, FrameStep {
   }
 
   int _unlitDepth = 0;
+
+  /// The first of the stage's cuts not drawn yet this frame: the one that
+  /// lights what the world drew since the last; `null` past the last cut.
+  LitCut? _cutAhead(StageFrame frame) {
+    LitCut? ahead;
+    for (final cut in stage?.members<LitCut>() ?? const <LitCut>[]) {
+      if (cut._turnedAt == frame.index) {
+        continue;
+      }
+      if (ahead == null || cut.priority < ahead.priority) {
+        ahead = cut;
+      }
+    }
+    return ahead;
+  }
 
   /// Multiplies what [canvas] holds over [area] by the light falling on
   /// the street line: the sky's and every light's as it is cast, with no
@@ -575,6 +621,7 @@ class Lighting extends Component with OnStage, Ambience, FrameStep {
     Rect? clip,
     double wallAhead = 0,
     double air = 0,
+    double visibility = 1e9,
   }) {
     final field = frame.light;
     final view = frame.view.inflate(frame.view.width * 0.01);
@@ -625,6 +672,7 @@ class Lighting extends Component with OnStage, Ambience, FrameStep {
         shadows: frame.shadows,
         wall: wallAhead,
         air: air,
+        visibility: visibility,
       );
       canvas.drawRect(area, paint..shader = shader);
       paint.shader = null;
@@ -974,6 +1022,9 @@ class LitCut extends Component with OnStage {
   double _gain = 1;
   bool _alphaIsWhite = true;
 
+  /// The frame it last drew in.
+  int _turnedAt = -1;
+
   void _set(Image? image, {bool owned = false}) {
     if (_owned) {
       _image?.dispose();
@@ -992,12 +1043,26 @@ class LitCut extends Component with OnStage {
   void render(Canvas canvas) {
     final lighting = Lighting.of(this);
     final layer = lighting?._litLayer;
-    final image = _image;
     final frame = stage?.frame;
-    if (lighting == null || layer == null || image == null || frame == null) {
+    if (frame != null) {
+      _turnedAt = frame.index;
+    }
+    if (lighting == null || layer == null || _image == null || frame == null) {
       return;
     }
-    final view = frame.view.inflate(frame.view.width * 0.01);
+    _light(canvas, frame.view.inflate(frame.view.width * 0.01));
+    layer._turn(canvas);
+  }
+
+  /// Multiplies what [canvas] holds over [view] by the light where what is
+  /// below it stands.
+  void _light(Canvas canvas, Rect view) {
+    final lighting = Lighting.of(this);
+    final image = _image;
+    final frame = stage?.frame;
+    if (lighting == null || image == null || frame == null) {
+      return;
+    }
     lighting._drawBuffer(
       canvas,
       view,
@@ -1008,7 +1073,6 @@ class LitCut extends Component with OnStage {
       gain: _gain,
       alphaIsWhite: _alphaIsWhite,
     );
-    layer._turn(canvas);
   }
 
   /// Multiplies what [canvas] holds over [area] by the light falling where
@@ -1058,6 +1122,85 @@ class LitPicture {
   final Lighting _lighting;
   final Rect _area;
   int? _openAt;
+  Float64List _openTransform = Float64List(16);
+  final Set<LitCut> _passed = {};
+
+  static bool _drawing = false;
+  static LitPicture? _current;
+
+  /// Runs [draw], which draws a picture of the world apart from it, lit by
+  /// [picture] (`null`: not lit). Inside it what draws out of the
+  /// lighting's multiply ([Lighting.unlit]) does so in the picture's own
+  /// layers, and leaves the world's alone.
+  static void apart(LitPicture? picture, void Function() draw) {
+    final drawing = _drawing;
+    final current = _current;
+    _drawing = true;
+    _current = picture;
+    try {
+      draw();
+    } finally {
+      _drawing = drawing;
+      _current = current;
+    }
+  }
+
+  int _unlitDepth = 0;
+
+  /// [Lighting.unlit] in the picture: what it holds so far lit and laid
+  /// down, [draw] over it as it is, the next layer opened - in the asker's
+  /// transform and as deep as it was, as the world's lit layer does it.
+  void _unlit(Canvas canvas, void Function() draw) {
+    final at = _openAt;
+    if (at == null || _unlitDepth > 0) {
+      draw();
+      return;
+    }
+    final depth = canvas.getSaveCount();
+    final inner = Matrix4.fromList(canvas.getTransform());
+    final world = Matrix4.fromList(_openTransform);
+    final toWorld = Float64List.fromList(
+      (Matrix4.inverted(inner)..multiply(world)).storage,
+    );
+    final toInner = Float64List.fromList(
+      (Matrix4.inverted(world)..multiply(inner)).storage,
+    );
+    canvas
+      ..save()
+      ..transform(toWorld);
+    // Lit where it stands: by the next cut still to come, or on the line.
+    LitCut? ahead;
+    for (final cut in _lighting.stage?.members<LitCut>() ?? const <LitCut>[]) {
+      if (_passed.contains(cut)) {
+        continue;
+      }
+      if (ahead == null || cut.priority < ahead.priority) {
+        ahead = cut;
+      }
+    }
+    if (ahead != null) {
+      ahead._illuminateSurfaces(canvas, _area);
+    } else {
+      _lighting._illuminateSurfaces(canvas, _area);
+    }
+    canvas
+      ..restore()
+      ..restoreToCount(at)
+      ..save()
+      ..transform(toInner);
+    _unlitDepth++;
+    try {
+      draw();
+    } finally {
+      _unlitDepth--;
+    }
+    canvas.restore();
+    _open(canvas);
+    for (var i = canvas.getSaveCount(); i < depth; i++) {
+      canvas.save();
+    }
+    canvas.transform(toInner);
+  }
 
   static final Paint _paint = Paint();
 
@@ -1088,6 +1231,7 @@ class LitPicture {
       case LitLayer():
         _open(canvas);
       case LitCut():
+        _passed.add(component);
         if (_openAt != null) {
           component._illuminateSurfaces(canvas, _area);
           _close(canvas);
@@ -1114,6 +1258,7 @@ class LitPicture {
 
   void _open(Canvas canvas) {
     _openAt = canvas.getSaveCount();
+    _openTransform = canvas.getTransform();
     canvas.saveLayer(null, _paint);
   }
 

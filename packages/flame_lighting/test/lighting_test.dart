@@ -319,8 +319,8 @@ void main() {
           // Hanging 150 over the ground at x 400, pointing straight down.
           LightSource(position: Vector2(400, 250), radius: 400, coneAngle: 1.6),
         ],
-        wall: const Color(0xFF000000),
-        glow: 1,
+        // The light on the ground itself, as the lighting lays it on white;
+        // the light in the air is no measure of where light falls.
       );
       final at = await _render(game);
       final under = at(400, 405);

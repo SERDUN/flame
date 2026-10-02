@@ -32,7 +32,8 @@ uniform Params {
   vec4 info;      // eye height, lights in use, capsules in use, haze
   vec4 look;      // the eye's exposure, the wall plane's distance in front
                   // of the street line (behind it, negative), the depth of
-                  // air the light fills (0: it falls on surfaces)
+                  // air the light fills (0: it falls on surfaces), how far
+                  // one sees through it (Koschmieder), the world's units
   vec4 lights[kMaxLights * 5];   // LightField.writeLight's five vectors each
   vec4 capsules[kMaxShadows * 2];
 } params;
@@ -143,6 +144,26 @@ float halo(float r) {
   return r < 0.25 ? mix(1.0, 0.35, r / 0.25) : mix(0.35, 0.0, (r - 0.25) / 0.75);
 }
 
+// How much of the glow the air holds a lamp's light makes at a point dist
+// from it, against what the whole air between the eye and the street would
+// (what the lighting scales the glow by): a way through the air passing
+// dist from a light falling off as the inverse square gathers as much of it
+// as a straight stretch pi * dist long lit as at its nearest point. The sun
+// lights all of the air.
+float airShare(float dist) {
+  float air = params.look.z;
+  if (air <= 0.0) {
+    return 1.0;
+  }
+  float v = max(params.look.w, 1e-3);
+  float lit = min(3.14159265 * dist, air);
+  float whole = 1.0 - exp(-3.912 * air / v);
+  if (whole < 1e-6) {
+    return lit / air;
+  }
+  return (1.0 - exp(-3.912 * lit / v)) / whole;
+}
+
 void main() {
   vec2 frag = params.view.xy + v_uv * params.view.zw;
   // Above the street line, the wall plane at its distance; below it, the
@@ -226,7 +247,7 @@ void main() {
         incidence = dist < 1e-3 ? 1.0 : clamp(v.y / dist, 0.0, 1.0);
       }
       float shade = params.info.z > 0.5 ? through(l, p, h.w) : 1.0;
-      float amount = strength * reach * incidence * shade;
+      float amount = strength * reach * incidence * shade * airShare(dist);
       sum += c.rgb * amount;
     }
     // What glows itself shows as bright as it is drawn.
