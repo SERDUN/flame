@@ -82,6 +82,13 @@ class Lighting extends Component with OnStage, Ambience, FrameStep {
   Image? _lightImage;
   Rect _lightArea = Rect.zero;
 
+  /// This frame's light buffer - every light added up where it falls, with
+  /// its shadows, unexposed - and the world rect it covers; null without a
+  /// buffer. A mirror reads the light in the air from it, so it shows what
+  /// is lit above it and nothing else.
+  Image? get lightImage => _lightImage;
+  Rect get lightArea => _lightArea;
+
   @override
   void onMount() {
     super.onMount();

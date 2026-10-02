@@ -60,6 +60,7 @@ abstract final class WaterShader {
   static const int glint = 36;
   static const int squash = 41;
   static const int air = 42;
+  static const int airMap = 43;
   static const int image = 44;
 
   /// The loaded program; `null` before [load] finishes.

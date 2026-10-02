@@ -64,6 +64,8 @@ uniform vec4 u[kLights + kMaxLights * 6];
 #define uSquash      u[10].y   // the mirror's height over the thing's
 #define uAir         u[10].z   // how much of the light cast on what stands
                                // on the street (walls, the air) is mirrored
+#define uAirMap      u[10].w   // 1: in the lights mode uReflection is the
+                               // lighting's light buffer, uImage its rect
 #define uImage       u[11]     // the mirror's picture: its corner and size,
                                // local units (it covers other waters too)
 
@@ -201,7 +203,8 @@ float falloff(float dist, float radius, float physical) {
 //   cone's way, a tube's length;
 //   (cos full, cos edge or a tube's half length, physical, its body's
 //   strength as its source is drawn: no more than white, unexposed);
-//   (spill, spill radius, 0, 0): what a cone's source throws all round.
+//   (spill, spill radius, how far in front of the street line it stands, 0):
+//   what a cone's source throws all round.
 // Its glowing body and the halo the haze makes round it are smeared up and
 // down by the surface's roughness and across by that times s; the light it
 // casts on what stands on the street (walls, the air) is mirrored too,
@@ -258,8 +261,11 @@ vec3 lights(vec2 p, float s) {
         sum += color * body * h.w + c.rgb * halo * c.w;
 
         // What it casts on the street, seen in the mirror: the point the
-        // mirror shows here, back where it is, and the light reaching it.
-        if (uAir > 0.0) {
+        // mirror shows here, back where it is on the street line, and the
+        // light reaching it as the lighting works it out there (light.frag):
+        // from where the light stands in front of the line, by how far, and
+        // as steeply as it comes down.
+        if (uAir > 0.0 && uAirMap < 0.5) {
             float base = g.x;
             vec2 w = vec2(p.x, base - (p.y - base) / uSquash);
             vec2 l = vec2(a.x, base - (a.y - base) / uSquash);
@@ -270,17 +276,20 @@ vec3 lights(vec2 p, float s) {
                 vec2 box = vec2(e.x, e.y / uSquash);
                 v -= clamp(v, -box, box);
             }
-            float dist = length(v);
+            float dist = length(vec3(v, k.z));
             float reach = 0.0;
             if (dist < g.y) {
                 float cone = 1.0;
-                if (a.z > 0.5 && a.z < 1.5 && dist > 1e-6) {
-                    float off = acos(clamp(dot(v, g.zw) / dist, -1.0, 1.0));
+                float across = length(v);
+                if (a.z > 0.5 && a.z < 1.5 && across > 1e-6) {
+                    // Its cone on the screen's plane, as light.frag has it.
+                    float off = acos(clamp(dot(v, g.zw) / across, -1.0, 1.0));
                     float full = acos(clamp(h.x, -1.0, 1.0));
                     float edge = acos(clamp(h.y, -1.0, 1.0));
                     cone = 1.0 - smoothstep(full, max(edge, full + 1e-4), off);
                 }
-                reach = falloff(dist, g.y, h.z) * cone;
+                float incidence = clamp(v.y / max(dist, 1e-6), 0.0, 1.0);
+                reach = falloff(dist, g.y, h.z) * cone * incidence;
             }
             if (dist < k.y) {
                 float ts = 1.0 - dist / k.y;
@@ -290,6 +299,21 @@ vec3 lights(vec2 p, float s) {
         }
     }
     return sum;
+}
+
+// The light in the air the lighting laid above the street, seen in the
+// mirror at p: read from its buffer where the mirror puts p back, and smeared
+// down by the surface's roughness as the street's reflection is (a sigma of
+// uSpread, five taps).
+vec3 airMirrored(vec2 p) {
+    vec3 sum = vec3(0.0);
+    for (int k = -2; k <= 2; k++) {
+        float weight = k == 0 ? 6.0 : (k == 1 || k == -1 ? 4.0 : 1.0);
+        float y = p.y + float(k) * uSpread;
+        vec2 w = vec2(p.x, uLine - (y - uLine) / uSquash);
+        sum += mirrored(w).rgb * weight;
+    }
+    return sum / 16.0;
 }
 
 void main() {
@@ -319,7 +343,11 @@ void main() {
     float below = clamp((p.y - uLine) / max(uSize.y - uLine, 1.0), 0.0, 1.0);
     float shown = uGain * reflectance * (1.0 - uFade * below);
     if (uLightMode > 0.5) {
-        vec3 light = lights(at, s) * shown * water;
+        vec3 light = lights(at, s);
+        if (uAirMap > 0.5) {
+            light += airMirrored(at) * uAir;
+        }
+        light *= shown * water;
         float most = max(light.r, max(light.g, light.b));
         fragColor = vec4(light, clamp(most, 0.0, 1.0));
         return;

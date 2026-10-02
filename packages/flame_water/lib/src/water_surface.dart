@@ -490,7 +490,9 @@ class WaterSurface extends PositionComponent
         ..[o + 19] = field.strengthOf(i).clamp(0.0, 1.0)
         ..[o + 20] = field.spillOf(i)
         ..[o + 21] = field.spillRadiusOf(i)
-        ..[o + 22] = 0
+        // How far in front of the street line it stands: the light it casts
+        // in the air is worked out there, as the lighting does.
+        ..[o + 22] = field.aheadOf(i)
         ..[o + 23] = 0;
     }
     return n;
@@ -519,15 +521,33 @@ class WaterSurface extends PositionComponent
           ..[WaterShader.lightCount] = count.toDouble()
           ..[WaterShader.haze] = haze
           ..[WaterShader.air] = glow * (0.2 + 0.5 * haze)
+          ..[WaterShader.airMap] = 0
           ..setRange(
             WaterShader.lights,
             WaterShader.lights + count * WaterShader.lightFloats,
             _lights,
           );
+    // The light in the air as the lighting lays it above the street - its
+    // shadows, its depth, its cones as they fall - read at the point the
+    // mirror shows, and added as the lighting adds it (its glow, exposed).
+    // Without a buffer, worked out per light in the shader.
+    final lighting = Lighting.of(this);
+    final buffer = lighting?.lightImage;
+    if (buffer != null) {
+      final area = lighting!.lightArea;
+      final origin = absoluteTopLeftPosition;
+      f
+        ..[WaterShader.air] = glow * field.exposure
+        ..[WaterShader.airMap] = 1
+        ..[WaterShader.image] = area.left - origin.x
+        ..[WaterShader.image + 1] = area.top - origin.y
+        ..[WaterShader.image + 2] = area.width
+        ..[WaterShader.image + 3] = area.height;
+    }
     WaterShader.upload(shader, f);
     final blank = _blank ??= _makeBlank();
     shader
-      ..setImageSampler(0, blank)
+      ..setImageSampler(0, buffer ?? blank)
       ..setImageSampler(1, _waves?.heights ?? blank);
     canvas.drawRect(rect, _glowPaint..shader = shader);
   }
