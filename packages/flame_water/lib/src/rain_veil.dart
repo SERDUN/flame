@@ -3,7 +3,6 @@ import 'dart:typed_data';
 import 'dart:ui';
 
 import 'package:flame/components.dart';
-import 'package:flame_lighting/flame_lighting.dart';
 import 'package:flame_stage/flame_stage.dart';
 import 'package:flame_water/src/rain.dart';
 import 'package:flame_water/src/rain_drops.dart';
@@ -47,7 +46,6 @@ class RainVeil {
   final Vector2 _air = Vector2.zero();
   final Float32List _uniforms = Float32List(_floats);
   final Paint _streaks = Paint();
-  final Paint _haze = Paint();
   final Paint _spray = Paint();
 
   /// Moves the veils on by [dt]; their slant eases after the wind over
@@ -66,9 +64,7 @@ class RainVeil {
   }
 
   /// Draws the veil at [depth] of [rain] over [view]; [nearest] when it is
-  /// the nearest veil, which the spray rises in front of; [nearer] the depth
-  /// of the next veil towards the eye (`null`: the eye itself); [visibilityM]
-  /// how far one sees through the air now (`WeatherState.visibilityM`).
+  /// the nearest veil, which the spray rises in front of.
   void render(
     Canvas canvas,
     Rain rain,
@@ -76,8 +72,6 @@ class RainVeil {
     StreetProjection projection,
     double depth, {
     required bool nearest,
-    double? nearer,
-    double visibilityM = 20000,
   }) {
     final intensity = rain.intensity.clamp(0.0, 2.5);
     if (intensity <= 0.01) {
@@ -86,39 +80,8 @@ class RainVeil {
     final metre = rain.metre;
     final color = rain.color;
     final scale = projection.scaleAt(depth);
-    // The air between the eye and what is behind the veil pales it as much
-    // as it lets less of its light through: Koschmieder, a share
-    // exp(-3.912 d / V) over d metres when one sees V. The veils lie one
-    // over another, so this one pales by what the air between it and the
-    // next veil towards the eye takes: together they leave what is behind
-    // each as much as the whole way lets through.
-    double through(double at) => WeatherState.transmittanceOf(
-      projection.distanceAt(at) / metre,
-      visibilityM,
-    );
-    final haze = 1 - through(depth) / (nearer == null ? 1 : through(nearer));
-    // The air's own light, as much as it takes of what is behind - the
-    // opacity the air's alone, not the drops' own. It is light the air
-    // scatters toward the eye, not a surface the light falls on: through
-    // more and more air it becomes the sky at the horizon, and no walker's
-    // shadow lies on it as on a wall. So where the sky drawn is known it is
-    // that sky's horizon as the eye sees it, out of the lighting's multiply;
-    // otherwise the rain's colour, lit with the rest.
-    final sky = rain.stage?.frame.sky;
-    final lighting = Lighting.of(rain);
-    final area = view.inflate(metre);
-    if (sky != null && sky.present && lighting != null) {
-      lighting.unlit(
-        canvas,
-        () => canvas.drawRect(
-          area,
-          _haze..color = sky.horizon.withValues(alpha: haze),
-        ),
-      );
-    } else {
-      canvas.drawRect(area, _haze..color = color.withValues(alpha: haze));
-    }
-
+    // The air before it - the haze - is the air's (`AirVeil`), not the
+    // rain's: the rain's own share of it is in the air's extinction.
     final program = _program;
     if (program == null && !_asked) {
       // Loaded on first use if the game did not; the streaks show once it

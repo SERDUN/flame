@@ -5,6 +5,7 @@
 /// street they fall on are the stage's (`flame_stage`).
 library;
 
+export 'src/air_veil.dart' show AirVeil, GroundAir;
 export 'src/glossy.dart' show Glossy;
 export 'src/light_buffer.dart' show LightBuffer;
 export 'src/light_reflector.dart' show LightReflector;

@@ -43,6 +43,7 @@ abstract final class LightShader {
   static void reset() {
     _program = null;
     _compose = null;
+    _air = null;
   }
 
   /// Loads the program from [directory], the key the app bundles it under;
@@ -54,6 +55,18 @@ abstract final class LightShader {
     _compose ??= await FragmentProgram.fromAsset(
       '$directory/light_compose.frag',
     );
+    _air ??= await FragmentProgram.fromAsset('$directory/air.frag');
+  }
+
+  static FragmentProgram? _air;
+
+  /// The shader the air is laid over what is drawn with
+  /// (`shaders/air.frag`, `AirVeil`); `null` before [load] finishes.
+  static FragmentShader? get air {
+    final program = _air;
+    return program == null
+        ? null
+        : _shaders[program] ??= program.fragmentShader();
   }
 
   static FragmentProgram? _compose;

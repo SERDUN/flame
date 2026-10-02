@@ -200,21 +200,11 @@ class Rain extends Component with OnStage, Reflectable, Weather {
   /// and the air turns pale. Drawn from a formula, not simulated - each streak
   /// falls on its own phase and wraps round the view - as big, as fast and as
   /// far across as its depth on the street makes it, slanted by the
-  /// wind, with the haze that much rain lays over what is behind it; at the
-  /// nearest veil, in heavy rain, the spray the drops kick up along the
-  /// ground. Each is drawn by the [RainSlice] whose depths hold it.
+  /// wind; at the nearest veil, in heavy rain, the spray the drops kick up
+  /// along the ground. Each is drawn by the [RainSlice] whose depths hold it.
+  /// The haze the rain lays over what is behind is the air's (its share of
+  /// the air's extinction, drawn by `AirVeil`).
   List<double> veils = const [];
-
-  // The veil next towards the eye from the one at [depth], `null` if none.
-  double? _nearerVeil(double depth) {
-    double? nearer;
-    for (final other in veils) {
-      if (other > depth && (nearer == null || other < nearer)) {
-        nearer = other;
-      }
-    }
-    return nearer;
-  }
 
   /// Streaks of a veil per metre of the view at a depth as big as the street
   /// line, at intensity 1; a farther veil holds more of them (they cover more
@@ -910,8 +900,6 @@ class Rain extends Component with OnStage, Reflectable, Weather {
             projection,
             depth,
             nearest: depth == veils.reduce(math.max),
-            nearer: _nearerVeil(depth),
-            visibilityM: stage?.frame.weather.visibilityM ?? 20000,
           );
         }
       }

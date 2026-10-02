@@ -2,7 +2,6 @@ import 'dart:io';
 import 'dart:ui';
 
 import 'package:flame/components.dart';
-import 'package:flame_lighting/flame_lighting.dart';
 import 'package:flame_stage/flame_stage.dart';
 import 'package:flame_test/flame_test.dart';
 import 'package:flame_water/flame_water.dart';
@@ -85,39 +84,4 @@ void main() {
     expect(hard.pixels, greaterThan(2000));
     expect(soft.pixels, lessThan(hard.pixels / 2));
   });
-
-  testWithFlameGame(
-    "a veil's haze is the air's light: the horizon drawn, not lit as a wall",
-    (game) async {
-      game.camera.viewfinder.anchor = Anchor.topLeft;
-      final rain = Rain(intensity: 2)
-        ..veils = [-0.35]
-        ..drawsItself = false;
-      game.world.addAll([
-        _Ground(),
-        rain,
-        // A night with no lamp: anything lit as a surface would be black.
-        Lighting(skyLight: 0, glow: 0, lightsBackdrop: false),
-      ]);
-      await game.ready();
-      for (var i = 0; i < 10; i++) {
-        game.update(1 / 30);
-      }
-      rain.stage!.frame.sky.set(
-        topY: 0,
-        horizonY: 400,
-        top: const Color(0xFF000000),
-        horizon: const Color(0xFF00FF00),
-      );
-      final recorder = PictureRecorder();
-      final canvas = Canvas(recorder)
-        ..drawColor(const Color(0xFF000000), BlendMode.src);
-      RainSlice(rain, to: -0.3).render(canvas);
-      final image = await recorder.endRecording().toImage(800, 600);
-      final bytes = (await image.toByteData())!;
-      const at = (20 * 800 + 20) * 4;
-      expect(bytes.getUint8(at + 1), greaterThan(4), reason: 'the green haze');
-      expect(bytes.getUint8(at), lessThan(2), reason: 'not the rain colour');
-    },
-  );
 }

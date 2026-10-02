@@ -32,6 +32,7 @@ flutter:
   shaders:
     - shaders/light.frag
     - shaders/light_compose.frag
+    - shaders/air.frag
   assets:
     # Built by hook/build.dart from flame_lighting.shaderbundle.json.
     - build/shaderbundles/flame_lighting.shaderbundle
