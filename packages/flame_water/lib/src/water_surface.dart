@@ -74,7 +74,8 @@ class WaterSurface extends PositionComponent
     super.priority,
     this.shape = WaterShape.ellipse,
     this.waterLine,
-    this.color = const Color(0xFF2B3440),
+    this.color = const Color(0x00000000),
+    this.medium = WaterMedium.clear,
     this.reflectivity = 1,
     this.squash = 1,
     this.fade = 0.8,
@@ -124,8 +125,80 @@ class WaterSurface extends PositionComponent
   /// The street's projection now, if the stage has a ground.
   StreetProjection? get _projection => stage?.projection;
 
-  /// The water under its reflection.
+  /// The bottom, for a surface with nothing drawn under it: drawn first,
+  /// under the water. Clear by default - the scene's ground under it shows,
+  /// lit as it is.
   Color color;
+
+  /// What the water is: how much its surface mirrors, how much of its
+  /// bottom shows through how deep it is ([depthM]), its own colour from
+  /// its depth (`WaterMedium`). Under a film or a puddle the ground shows,
+  /// lamp light and all; under a pond its bed is gone in its colour.
+  WaterMedium medium;
+
+  /// How deep it is, m: the water it holds ([waterMm]).
+  double get depthM => waterMm / 1000;
+
+  /// How much of the ground's colour under it is gone: a film's as it soaks
+  /// it, standing water's soaked through.
+  double get _darken => (film ? wetDarkening : soakedDarkening).clamp(0.0, 1.0);
+
+  /// The light falling on the water as the eye sees it: the sky's, as the
+  /// lighting lays it; all of it where nothing lights the scene.
+  Rgb _ambient() {
+    final field = stage?.frame.light;
+    if (field == null || !field.isLit) {
+      return const Rgb.all(1);
+    }
+    final e = field.exposure;
+    return Rgb(
+      math.min(field.skyRed * e, 1),
+      math.min(field.skyGreen * e, 1),
+      math.min(field.skyBlue * e, 1),
+    );
+  }
+
+  /// Other water lying on this film, in its own units: there it is the
+  /// surface, not this (a puddle on the wet road). Standing water only; at
+  /// most [WaterShader.maxHoles], the nearest first.
+  List<Rect> _holes() {
+    final stage = this.stage;
+    if (!film || stage == null) {
+      return const [];
+    }
+    final origin = absoluteTopLeftPosition;
+    final mine = toAbsoluteRect();
+    final holes = <Rect>[];
+    for (final other in stage.members<WaterSurface>()) {
+      if (identical(other, this) ||
+          other.film ||
+          other.shape != WaterShape.ellipse ||
+          other._dry) {
+        continue;
+      }
+      final at = other.absoluteTopLeftPosition;
+      final pool = other.outline().getBounds().shift(at.toOffset());
+      if (!pool.overlaps(mine)) {
+        continue;
+      }
+      holes.add(pool.shift(-origin.toOffset()));
+      if (holes.length == WaterShader.maxHoles) {
+        break;
+      }
+    }
+    return holes;
+  }
+
+  /// [_holes]' softness: a puddle's rim.
+  double _holeSoftness() {
+    for (final other
+        in stage?.members<WaterSurface>() ?? const <WaterSurface>[]) {
+      if (!other.film && other.shape == WaterShape.ellipse) {
+        return other.edgeSoftness.clamp(0.0, 1.0);
+      }
+    }
+    return 0;
+  }
 
   /// How much of it is clear water, `0..1`: 1 still water, less a film
   /// broken by the asphalt poking through. How much clear water mirrors is
@@ -319,7 +392,7 @@ class WaterSurface extends PositionComponent
   /// Water's reflectance where it is seen at its middle: what a surface
   /// drawn without the shader mirrors all over.
   double _meanReflectance(({double top, double bottom})? view) =>
-      view == null ? 1 : fresnel((view.top + view.bottom) / 2);
+      view == null ? 1 : medium.fresnel((view.top + view.bottom) / 2);
 
   @override
   void renderReflectedLights(Canvas canvas, StageFrame frame) {
@@ -606,6 +679,8 @@ class WaterSurface extends PositionComponent
   static Image? _clear;
   static Image _makeClear() {
     final recorder = PictureRecorder();
+    // A recorder records once a canvas is made on it; nothing drawn.
+    Canvas(recorder);
     final picture = recorder.endRecording();
     final image = picture.toImageSync(1, 1);
     picture.dispose();
@@ -658,8 +733,14 @@ class WaterSurface extends PositionComponent
 
   // The uniforms of its two draws: the street mirrored, and the lights.
   final Float32List _sceneUniforms = Float32List(WaterShader.floats);
+  final Float32List _underUniforms = Float32List(WaterShader.floats);
+
+  /// What is under the water, multiplied by as much of it as comes back.
+  final Paint _underPaint = Paint()..blendMode = BlendMode.modulate;
   final Float32List _lightUniforms = Float32List(WaterShader.floats);
-  final Paint _shaderPaint = Paint();
+
+  /// The light the water adds over what is under it.
+  final Paint _shaderPaint = Paint()..blendMode = BlendMode.plus;
   final Paint _glowPaint = Paint()..blendMode = BlendMode.plus;
   final Paint _smear = Paint();
   final Paint _area = Paint();
@@ -857,22 +938,45 @@ class WaterSurface extends PositionComponent
     final line = _line - origin.y;
     final outline = this.outline();
     final program = WaterShader.program;
-    if (quality == WaterQuality.rippled && program != null && _shown > 0) {
-      // The water, its mirror, its tint and its rim, all in the shader: one
-      // draw, no layers.
+    if (quality == WaterQuality.rippled && program != null) {
+      if (color.a > 0) {
+        canvas.drawPath(outline, _water..color = color);
+      }
+      // Two draws: what is under the water - the ground, lit as it is -
+      // multiplied by as much of it as comes back through the water and
+      // its surface; then the light the water adds, its mirror and the
+      // glow of its depth.
+      final pass = _shown > 0 ? MirrorPass.of(this) : null;
       _throughShader(
         canvas,
-        _sceneUniforms,
+        _underUniforms,
         program,
         rect,
-        MirrorPass.of(this),
+        null,
         gain: _shown.clamp(0.0, 1.0),
-        paint: _shaderPaint,
+        paint: _underPaint,
         base: _base(),
         tint: tint,
         fade: fade.clamp(0.0, 1.0),
         line: line,
+        mode: 1,
       );
+      if (_shown > 0) {
+        _throughShader(
+          canvas,
+          _sceneUniforms,
+          program,
+          rect,
+          pass,
+          gain: _shown.clamp(0.0, 1.0),
+          paint: _shaderPaint,
+          base: _base(),
+          tint: tint,
+          fade: fade.clamp(0.0, 1.0),
+          line: line,
+          mode: 2,
+        );
+      }
       if (!_ringsLit && _waves?.heights == null) {
         canvas
           ..save()
@@ -882,27 +986,69 @@ class WaterSurface extends PositionComponent
       }
       return;
     }
-    _openArea(canvas, rect, _area);
-    canvas.drawPath(outline, _water..color = color);
-    if (film && wetDarkening > 0) {
-      // The ground under a film, darker as it soaks it up.
-      canvas.drawPath(
-        outline,
-        _water..color = Color.fromRGBO(0, 0, 0, wetDarkening),
-      );
+    // Drawn plainly: as the shader does it, at the water's middle.
+    var shape = outline;
+    final holes = _holes();
+    if (holes.isNotEmpty) {
+      final cut = Path();
+      for (final hole in holes) {
+        cut.addOval(hole);
+      }
+      shape = Path.combine(PathOperation.difference, outline, cut);
     }
+    // The bottom lies under all of it, whatever water is the surface there.
+    if (color.a > 0) {
+      canvas.drawPath(outline, _water..color = color);
+    }
+    final view = _view();
+    final s = view == null ? 1.0 : (view.top + view.bottom) / 2;
+    final reflectance = _meanReflectance(view);
+    final cover = _shown.clamp(0.0, 1.0);
+    final through = medium.transmission(depthM, s);
+    final keep = (1 - _darken) * (1 - tint.a * cover);
+    double under(double t) =>
+        ((1 - cover + cover * (1 - reflectance) * t) * keep).clamp(0.0, 1.0);
+    // What is under it, through the water and its surface.
+    canvas.saveLayer(rect, _underPaint);
+    canvas.drawRect(rect, _water..color = const Color(0xFFFFFFFF));
+    _openArea(canvas, rect, _area);
+    canvas.drawPath(
+      shape,
+      _water
+        ..color = Color.from(
+          alpha: 1,
+          red: under(through.r),
+          green: under(through.g),
+          blue: under(through.b),
+        ),
+    );
+    _closeArea(canvas, rect);
+    canvas.restore();
 
+    // The light it adds: its mirror, the glow of its depth, its tint.
+    canvas.saveLayer(rect, _shaderPaint);
+    _openArea(canvas, rect, _area);
+    canvas
+      ..save()
+      ..clipPath(shape);
+    final deep = medium.deepReflectance;
+    final light = _ambient();
+    double glow(double r, double t, double e) =>
+        (r * (1 - t) * e * (1 - reflectance) * cover).clamp(0.0, 1.0);
+    canvas.drawRect(
+      rect,
+      _water
+        ..color = Color.from(
+          alpha: 1,
+          red: glow(deep.r, through.r, light.r),
+          green: glow(deep.g, through.g, light.g),
+          blue: glow(deep.b, through.b, light.b),
+        ),
+    );
     if (_shown > 0) {
-      // Drawn plainly, water mirrors as much as it does at its middle.
       canvas.saveLayer(
         rect,
-        _layer
-          ..color = Color.fromRGBO(
-            0,
-            0,
-            0,
-            (_shown * _meanReflectance(_view())).clamp(0.0, 1.0),
-          ),
+        _layer..color = Color.fromRGBO(0, 0, 0, (cover * reflectance)),
       );
       final sky = stage?.frame.sky;
       if (sky != null && sky.present) {
@@ -959,16 +1105,26 @@ class WaterSurface extends PositionComponent
       }
       canvas.restore();
     }
-
     if (tint.a > 0) {
-      canvas.drawRect(rect, _tintPaint..color = tint);
+      canvas.drawRect(
+        rect,
+        _tintPaint
+          ..color = Color.from(
+            alpha: 1,
+            red: tint.r * tint.a * cover,
+            green: tint.g * tint.a * cover,
+            blue: tint.b * tint.a * cover,
+          ),
+      );
     }
     // Under a Lighting the rings are glints over the lighting, drawn with the
     // lights; without one they are drawn here.
     if (!_ringsLit) {
       ripples.render(canvas, _ringPaint());
     }
+    canvas.restore();
     _closeArea(canvas, rect);
+    canvas.restore();
   }
 
   final Paint _skyPaint = Paint();
@@ -1113,6 +1269,7 @@ class WaterSurface extends PositionComponent
     required Color tint,
     required double fade,
     required double line,
+    required int mode,
   }) {
     final sky = stage?.frame.sky;
     final skyShown = sky != null && sky.present;
@@ -1121,8 +1278,8 @@ class WaterSurface extends PositionComponent
     final bounds = pass?.bounds ?? Rect.zero;
     final shader = WaterShader.shaderOf(program);
     // With no picture (none of the world in view) the water still shows
-    // the sky, if it knows it.
-    final shown = pass?.image != null || skyShown ? gain : 0.0;
+    // the sky, if it knows it; what is under it is under it either way.
+    final shown = mode == 1 || pass?.image != null || skyShown ? gain : 0.0;
     final f = _uniforms(uniforms, gain: shown, line: line)
       ..[WaterShader.fade] = fade
       ..[WaterShader.pixels] = pass?.scale ?? 1
@@ -1132,6 +1289,12 @@ class WaterSurface extends PositionComponent
       ..[WaterShader.image + 3] = bounds.height;
     WaterShader.color(f, WaterShader.base, base);
     WaterShader.color(f, WaterShader.tint, tint);
+    final light = _ambient();
+    f
+      ..[WaterShader.ambient] = light.r
+      ..[WaterShader.ambient + 1] = light.g
+      ..[WaterShader.ambient + 2] = light.b
+      ..[WaterShader.pass] = mode.toDouble();
     if (skyShown) {
       f
         ..[WaterShader.skyY] = sky.topY - origin.y
@@ -1196,6 +1359,31 @@ class WaterSurface extends PositionComponent
       ..[WaterShader.wave + 2] = waves == null ? 0 : 1 / waves.rows
       ..[WaterShader.wave + 3] = waveAmplitude * waveGain
       ..[WaterShader.squash] = squash;
+    // The medium: how its depth takes the bottom's light and gives its own.
+    final atten = medium.attenuation;
+    final deep = medium.deepReflectance;
+    f
+      ..[WaterShader.attenuation] = atten.r
+      ..[WaterShader.attenuation + 1] = atten.g
+      ..[WaterShader.attenuation + 2] = atten.b
+      ..[WaterShader.depth] = depthM
+      ..[WaterShader.deep] = deep.r
+      ..[WaterShader.deep + 1] = deep.g
+      ..[WaterShader.deep + 2] = deep.b
+      ..[WaterShader.f0] = medium.f0
+      ..[WaterShader.darken] = _darken;
+    final holes = _holes();
+    for (final (i, hole) in holes.indexed) {
+      final o = WaterShader.holes + i * 4;
+      f
+        ..[o] = hole.center.dx
+        ..[o + 1] = hole.center.dy
+        ..[o + 2] = hole.width / 2
+        ..[o + 3] = hole.height / 2;
+    }
+    f
+      ..[WaterShader.holeCount] = holes.length.toDouble()
+      ..[WaterShader.holeSoft] = holes.isEmpty ? 0 : _holeSoftness();
     var count = 0;
     ripples.forEachNewest(WaterShader.maxRings, (x, y, radius, opacity) {
       f

@@ -202,6 +202,61 @@ void main() {
   );
 
   testWithFlameGame(
+    'a puddle shows its bottom; a pond a metre deep hides it in its colour',
+    (game) async {
+      const white = Color(0xFFFFFFFF);
+      WaterSurface water(WaterMedium medium, double basinMm) => WaterSurface(
+        position: Vector2(0, 100),
+        size: Vector2(100, 40),
+        shape: WaterShape.rect,
+        color: white,
+        medium: medium,
+        basinMm: basinMm,
+        substance: Substance.metal,
+        fade: 0,
+      );
+      final puddle = water(WaterMedium.clear, 20);
+      final pond = water(WaterMedium.pond, 1500);
+      game.world.addAll([_Road(), puddle, pond]);
+      await game.ready();
+      // Low in the view, where water is seen most steeply and mirrors least,
+      // and nothing stands across to mirror.
+      final shallow = (await _draw(puddle))(50, 138);
+      final deep = (await _draw(pond))(50, 138);
+      expect(shallow.r, greaterThan(0.4), reason: 'the bottom through it');
+      expect(deep.r, lessThan(0.1), reason: 'its bed gone under a metre');
+      expect(deep.g, greaterThan(deep.r), reason: 'green-brown, not black');
+    },
+  );
+
+  testWithFlameGame(
+    'a film gives way to a puddle lying on it: one surface there',
+    (game) async {
+      const white = Color(0xFFFFFFFF);
+      final film = WaterSurface(
+        position: Vector2(0, 100),
+        size: Vector2(100, 40),
+        shape: WaterShape.rect,
+        color: white,
+        film: true,
+        fade: 0,
+      );
+      final puddle = WaterSurface(
+        position: Vector2(30, 110),
+        size: Vector2(40, 20),
+        edgeSoftness: 0,
+      );
+      game.world.addAll([_Road(), film, puddle]);
+      await game.ready();
+      final pixel = await _draw(film);
+      // The film darkens the asphalt it soaks; where the puddle lies it
+      // leaves the ground to the puddle.
+      expect(pixel(10, 120).r, lessThan(0.75));
+      expect(pixel(50, 120), white);
+    },
+  );
+
+  testWithFlameGame(
     'something standing nearer is mirrored about where it stands',
     (game) async {
       final surface = _surface();

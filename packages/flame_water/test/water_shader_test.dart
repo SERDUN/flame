@@ -1,6 +1,7 @@
 import 'dart:ui';
 
 import 'package:flame/components.dart';
+import 'package:flame_stage/flame_stage.dart';
 import 'package:flame_test/flame_test.dart';
 import 'package:flame_water/flame_water.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -21,6 +22,12 @@ class _Stripes extends PositionComponent with Reflectable {
         ..drawRect(Rect.fromLTWH(x + 4, 0, 4, size.y), _blue);
     }
   }
+}
+
+/// The ground from y 100 down, 40 deep.
+class _Road extends Component with OnStage, Ground {
+  @override
+  Rect groundBand() => const Rect.fromLTWH(0, 100, 100, 40);
 }
 
 Future<List<int>> _row(WaterSurface surface, int y) async {
@@ -65,4 +72,29 @@ void main() {
       reason: '$changed',
     );
   });
+
+  testWithFlameGame(
+    'through the shader too, a puddle shows its bottom and a pond does not',
+    (game) async {
+      await WaterShader.load(asset: 'shaders/water.frag');
+      WaterSurface water(WaterMedium medium, double basinMm) => WaterSurface(
+        position: Vector2(0, 100),
+        size: Vector2(100, 40),
+        shape: WaterShape.rect,
+        color: const Color(0xFFFFFFFF),
+        medium: medium,
+        basinMm: basinMm,
+        substance: Substance.metal,
+        fade: 0,
+      );
+      final puddle = water(WaterMedium.clear, 20);
+      final pond = water(WaterMedium.pond, 1500);
+      game.world.addAll([_Road(), puddle, pond]);
+      await game.ready();
+      final shallow = await _row(puddle, 138);
+      final deep = await _row(pond, 138);
+      expect(shallow[50], greaterThan(100), reason: 'the bottom through it');
+      expect(deep[50], lessThan(25), reason: 'its bed gone under a metre');
+    },
+  );
 }

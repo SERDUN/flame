@@ -64,6 +64,10 @@ void main() {
       'uSkyTop': WaterShader.skyTop,
       'uSkyHorizon': WaterShader.skyHorizon,
       'uSkyY': WaterShader.skyY,
+      'uAtten': WaterShader.attenuation,
+      'uDeep': WaterShader.deep,
+      'uAmbient': WaterShader.ambient,
+      'uHoleInfo': WaterShader.holeCount,
     };
     expect(defines, dart);
   });
@@ -76,9 +80,13 @@ void main() {
     expect(WaterShader.lightFloats, 6 * 4);
     expect(
       WaterShader.floats,
-      (WaterShader.header + WaterShader.maxRings + WaterShader.maxLights * 6) *
+      (WaterShader.header +
+              WaterShader.maxRings +
+              WaterShader.maxLights * 6 +
+              WaterShader.maxHoles) *
           4,
     );
-    expect(source, contains('uniform vec4 u[kLights + kMaxLights * 6];'));
+    expect(_constant(source, 'kMaxHoles'), WaterShader.maxHoles);
+    expect(source, contains('uniform vec4 u[kHoles + kMaxHoles];'));
   });
 }

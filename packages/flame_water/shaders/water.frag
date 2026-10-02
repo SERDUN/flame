@@ -26,15 +26,17 @@ precision highp float;
 
 const int kMaxRings = 32;
 const int kMaxLights = 8;
-const int kHeader = 15;
+const int kHeader = 19;
 const int kRings = kHeader;
 const int kLights = kRings + kMaxRings;
+const int kMaxHoles = 8;
+const int kHoles = kLights + kMaxLights * 6;
 
 // One array of vectors, named below: a lone float before a vector is laid
 // out differently on Vulkan than the floats are set, and Metal binds each
 // uniform on its own, 31 at most. The Dart side (WaterShader) writes the
 // same layout.
-uniform vec4 u[kLights + kMaxLights * 6];
+uniform vec4 u[kHoles + kMaxHoles];
 
 #define uSize        u[0].xy   // the water's rectangle, local units
 #define uCount       u[0].z    // rings in use
@@ -72,6 +74,17 @@ uniform vec4 u[kLights + kMaxLights * 6];
 #define uSkyHorizon  u[13]     // ... and at uSkyY.y and below
 #define uSkyY        u[14]     // the sky's top and horizon, local y; z 1:
                                // the sky shows where the picture is empty
+#define uAtten       u[15]     // the medium: per metre, what light going
+                               // through loses (rgb); w the water's depth, m
+#define uDeep        u[16]     // what deep water sends back up of the light
+                               // falling on it (rgb); w its f0
+#define uAmbient     u[17]     // the light falling on the water, as seen
+                               // (rgb); w the pass: 0 one draw as of old,
+                               // 1 what is under it (to multiply by), 2 the
+                               // light it adds (to add)
+#define uHoleInfo    u[18]     // other water lying on it: how many, their
+                               // rims' softness, how dark its ground is
+                               // soaked under it
 
 uniform sampler2D uReflection;
 uniform sampler2D uHeights;
@@ -159,8 +172,36 @@ vec2 slope(vec2 p) {
 
 // Water's reflectance seen at an angle whose sine above it is s (Schlick).
 float fresnel(float s) {
+    float f0 = uDeep.w > 0.0 ? uDeep.w : 0.02;
     float c = 1.0 - clamp(s, 0.0, 1.0);
-    return 0.02 + 0.98 * c * c * c * c * c;
+    return f0 + (1.0 - f0) * c * c * c * c * c;
+}
+
+// What of the bottom's light comes back up through the water at p, seen at
+// an angle whose sine above it is s: down and up along the way refraction
+// bends it to (Snell, n = 1.333), through the medium (Beer-Lambert).
+vec3 through(float s) {
+    float across = (1.0 - s * s) / (1.333 * 1.333);
+    float cosT = sqrt(max(1.0 - across, 1e-4));
+    return exp(-uAtten.rgb * (2.0 * uAtten.w / cosT));
+}
+
+// How much of p other water lying on this one covers: there it is the
+// surface, not this.
+float holes(vec2 p) {
+    float covered = 0.0;
+    for (int i = 0; i < kMaxHoles; i++) {
+        if (float(i) >= uHoleInfo.x) {
+            break;
+        }
+        vec4 h = u[kHoles + i];
+        float r = length((p - h.xy) / max(h.zw, vec2(1e-3)));
+        float c = uHoleInfo.y <= 0.0
+            ? (r <= 1.0 ? 1.0 : 0.0)
+            : clamp((1.0 - r) / uHoleInfo.y, 0.0, 1.0);
+        covered = max(covered, c);
+    }
+    return covered;
 }
 
 // The mirror at local point p, nothing outside its picture: the sampler
@@ -325,9 +366,11 @@ vec3 airMirrored(vec2 p) {
 
 void main() {
     vec2 p = FlutterFragCoord().xy;
-    float water = pool(p);
+    float pass = uAmbient.w;
+    float water = pool(p) * (1.0 - holes(p));
     if (water <= 0.0) {
-        fragColor = vec4(0.0);
+        // Multiplying by white leaves what is under alone.
+        fragColor = pass > 0.5 && pass < 1.5 ? vec4(1.0) : vec4(0.0);
         return;
     }
     bool waves = uWave.x > 0.5;
@@ -349,6 +392,17 @@ void main() {
     float reflectance = uFresnel > 0.5 ? fresnel(s) : 1.0;
     float below = clamp((p.y - uLine) / max(uSize.y - uLine, 1.0), 0.0, 1.0);
     float shown = uGain * reflectance * (1.0 - uFade * below);
+    if (pass > 0.5 && pass < 1.5) {
+        // What is under the water - the ground, lit - as much as comes back
+        // through it and its surface, darker where it soaks the ground; as
+        // much as there is water over it.
+        float cover = uGain * (1.0 - uFade * below);
+        vec3 under = (1.0 - reflectance) * through(s);
+        vec3 k = mix(vec3(1.0), under, cover) * (1.0 - uHoleInfo.z);
+        k *= 1.0 - uTint.a * cover;
+        fragColor = vec4(mix(vec3(1.0), k, water), 1.0);
+        return;
+    }
     if (uLightMode > 0.5) {
         vec3 light = lights(at, s);
         if (uAirMap > 0.5) {
@@ -399,6 +453,22 @@ void main() {
         color = color + sky * (1.0 - clamp(color.a, 0.0, 1.0));
     }
     vec4 mirror = color * shown;
+    if (pass > 1.5) {
+        // The light the water adds over what is under it: what it mirrors,
+        // and the glow of its depth - what deep water sends back of the
+        // light falling on it, from as much of it as there is above the
+        // bottom, through its surface.
+        float cover = uGain * (1.0 - uFade * below);
+        vec3 body = uDeep.rgb * (vec3(1.0) - through(s)) * uAmbient.rgb *
+            (1.0 - reflectance) * cover;
+        vec3 added = mirror.rgb + body + uTint.rgb * cover;
+        if (waves) {
+            float catchLight = smoothstep(0.01, 0.06, length(tilt)) * 0.6;
+            added += uGlint.rgb * catchLight;
+        }
+        fragColor = vec4(added * water, 0.0);
+        return;
+    }
     // The mirror over the water, the tint over both; all premultiplied.
     vec4 base = uBase;
     vec4 tint = uTint;

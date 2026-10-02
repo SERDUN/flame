@@ -18,7 +18,7 @@ abstract final class WaterShader {
   static const int maxLights = 8;
 
   /// vec4s before the rings.
-  static const int header = 15;
+  static const int header = 19;
 
   /// Floats per mirrored light: six vec4.
   static const int lightFloats = 24;
@@ -29,8 +29,15 @@ abstract final class WaterShader {
   /// Where the lights start, in floats.
   static const int lights = rings + maxRings * 4;
 
+  /// Other waters lying on one at a time, cut out of it: the nearest.
+  static const int maxHoles = 8;
+
+  /// Where the holes start, in floats: one vec4 each, centre and half
+  /// extents in the surface's units.
+  static const int holes = lights + maxLights * lightFloats;
+
   /// Floats in the array.
-  static const int floats = lights + maxLights * lightFloats;
+  static const int floats = holes + maxHoles * 4;
 
   // Header offsets, in floats: the shader's names.
   static const int size = 0;
@@ -65,6 +72,15 @@ abstract final class WaterShader {
   static const int skyTop = 48;
   static const int skyHorizon = 52;
   static const int skyY = 56;
+  static const int attenuation = 60;
+  static const int depth = 63;
+  static const int deep = 64;
+  static const int f0 = 67;
+  static const int ambient = 68;
+  static const int pass = 71;
+  static const int holeCount = 72;
+  static const int holeSoft = 73;
+  static const int darken = 74;
 
   /// The loaded program; `null` before [load] finishes.
   static FragmentProgram? get program => _program;

@@ -50,8 +50,11 @@ mixin Wettable on Component {
   /// absorbed, so a porous thing goes darker as it wets - soaked, down to
   /// a fifth of its colour at full porosity (Lagarde); metal not at all.
   /// It darkens first, while the pores fill.
-  double get wetDarkening =>
-      0.8 * substance.porosity * _smooth(0, 0.5, wetness);
+  double get wetDarkening => soakedDarkening * _smooth(0, 0.5, wetness);
+
+  /// How much of its colour it loses soaked through: what standing water
+  /// leaves of the ground under it.
+  double get soakedDarkening => 0.8 * substance.porosity;
 
   /// How much it shines now, `0..1`: a film of water forms on it only once
   /// the pores are full, and goes first as it dries - a drying street is
