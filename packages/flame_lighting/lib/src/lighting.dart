@@ -1,7 +1,9 @@
 import 'dart:math' as math;
+import 'dart:typed_data';
 import 'dart:ui';
 
 import 'package:flame/components.dart';
+import 'package:flame/extensions.dart';
 import 'package:flame_lighting/src/glossy.dart';
 import 'package:flame_lighting/src/light_buffer.dart';
 import 'package:flame_lighting/src/light_reflector.dart';
@@ -405,6 +407,95 @@ class Lighting extends Component with OnStage, Ambience, FrameStep {
     }
   }
 
+  /// Draws [draw] onto [canvas] as it is, out of the lighting's multiply:
+  /// for what does not show the light falling where it lies - water, which
+  /// shows what it mirrors as lit where that stands, and the sky where
+  /// nothing stands.
+  ///
+  /// What the world drew so far is lit first, as the lighting lights it,
+  /// and laid down; [draw] goes over it; what draws after goes into a new
+  /// layer, lit by the lighting in its turn. A call inside [draw] draws
+  /// straight.
+  ///
+  /// Only a world lit in a layer of its own ([lightsBackdrop] off) can
+  /// leave something out of the multiply; otherwise, and in a frame with no
+  /// light to multiply by, [draw] is drawn with the world.
+  void unlit(Canvas canvas, void Function() draw) {
+    final layer = _litLayer;
+    final frame = stage?.frame;
+    if (_unlitDepth > 0 ||
+        layer == null ||
+        layer._openAt == null ||
+        frame == null ||
+        !frame.light.isLit) {
+      draw();
+      return;
+    }
+    final view = frame.view.inflate(frame.view.width * 0.01);
+    _unlitDepth++;
+    try {
+      layer._turnWith(
+        canvas,
+        light: () {
+          if (_lightImage != null) {
+            _drawBuffer(canvas, view, _illumination, frame.light, mode: 0);
+          } else {
+            _illuminateAll(canvas, frame, view);
+          }
+        },
+        draw: draw,
+      );
+    } finally {
+      _unlitDepth--;
+    }
+  }
+
+  int _unlitDepth = 0;
+
+  /// Multiplies what [canvas] holds over [area] by the light falling on
+  /// the street line: the sky's and every light's as it is cast, with no
+  /// glow of a source itself and no halo - what lights a picture of the
+  /// world drawn apart from it ([LitPicture]).
+  void _illuminateSurfaces(Canvas canvas, Rect area) {
+    final frame = stage?.frame;
+    if (frame == null) {
+      return;
+    }
+    final field = frame.light;
+    final cast = _castLights ?? _lightImage;
+    if (cast != null) {
+      // The GPU buffer's alpha is the white of what glows itself, the
+      // canvas path's cast image has none: both read without it.
+      _drawBuffer(
+        canvas,
+        area,
+        _illumination,
+        field,
+        mode: 0,
+        image: cast,
+        alphaIsWhite: false,
+      );
+      return;
+    }
+    final e = field.exposure;
+    canvas
+      ..saveLayer(area, _illumination)
+      ..drawRect(
+        area,
+        _sky
+          ..color = Color.from(
+            alpha: 1,
+            red: math.min(field.skyRed * e, 1),
+            green: math.min(field.skyGreen * e, 1),
+            blue: math.min(field.skyBlue * e, 1),
+          ),
+      );
+    for (var i = 0; i < field.count; i++) {
+      _cast(canvas, frame, i, _add, e);
+    }
+    canvas.restore();
+  }
+
   /// Without shaders: the illumination built in a layer - the sky's light,
   /// every light added on each plane, what glows itself and its halo - and
   /// multiplied onto the scene, clamped at white.
@@ -740,10 +831,7 @@ class LitLayer extends Component {
   static final Paint _paint = Paint();
 
   @override
-  void render(Canvas canvas) {
-    _openAt = canvas.getSaveCount();
-    canvas.saveLayer(null, _paint);
-  }
+  void render(Canvas canvas) => _open(canvas);
 
   void _close(Canvas canvas) {
     final at = _openAt;
@@ -752,6 +840,62 @@ class LitLayer extends Component {
     }
     _openAt = null;
     canvas.restoreToCount(at);
+  }
+
+  /// Lights what is in the layer with [light], lays it over what is below
+  /// it, draws [draw] over that as it is, and opens the next.
+  ///
+  /// Whoever asks is drawing inside its own saves (a placed component's
+  /// transform): [light] runs in the world's transform, as the layer was
+  /// opened in; those saves are closed with the layer, so [draw] runs in
+  /// the asker's transform put back, and the canvas is left as deep as it
+  /// was, in that transform, the new layer under it.
+  void _turnWith(
+    Canvas canvas, {
+    required void Function() light,
+    required void Function() draw,
+  }) {
+    final at = _openAt;
+    if (at == null) {
+      draw();
+      return;
+    }
+    final depth = canvas.getSaveCount();
+    final inner = Matrix4.fromList(canvas.getTransform());
+    final world = Matrix4.fromList(_openTransform);
+    // From the asker's transform back to the world's, and on to the
+    // asker's again.
+    final toWorld = Float64List.fromList(
+      (Matrix4.inverted(inner)..multiply(world)).storage,
+    );
+    final toInner = Float64List.fromList(
+      (Matrix4.inverted(world)..multiply(inner)).storage,
+    );
+    canvas
+      ..save()
+      ..transform(toWorld);
+    light();
+    canvas
+      ..restore()
+      ..restoreToCount(at)
+      ..save()
+      ..transform(toInner);
+    draw();
+    canvas.restore();
+    _open(canvas);
+    for (var i = canvas.getSaveCount(); i < depth; i++) {
+      canvas.save();
+    }
+    canvas.transform(toInner);
+  }
+
+  /// The world's transform when the layer was opened.
+  Float64List _openTransform = Float64List(16);
+
+  void _open(Canvas canvas) {
+    _openAt = canvas.getSaveCount();
+    _openTransform = canvas.getTransform();
+    canvas.saveLayer(null, _paint);
   }
 
   /// Lays what is in the layer over what is below it and opens the next.
@@ -822,9 +966,117 @@ class LitCut extends Component with OnStage {
     layer._turn(canvas);
   }
 
+  /// Multiplies what [canvas] holds over [area] by the light falling where
+  /// what is below it stands, as it is cast, with no glow of a source
+  /// itself where the light's image keeps that apart ([LitPicture]).
+  void _illuminateSurfaces(Canvas canvas, Rect area) {
+    final lighting = Lighting.of(this);
+    final image = _image;
+    final frame = stage?.frame;
+    if (lighting == null || image == null || frame == null) {
+      return;
+    }
+    lighting._drawBuffer(
+      canvas,
+      area,
+      lighting._illumination,
+      frame.light,
+      mode: 0,
+      image: image,
+      gain: _gain,
+      alphaIsWhite: false,
+    );
+  }
+
   @override
   void onRemove() {
     _set(null);
     super.onRemove();
+  }
+}
+
+/// Lights a picture of the world drawn apart from it - what a mirror shows
+/// - as the world is lit: what stands behind the street line where it
+/// stands ([LitCut]), the rest on the line ([Lighting]), by the light that
+/// falls on it. The lights themselves, their glow and their halos are left
+/// out: a mirror shows those from the lights ([LightReflector]), with the
+/// streaks a rough surface draws them into.
+///
+/// The picture is drawn in the world's coordinates, through whatever
+/// transform mirrors it: the light is read where each thing stands, and
+/// lands where its image does. The world's components are handed to [step]
+/// in the order they draw; the lighting's own (its layer, its cuts, itself)
+/// are done there and not drawn.
+class LitPicture {
+  LitPicture._(this._lighting, this._area);
+
+  final Lighting _lighting;
+  final Rect _area;
+  int? _openAt;
+
+  static final Paint _paint = Paint();
+
+  /// For a picture of the world [lighting] lights, over [area] of the world
+  /// (before any mirroring); `null` when there is nothing to light it by -
+  /// no lighting, no light this frame - or when the world is not lit in a
+  /// layer of its own: then the picture is lit with whatever it lands in.
+  static LitPicture? of(Lighting? lighting, Rect area) {
+    final frame = lighting?.stage?.frame;
+    if (lighting == null ||
+        lighting._litLayer == null ||
+        frame == null ||
+        !frame.light.isLit) {
+      return null;
+    }
+    return LitPicture._(lighting, area);
+  }
+
+  /// Whether [component] is a step of the lighting rather than a thing in
+  /// the world: its layer, a cut, the lighting itself.
+  static bool isPass(Component component) =>
+      component is Lighting || component is LitLayer || component is LitCut;
+
+  /// Does [component]'s part of the lighting on [canvas] if it is one of
+  /// the lighting's steps ([isPass]), and says whether it was.
+  bool step(Canvas canvas, Component component) {
+    switch (component) {
+      case LitLayer():
+        _open(canvas);
+      case LitCut():
+        if (_openAt != null) {
+          component._illuminateSurfaces(canvas, _area);
+          _close(canvas);
+          _open(canvas);
+        }
+      case Lighting():
+        finish(canvas);
+      default:
+        return false;
+    }
+    return true;
+  }
+
+  /// Lights what is still unlit on the street line and lays it down: the
+  /// lighting's own step, or the picture's end if the lighting was not
+  /// reached.
+  void finish(Canvas canvas) {
+    if (_openAt == null) {
+      return;
+    }
+    _lighting._illuminateSurfaces(canvas, _area);
+    _close(canvas);
+  }
+
+  void _open(Canvas canvas) {
+    _openAt = canvas.getSaveCount();
+    canvas.saveLayer(null, _paint);
+  }
+
+  void _close(Canvas canvas) {
+    final at = _openAt;
+    if (at != null) {
+      canvas.restoreToCount(at);
+    }
+    _openAt = null;
   }
 }

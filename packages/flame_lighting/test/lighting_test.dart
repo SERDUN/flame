@@ -77,6 +77,25 @@ class _Moon extends Component with OnStage, LightCarrier {
 }
 
 /// Brightness (red channel, 0..255) of the rendered game at a pixel.
+/// Draws a rect of [color] through the lighting's [Lighting.unlit].
+class _Unlit extends PositionComponent {
+  _Unlit(this.rect, this.color, {super.position}) : super(priority: 1);
+
+  final Rect rect;
+  final Color color;
+
+  @override
+  void render(Canvas canvas) {
+    void draw() => canvas.drawRect(rect, Paint()..color = color);
+    final lighting = Lighting.of(this);
+    if (lighting == null) {
+      draw();
+    } else {
+      lighting.unlit(canvas, draw);
+    }
+  }
+}
+
 Future<int Function(int x, int y)> _render(FlameGame game) async {
   game.update(1 / 60);
   final recorder = PictureRecorder();
@@ -152,6 +171,40 @@ void main() {
       final at = await _render(game);
       expect(at(500, 300), greaterThan(60), reason: 'on the line, lit');
       expect(at(300, 300), lessThan(10), reason: 'far behind, out of reach');
+    },
+  );
+
+  testWithFlameGame(
+    'what draws unlit keeps its colour; what draws before and after is lit',
+    (game) async {
+      await LightShader.load(directory: 'shaders');
+      game.onGameResize(Vector2(800, 600));
+      game.camera.viewfinder.anchor = Anchor.topLeft;
+      game.world.addAll([
+        RectangleComponent(
+          size: Vector2(200, 600),
+          paint: Paint()..color = const Color(0xFFFFFFFF),
+        ),
+        // Placed: it draws in its own transform, the light falls in the
+        // world's.
+        _Unlit(
+          const Rect.fromLTWH(0, 0, 200, 600),
+          const Color(0xFFFFFFFF),
+          position: Vector2(300, 0),
+        ),
+        RectangleComponent(
+          position: Vector2(600, 0),
+          size: Vector2(200, 600),
+          paint: Paint()..color = const Color(0xFFFFFFFF),
+          priority: 2,
+        ),
+        Lighting(skyLight: 0, glow: 0, lightsBackdrop: false),
+      ]);
+      await game.ready();
+      final at = await _render(game);
+      expect(at(100, 300), lessThan(10), reason: 'before it, lit: dark');
+      expect(at(400, 300), 0xFF, reason: 'unlit, as drawn');
+      expect(at(700, 300), lessThan(10), reason: 'after it, lit: dark');
     },
   );
 

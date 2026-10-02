@@ -10,4 +10,4 @@ export 'src/light_buffer.dart' show LightBuffer;
 export 'src/light_reflector.dart' show LightReflector;
 export 'src/light_shader.dart' show LightPlane, LightShader;
 export 'src/light_source.dart' show LightSource;
-export 'src/lighting.dart' show Lighting, LitCut, LitLayer;
+export 'src/lighting.dart' show Lighting, LitCut, LitLayer, LitPicture;
