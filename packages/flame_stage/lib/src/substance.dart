@@ -26,7 +26,26 @@ class Substance {
     this.ringSec = 0.002,
     this.hitSec = 0.006,
     this.friction = 0.6,
+    this.cover = 1,
   });
+
+  /// The preset called [name] (`asphalt`, `foliage`, ...); null for a name
+  /// there is none of.
+  static Substance? named(String name) => _presets[name];
+
+  static const Map<String, Substance> _presets = {
+    'asphalt': asphalt,
+    'brick': brick,
+    'concrete': concrete,
+    'glass': glass,
+    'metal': metal,
+    'canvas': canvas,
+    'cloth': cloth,
+    'foliage': foliage,
+    'soil': soil,
+    'wood': wood,
+    'water': water,
+  };
 
   /// Asphalt: a little porous, rough, a thin film of water before it runs.
   static const asphalt = Substance(
@@ -150,6 +169,7 @@ class Substance {
     ringSec: 0,
     hitSec: 0.008,
     friction: 0.8,
+    cover: 0.6,
   );
 
   /// Bare earth: a path, a flower bed. It drinks the rain and deadens it.
@@ -251,6 +271,11 @@ class Substance {
   /// Its friction for a body standing or sliding on it.
   final double friction;
 
+  /// How much of a slab of it is matter, `0..1`: solid things 1, a crown of
+  /// leaves about 0.6 - the share of the light it stops and of the drops
+  /// falling on it that it catches; the rest passes through.
+  final double cover;
+
   /// The same substance with some of its properties changed: canvas drawn
   /// tauter sounds higher.
   Substance copyWith({
@@ -273,6 +298,7 @@ class Substance {
     ringSec: ringSec ?? this.ringSec,
     hitSec: hitSec ?? this.hitSec,
     friction: friction,
+    cover: cover,
   );
 
   /// How glossy it is soaked, `0..1`: smooth things more.

@@ -39,4 +39,15 @@ void main() {
       reason: 'woven fabric rings at no note',
     );
   });
+
+  test('a crown of leaves lets some through, solid things nothing', () {
+    expect(Substance.foliage.cover, lessThan(1));
+    expect(Substance.wood.cover, 1);
+    expect(Substance.named('foliage'), same(Substance.foliage));
+    expect(Substance.named('plastic'), isNull);
+    expect(
+      Substance.canvas.copyWith(soundHz: 2000).cover,
+      Substance.canvas.cover,
+    );
+  });
 }
