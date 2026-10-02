@@ -144,19 +144,37 @@ float halo(float r) {
   return r < 0.25 ? mix(1.0, 0.35, r / 0.25) : mix(0.35, 0.0, (r - 0.25) / 0.75);
 }
 
-// How much of the glow the air holds a lamp's light makes at a point dist
-// from it, against what the whole air between the eye and the street would
-// (what the lighting scales the glow by): a way through the air passing
-// dist from a light falling off as the inverse square gathers as much of it
-// as a straight stretch pi * dist long lit as at its nearest point. The sun
-// lights all of the air.
-float airShare(float dist) {
+// How long a stretch of air, lit as at the light itself, the eye's way
+// passing b from a light of radius R gathers: its falloff summed along the
+// way. Smooth, (1 - r/R)^2, in closed form; physical, 1/(1 + 16 r^2/R^2),
+// as an arctangent. Largest at the light and falling away from it - the
+// glow of the air round a lamp is brightest at the lamp.
+float glowLength(float b, float radius, float physical) {
+  if (b >= radius) {
+    return 0.0;
+  }
+  float s = sqrt(radius * radius - b * b);
+  if (physical > 0.5) {
+    float k = 16.0 / (radius * radius);
+    float q = sqrt(1.0 + k * b * b);
+    return 2.0 / (sqrt(k) * q) * atan(sqrt(k) * s / q);
+  }
+  float near = max(b, 1e-4 * radius);
+  return (2.0 * b * b * s + 2.0 / 3.0 * s * s * s) / (radius * radius) -
+    2.0 * b * b / radius * log((s + radius) / near);
+}
+
+// How much of the glow the air holds a stretch [lit] long of it, lit as at
+// a light, makes against what the whole air between the eye and the street
+// would (what the lighting scales the glow by): in clear air as much as
+// its length, in a fog no more than the air one sees through.
+float airShare(float lit) {
   float air = params.look.z;
   if (air <= 0.0) {
     return 1.0;
   }
   float v = max(params.look.w, 1e-3);
-  float lit = min(3.14159265 * dist, air);
+  lit = min(lit, air);
   float whole = 1.0 - exp(-3.912 * air / v);
   if (whole < 1e-6) {
     return lit / air;
@@ -217,6 +235,7 @@ void main() {
     float radius = g.x;
     float spillRadius = k.x > 0.0 ? k.y : 0.0;
     float reach = 0.0;
+    float lit = 0.0;
     if (dist < radius) {
       float t = 1.0 - dist / radius;
       // The falloff: smooth, or physical (k.z).
@@ -236,10 +255,17 @@ void main() {
         }
       }
       reach = fall * cone;
+      if (params.look.z > 0.0) {
+        // The air: the light summed along the eye's way past it.
+        lit = cone * glowLength(dist, radius, k.z);
+      }
     }
     if (dist < spillRadius) {
       float ts = 1.0 - dist / spillRadius;
       reach = max(reach, k.x * ts * ts);
+      if (params.look.z > 0.0) {
+        lit = max(lit, k.x * glowLength(dist, spillRadius, 0.0));
+      }
     }
     if (reach > 0.0) {
       float incidence = 1.0;
@@ -247,7 +273,11 @@ void main() {
         incidence = dist < 1e-3 ? 1.0 : clamp(v.y / dist, 0.0, 1.0);
       }
       float shade = params.info.z > 0.5 ? through(l, p, h.w) : 1.0;
-      float amount = strength * reach * incidence * shade * airShare(dist);
+      // In the air its light summed along the eye's way; on a surface as it
+      // falls there.
+      float amount = params.look.z > 0.0
+          ? strength * shade * airShare(lit)
+          : strength * reach * incidence * shade;
       sum += c.rgb * amount;
     }
     // What glows itself shows as bright as it is drawn.

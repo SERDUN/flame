@@ -165,18 +165,36 @@ float through(vec3 l, vec3 p, float source) {
     return light;
 }
 
-// How much of the glow the air holds a lamp's light makes at a point dist
-// from it, against what the whole air between the eye and the street would
-// (what the lighting scales the glow by): a way through the air passing
-// dist from a light falling off as the inverse square gathers as much of it
-// as a straight stretch pi * dist long lit as at its nearest point. The sun
-// lights all of the air.
-float airShare(float dist) {
+// How long a stretch of air, lit as at the light itself, the eye's way
+// passing b from a light of radius R gathers: its falloff summed along the
+// way. Smooth, (1 - r/R)^2, in closed form; physical, 1/(1 + 16 r^2/R^2),
+// as an arctangent. Largest at the light and falling away from it - the
+// glow of the air round a lamp is brightest at the lamp.
+float glowLength(float b, float radius, float physical) {
+    if (b >= radius) {
+        return 0.0;
+    }
+    float s = sqrt(radius * radius - b * b);
+    if (physical > 0.5) {
+        float k = 16.0 / (radius * radius);
+        float q = sqrt(1.0 + k * b * b);
+        return 2.0 / (sqrt(k) * q) * atan(sqrt(k) * s / q);
+    }
+    float near = max(b, 1e-4 * radius);
+    return (2.0 * b * b * s + 2.0 / 3.0 * s * s * s) / (radius * radius) -
+        2.0 * b * b / radius * log((s + radius) / near);
+}
+
+// How much of the glow the air holds a stretch [lit] long of it, lit as at
+// a light, makes against what the whole air between the eye and the street
+// would (what the lighting scales the glow by): in clear air as much as
+// its length, in a fog no more than the air one sees through.
+float airShare(float lit) {
     if (S_AIR <= 0.0) {
         return 1.0;
     }
     float v = max(S_VIS, 1e-3);
-    float lit = min(3.14159265 * dist, S_AIR);
+    lit = min(lit, S_AIR);
     float whole = 1.0 - exp(-3.912 * S_AIR / v);
     if (whole < 1e-6) {
         return lit / S_AIR;
@@ -251,6 +269,16 @@ void main() {
         float ts = 1.0 - dist / spillRadius;
         reach = max(reach, L_SPILL * ts * ts);
     }
-    float a = AMOUNT * L_STRENGTH * reach * incidence * shade * airShare(dist);
+    if (S_AIR > 0.0) {
+        // The air: the light summed along the eye's way past it.
+        float lit = cone * glowLength(dist, L_RADIUS, FALLOFF);
+        if (dist < spillRadius) {
+            lit = max(lit, L_SPILL * glowLength(dist, spillRadius, 0.0));
+        }
+        float glow = AMOUNT * L_STRENGTH * shade * airShare(lit);
+        fragColor = vec4(L_COLOR * glow, glow);
+        return;
+    }
+    float a = AMOUNT * L_STRENGTH * reach * incidence * shade;
     fragColor = vec4(L_COLOR * a, a);
 }

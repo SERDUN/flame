@@ -310,6 +310,34 @@ void main() {
   });
 
   testWithFlameGame(
+    'the air under a lamp glows brightest at the lamp, fainter down its beam',
+    (game) async {
+      await _setUp(
+        game,
+        [
+          _Ground(),
+          LightSource(position: Vector2(400, 100), radius: 300, coneAngle: 1.2),
+        ],
+        // A black wall: only the light in the air shows.
+        wall: const Color(0xFF000000),
+        glow: 1,
+        haze: 1,
+      );
+      final at = await _render(game);
+      // Down the beam past the bulb's own halo: no brighter anywhere below
+      // than nearer the lamp.
+      final beam = [for (var y = 150; y <= 350; y += 25) at(400, y)];
+      for (var i = 1; i < beam.length; i++) {
+        expect(
+          beam[i],
+          lessThanOrEqualTo(beam[i - 1]),
+          reason: 'a blob down the beam: $beam',
+        );
+      }
+    },
+  );
+
+  testWithFlameGame(
     'a lamp lays its pool from how its light falls on the ground',
     (game) async {
       await _setUp(
