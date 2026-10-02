@@ -205,6 +205,17 @@ class Rain extends Component with OnStage, Reflectable, Weather {
   /// ground. Each is drawn by the [RainSlice] whose depths hold it.
   List<double> veils = const [];
 
+  // The veil next towards the eye from the one at [depth], `null` if none.
+  double? _nearerVeil(double depth) {
+    double? nearer;
+    for (final other in veils) {
+      if (other > depth && (nearer == null || other < nearer)) {
+        nearer = other;
+      }
+    }
+    return nearer;
+  }
+
   /// Streaks of a veil per metre of the view at a depth as big as the street
   /// line, at intensity 1; a farther veil holds more of them (they cover more
   /// air) and shows each smaller.
@@ -898,6 +909,8 @@ class Rain extends Component with OnStage, Reflectable, Weather {
             projection,
             depth,
             nearest: depth == veils.reduce(math.max),
+            nearer: _nearerVeil(depth),
+            visibilityM: stage?.frame.weather.visibilityM ?? 20000,
           );
         }
       }

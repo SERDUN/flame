@@ -65,7 +65,9 @@ class RainVeil {
   }
 
   /// Draws the veil at [depth] of [rain] over [view]; [nearest] when it is
-  /// the nearest veil, which the spray rises in front of.
+  /// the nearest veil, which the spray rises in front of; [nearer] the depth
+  /// of the next veil towards the eye (`null`: the eye itself); [visibilityM]
+  /// how far one sees through the air now (`WeatherState.visibilityM`).
   void render(
     Canvas canvas,
     Rain rain,
@@ -73,6 +75,8 @@ class RainVeil {
     StreetProjection projection,
     double depth, {
     required bool nearest,
+    double? nearer,
+    double visibilityM = 20000,
   }) {
     final intensity = rain.intensity.clamp(0.0, 2.5);
     if (intensity <= 0.01) {
@@ -81,9 +85,15 @@ class RainVeil {
     final metre = rain.metre;
     final color = rain.color;
     final scale = projection.scaleAt(depth);
-    // The rain between the eye and what is behind the veil pales it: the
-    // more, the harder it rains and the farther off.
-    final haze = (0.15 * intensity * (1 - scale)).clamp(0.0, 0.3);
+    // The air between the eye and what is behind the veil pales it as much
+    // as it lets less of its light through: Koschmieder, a share
+    // exp(-3.912 d / V) over d metres when one sees V. The veils lie one
+    // over another, so this one pales by what the air between it and the
+    // next veil towards the eye takes: together they leave what is behind
+    // each as much as the whole way lets through.
+    double through(double at) =>
+        math.exp(-3.912 * projection.distanceAt(at) / metre / visibilityM);
+    final haze = 1 - through(depth) / (nearer == null ? 1 : through(nearer));
     _haze.color = color.withValues(alpha: color.a * haze);
     canvas.drawRect(view.inflate(metre), _haze);
 
