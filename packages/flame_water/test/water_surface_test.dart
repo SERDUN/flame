@@ -1,9 +1,11 @@
 import 'dart:ui';
 
 import 'package:flame/components.dart';
+import 'package:flame_lighting/flame_lighting.dart';
 import 'package:flame_stage/flame_stage.dart';
 import 'package:flame_test/flame_test.dart';
 import 'package:flame_water/flame_water.dart';
+import 'package:flame_water/src/mirror_pass.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 class _Block extends RectangleComponent with Reflectable {
@@ -20,6 +22,28 @@ class _Block extends RectangleComponent with Reflectable {
 
   @override
   final double? groundDepth;
+}
+
+class _Flat extends RectangleComponent with LiesFlat {
+  _Flat({super.position, super.size, super.paint});
+}
+
+class _Overlay extends RectangleComponent with OffStage {
+  _Overlay({super.position, super.size, super.paint});
+}
+
+/// A ground that paints itself red where a mirror could catch it.
+class _PaintedRoad extends Component with OnStage, Ground {
+  @override
+  Rect groundBand() => const Rect.fromLTWH(0, 100, 100, 40);
+
+  @override
+  void render(Canvas canvas) {
+    canvas.drawRect(
+      const Rect.fromLTWH(60, 80, 20, 20),
+      Paint()..color = _red,
+    );
+  }
 }
 
 /// The ground from y 100 down, 40 deep.
@@ -60,7 +84,7 @@ WaterSurface _surface({double squash = 1}) => WaterSurface(
 
 void main() {
   testWithFlameGame(
-    'the water mirrors what is reflectable about its line, nothing else',
+    'the water mirrors whatever stands above its line, about that line',
     (game) async {
       final surface = _surface();
       game.world.addAll([
@@ -70,6 +94,7 @@ void main() {
           size: Vector2(20, 20),
           paint: Paint()..color = _red,
         ),
+        // No mark of any kind: it stands, so it is mirrored.
         RectangleComponent(
           position: Vector2(0, 80),
           size: Vector2(20, 20),
@@ -81,8 +106,98 @@ void main() {
       final pixel = await _draw(surface);
       expect(pixel(50, 110), _red, reason: 'mirrored just below the line');
       expect(pixel(50, 130), _water, reason: 'nothing reflected past 20');
-      expect(pixel(10, 110), _water, reason: 'not reflectable');
+      expect(pixel(10, 110), _blue, reason: 'anything standing is mirrored');
       expect(pixel(80, 110), _water);
+    },
+  );
+
+  testWithFlameGame(
+    'what lies flat, the ground, an overlay and a light are not mirrored',
+    (game) async {
+      final surface = _surface();
+      game.world.addAll([
+        _Flat(
+          position: Vector2(0, 80),
+          size: Vector2(20, 20),
+          paint: Paint()..color = _red,
+        ),
+        _Overlay(
+          position: Vector2(25, 80),
+          size: Vector2(20, 20),
+          paint: Paint()..color = _red,
+        ),
+        _PaintedRoad(),
+        surface,
+      ]);
+      await game.ready();
+      final pixel = await _draw(surface);
+      expect(pixel(10, 110), _water, reason: 'no height, no image');
+      expect(pixel(35, 110), _water, reason: 'not a thing in the world');
+      expect(pixel(70, 110), _water, reason: 'the ground lies flat');
+      expect(MirrorPass.mirrors(LightSource()), isFalse);
+      expect(MirrorPass.mirrors(RectangleComponent()), isTrue);
+    },
+  );
+
+  testWithFlameGame(
+    'a flat thing under a standing one leaves the standing one mirrored',
+    (game) async {
+      final surface = _surface();
+      final holder = RectangleComponent(
+        position: Vector2(40, 80),
+        size: Vector2(20, 20),
+        paint: Paint()..color = _red,
+      )..add(_Flat(size: Vector2(20, 20), paint: Paint()..color = _blue));
+      game.world.addAll([holder, surface]);
+      await game.ready();
+      final pixel = await _draw(surface);
+      expect(pixel(50, 110), _red);
+    },
+  );
+
+  testWithFlameGame(
+    'where nothing stands across, the water shows the sky drawn above it',
+    (game) async {
+      final surface = _surface();
+      game.world.add(surface);
+      await game.ready();
+      // Red at the horizon, at the water line; blue 40 above it.
+      surface.stage!.frame.sky.set(
+        topY: 60,
+        horizonY: 100,
+        top: _blue,
+        horizon: _red,
+      );
+      final pixel = await _draw(surface);
+      final near = pixel(50, 101);
+      final far = pixel(50, 139);
+      expect(near.r, greaterThan(0.9), reason: 'just below: the horizon');
+      expect(far.b, greaterThan(0.9), reason: '39 below: the sky 39 above');
+    },
+  );
+
+  testWithFlameGame(
+    'the mirror shows a thing as lit where it stands: in the dark, dark',
+    (game) async {
+      final surface = _surface();
+      game.world.addAll([
+        _Block(
+          position: Vector2(40, 80),
+          size: Vector2(20, 20),
+          paint: Paint()..color = _red,
+        ),
+        Lighting(skyLight: 0, glow: 0, lightsBackdrop: false),
+        surface,
+      ]);
+      await game.ready();
+      game.update(1 / 60);
+      final pixel = await _draw(surface);
+      final mirrored = pixel(50, 110);
+      expect(
+        mirrored.r,
+        lessThan(0.1),
+        reason: 'a red block in a night with no lamp is no red in the water',
+      );
     },
   );
 

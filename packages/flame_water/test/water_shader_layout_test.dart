@@ -61,6 +61,9 @@ void main() {
       'uAir': WaterShader.air,
       'uAirMap': WaterShader.airMap,
       'uImage': WaterShader.image,
+      'uSkyTop': WaterShader.skyTop,
+      'uSkyHorizon': WaterShader.skyHorizon,
+      'uSkyY': WaterShader.skyY,
     };
     expect(defines, dart);
   });

@@ -18,7 +18,7 @@ abstract final class WaterShader {
   static const int maxLights = 8;
 
   /// vec4s before the rings.
-  static const int header = 12;
+  static const int header = 15;
 
   /// Floats per mirrored light: six vec4.
   static const int lightFloats = 24;
@@ -62,6 +62,9 @@ abstract final class WaterShader {
   static const int air = 42;
   static const int airMap = 43;
   static const int image = 44;
+  static const int skyTop = 48;
+  static const int skyHorizon = 52;
+  static const int skyY = 56;
 
   /// The loaded program; `null` before [load] finishes.
   static FragmentProgram? get program => _program;

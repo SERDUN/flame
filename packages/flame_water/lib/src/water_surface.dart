@@ -84,7 +84,6 @@ class WaterSurface extends PositionComponent
     RippleRings? ripples,
     this.rippleColor = const Color(0x99FFFFFF),
     this.rippleWidth = 1.2,
-    this.reflects = _isReflectable,
     this.quality = WaterQuality.rippled,
     this.resolution = 1,
     double? waveAmplitude,
@@ -107,8 +106,6 @@ class WaterSurface extends PositionComponent
     // A film starts as wet as the scene says; standing water is water.
     this.wetness = wetness;
   }
-
-  static bool _isReflectable(Component c) => c is Reflectable;
 
   WaterShape shape;
 
@@ -193,10 +190,6 @@ class WaterSurface extends PositionComponent
   /// How thick a ring's line is, world units: 1.2 in pixels, 1.2 cm in a
   /// world measured in metres.
   double rippleWidth;
-
-  /// Which components the water mirrors, and with them everything under
-  /// them. By default the [Reflectable] ones.
-  bool Function(Component) reflects;
 
   WaterQuality quality;
 
@@ -608,6 +601,17 @@ class WaterSurface extends PositionComponent
 
   final Paint _plainLight = Paint()..blendMode = BlendMode.plus;
 
+  /// A clear 1x1 image: the mirror's picture when none of the world is in
+  /// view - nothing there, so the sky shows.
+  static Image? _clear;
+  static Image _makeClear() {
+    final recorder = PictureRecorder();
+    final picture = recorder.endRecording();
+    final image = picture.toImageSync(1, 1);
+    picture.dispose();
+    return image;
+  }
+
   /// A 1x1 image for the sampler the lights mode does not read.
   static Image? _blank;
   static Image _makeBlank() {
@@ -830,11 +834,24 @@ class WaterSurface extends PositionComponent
     return stage.frame.view.overlaps(toAbsoluteRect());
   }
 
+  /// Water shows the world it mirrors as lit where each thing stands, and
+  /// the sky where nothing stands across: none of it is the light falling
+  /// where the water lies, so it is drawn out of the lighting's multiply
+  /// ([Lighting.unlit]), over the ground under it lit as it is.
   @override
   void render(Canvas canvas) {
     if ((!film && _dry) || !_inView) {
       return;
     }
+    final lighting = Lighting.of(this);
+    if (lighting == null) {
+      _renderWater(canvas);
+    } else {
+      lighting.unlit(canvas, () => _renderWater(canvas));
+    }
+  }
+
+  void _renderWater(Canvas canvas) {
     final rect = size.toRect();
     final origin = absoluteTopLeftPosition;
     final line = _line - origin.y;
@@ -887,6 +904,20 @@ class WaterSurface extends PositionComponent
             (_shown * _meanReflectance(_view())).clamp(0.0, 1.0),
           ),
       );
+      final sky = stage?.frame.sky;
+      if (sky != null && sky.present) {
+        // Where nothing of the world stands across, the sky, mirrored as the
+        // world is.
+        _skyPaint.shader = Gradient.linear(
+          Offset(0, rect.top),
+          Offset(0, rect.bottom),
+          [
+            sky.at(_mirroredY(origin.y + rect.top)),
+            sky.at(_mirroredY(origin.y + rect.bottom)),
+          ],
+        );
+        canvas.drawRect(rect, _skyPaint);
+      }
       _smeared(
         canvas,
         streak,
@@ -894,18 +925,23 @@ class WaterSurface extends PositionComponent
           canvas,
           line,
           origin,
-          () => ReflectionPass.run(
-            this,
-            () => MirrorPass.drawWorld(
+          () => ReflectionPass.run(this, () {
+            final view = stage?.frame.view;
+            final lit = LitPicture.of(
+              Lighting.of(this),
+              MirrorPass.litArea(view ?? toAbsoluteRect()),
+            );
+            MirrorPass.drawWorld(
               canvas,
               Stage.worldOf(this),
-              reflects: reflects,
               left: area.left,
               right: area.right,
               projection: _projection,
               shift: mirrorShift,
-            ),
-          ),
+              lit: lit,
+            );
+            lit?.finish(canvas);
+          }),
         ),
       );
       if (fade > 0) {
@@ -932,6 +968,12 @@ class WaterSurface extends PositionComponent
     }
     _closeArea(canvas, rect);
   }
+
+  final Paint _skyPaint = Paint();
+
+  /// World y of what water at world y [y] shows: mirrored about its line
+  /// and squeezed, as the world is.
+  double _mirroredY(double y) => _line - (y - _line) / squash;
 
   /// What lies under the mirror: the water's colour, and under a film the
   /// ground it darkens over it.
@@ -1070,21 +1112,43 @@ class WaterSurface extends PositionComponent
     required double fade,
     required double line,
   }) {
-    final image = pass?.image ?? (_blank ??= _makeBlank());
+    final sky = stage?.frame.sky;
+    final skyShown = sky != null && sky.present;
+    final image = pass?.image ?? (_clear ??= _makeClear());
     final origin = absoluteTopLeftPosition;
     final bounds = pass?.bounds ?? Rect.zero;
     final shader = WaterShader.shaderOf(program);
-    final f =
-        _uniforms(uniforms, gain: pass?.image == null ? 0 : gain, line: line)
-          ..[WaterShader.fade] = fade
-          ..[WaterShader.pixels] = pass?.scale ?? 1
-          ..[WaterShader.image] = bounds.left - origin.x
-          ..[WaterShader.image + 1] = bounds.top - origin.y
-          ..[WaterShader.image + 2] = bounds.width
-          ..[WaterShader.image + 3] = bounds.height;
+    // With no picture (none of the world in view) the water still shows
+    // the sky, if it knows it.
+    final shown = pass?.image != null || skyShown ? gain : 0.0;
+    final f = _uniforms(uniforms, gain: shown, line: line)
+      ..[WaterShader.fade] = fade
+      ..[WaterShader.pixels] = pass?.scale ?? 1
+      ..[WaterShader.image] = bounds.left - origin.x
+      ..[WaterShader.image + 1] = bounds.top - origin.y
+      ..[WaterShader.image + 2] = bounds.width
+      ..[WaterShader.image + 3] = bounds.height;
     WaterShader.color(f, WaterShader.base, base);
     WaterShader.color(f, WaterShader.tint, tint);
-    WaterShader.color(f, WaterShader.glint, _ringPaint().color);
+    if (skyShown) {
+      f
+        ..[WaterShader.skyY] = sky.topY - origin.y
+        ..[WaterShader.skyY + 1] = sky.horizonY - origin.y
+        ..[WaterShader.skyY + 2] = 1;
+      WaterShader.color(f, WaterShader.skyTop, sky.top);
+      WaterShader.color(f, WaterShader.skyHorizon, sky.horizon);
+      // A crest leans toward the eye and mirrors the sky higher up than
+      // the flat water round it: it catches the sky's upper light, not a
+      // white of its own.
+      final ring = _ringPaint().color;
+      WaterShader.color(
+        f,
+        WaterShader.glint,
+        sky.top.withValues(alpha: ring.a),
+      );
+    } else {
+      WaterShader.color(f, WaterShader.glint, _ringPaint().color);
+    }
     WaterShader.upload(shader, f);
     shader
       ..setImageSampler(0, image, filterQuality: FilterQuality.low)

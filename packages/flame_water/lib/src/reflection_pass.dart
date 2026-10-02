@@ -2,12 +2,13 @@ import 'dart:ui';
 
 import 'package:flame/components.dart';
 
-/// Marks a component as part of what water reflects.
+/// Where something water mirrors stands, when that is not on the line the
+/// water mirrors about.
 ///
-/// Water mirrors the world above it, but only the components with
-/// this mixin (and everything under them) take part: the scenery, the
-/// characters, the lights - not the HUD, not debug overlays, not the water
-/// itself. A component can still tell it is being drawn as a reflection
+/// Water mirrors everything on the stage that stands - what it leaves out
+/// it leaves out by what that is (`MirrorPass.mirrors`): no list of what to
+/// mirror. This only says where a thing meets the ground, so its image
+/// hangs from there. A component can tell it is being drawn as a reflection
 /// through [ReflectionPass.isActive], and draw itself more simply there.
 mixin Reflectable on Component {
   /// World y of the line where it meets the ground, if not the water's

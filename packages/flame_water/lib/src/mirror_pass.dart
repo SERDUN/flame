@@ -2,6 +2,7 @@ import 'dart:math' as math;
 import 'dart:ui';
 
 import 'package:flame/components.dart';
+import 'package:flame_lighting/flame_lighting.dart';
 import 'package:flame_stage/flame_stage.dart';
 import 'package:flame_water/src/reflection_pass.dart';
 import 'package:flame_water/src/water_surface.dart';
@@ -18,21 +19,18 @@ import 'package:flame_water/src/water_surface.dart';
 /// bent by its own rings and smeared by its own roughness. A puddle more
 /// costs a shader draw, not another drawing of the world.
 ///
-/// Waters that differ in line, squash or what they reflect get a pass each.
+/// Waters that differ in line or squash get a pass each.
 /// A water out of the view is in none. Drawing the picture is lazy: it is
 /// made when the first water of a frame asks for it and kept until one asks
 /// a second time, which is the next frame.
 class MirrorPass implements Mirror {
-  MirrorPass._(this.line, this.squash, this.reflects);
+  MirrorPass._(this.line, this.squash);
 
   /// World y of the line the world is mirrored about.
   final double line;
 
   /// How tall the mirror is against what it mirrors.
   final double squash;
-
-  /// Which components it mirrors.
-  final bool Function(Component) reflects;
 
   final List<WaterSurface> _members = [];
 
@@ -122,83 +120,124 @@ class MirrorPass implements Mirror {
       ..translate(0, line - bounds.top)
       ..scale(1, -squash)
       ..translate(-bounds.left, -line);
-    ReflectionPass.run(
-      this,
-      () => drawWorld(
+    ReflectionPass.run(this, () {
+      final lit = LitPicture.of(
+        Lighting.of(drawer),
+        litArea(view ?? bounds),
+      );
+      drawWorld(
         canvas,
         Stage.worldOf(drawer),
-        reflects: reflects,
         left: left,
         right: right,
         projection: stage.projection,
         shift: mirrorShift,
-      ),
-    );
+        lit: lit,
+      );
+      lit?.finish(canvas);
+    });
     final picture = recorder.endRecording();
     image = picture.toImageSync(width, height);
     picture.dispose();
   }
 
-  /// Draws what [parent] holds that [reflects] takes, in world coordinates
-  /// onto [canvas]: a reflected component with all it holds, through its
-  /// own renderTree; any other only as a way down to its children, through
-  /// its decorator (a placed one's transform). A hidden component is
-  /// skipped with all it holds. A component that draws its children its own
-  /// way - a parallax layer - is mirrored with them only if it is reflected
-  /// itself. Water is never reflected, and a placed thing only if it stands
-  /// across from [left] .. [right]. Something standing off the line is moved
-  /// by [shift] of its base - as it says, or where its depth meets the
-  /// street's ground.
+  /// Whether water mirrors [component] at all, by what it is: everything on
+  /// the stage stands and is mirrored, except what has no height to mirror
+  /// ([LiesFlat], the ground with it), what is no thing in the world
+  /// ([OffStage]), water itself (water is not mirrored in water), a light
+  /// (water mirrors a light from the light itself, as a [LightReflector],
+  /// with the streak a rough surface draws it into), the lighting's own
+  /// steps ([LitPicture]) and what is hidden.
+  static bool mirrors(Component component) =>
+      component is! WaterSurface &&
+      component is! LiesFlat &&
+      component is! OffStage &&
+      component is! LightSource &&
+      !LitPicture.isPass(component) &&
+      !(component is HasVisibility && !component.isVisible);
+
+  /// The part of the world a picture's lighting covers for a mirror of
+  /// [shown]: the world across from it and above it, as far again as the
+  /// view is tall each way - whatever the mirror can bring into it.
+  static Rect litArea(Rect shown) => Rect.fromLTRB(
+    shown.left - shown.width,
+    shown.top - 2 * shown.height,
+    shown.right + shown.width,
+    shown.bottom + 2 * shown.height,
+  );
+
+  /// Draws what [parent] holds that water mirrors ([mirrors]), in world
+  /// coordinates onto [canvas]: a component with nothing unmirrored under
+  /// it with all it holds, through its own renderTree; one that holds
+  /// something unmirrored drawn itself, then its children each as they are
+  /// mirrored, through its decorator (a placed one's transform). A placed
+  /// thing is drawn only if it stands across from [left] .. [right].
+  /// Something standing off the line is moved by [shift] of its base - as
+  /// it says ([Reflectable]), or where its depth meets the street's ground.
+  ///
+  /// [lit] lights the picture as the world is lit, at the lighting's own
+  /// steps as they come; without it they are left out.
   static void drawWorld(
     Canvas canvas,
     Component parent, {
-    required bool Function(Component) reflects,
     required double left,
     required double right,
     required StreetProjection? projection,
     required double Function(double base) shift,
+    LitPicture? lit,
   }) {
     for (final child in parent.children) {
-      if (child is WaterSurface ||
-          (child is HasVisibility && !child.isVisible)) {
+      if (lit != null && lit.step(canvas, child)) {
         continue;
       }
-      if (reflects(child)) {
-        if (_across(child, left, right)) {
-          final base = child is Reflectable ? _baseOf(child, projection) : null;
-          if (base == null) {
-            child.renderTree(canvas);
-          } else {
-            canvas
-              ..save()
-              ..translate(0, shift(base));
-            child.renderTree(canvas);
-            canvas.restore();
-          }
-        }
+      if (!mirrors(child) || !_across(child, left, right)) {
         continue;
       }
-      if (child.children.isEmpty) {
-        continue;
+      final base = child is Reflectable ? _baseOf(child, projection) : null;
+      if (base != null) {
+        canvas
+          ..save()
+          ..translate(0, shift(base));
       }
-      void down(Canvas canvas) => drawWorld(
-        canvas,
-        child,
-        reflects: reflects,
-        left: left,
-        right: right,
-        projection: projection,
-        shift: shift,
-      );
-      // On the way down, what the component's own drawing does to its
-      // children: a placed one's transform and whatever else its decorator
-      // adds, as its renderTree would.
-      if (child is PositionComponent) {
-        child.decorator.applyChain(down, canvas);
+      if (!_holdsUnmirrored(child)) {
+        child.renderTree(canvas);
       } else {
-        down(canvas);
+        void down(Canvas canvas) {
+          child.render(canvas);
+          drawWorld(
+            canvas,
+            child,
+            left: left,
+            right: right,
+            projection: projection,
+            shift: shift,
+            lit: lit,
+          );
+        }
+
+        // On the way down, what the component's own drawing does to its
+        // children: a placed one's transform and whatever else its decorator
+        // adds, as its renderTree would.
+        if (child is PositionComponent) {
+          child.decorator.applyChain(down, canvas);
+        } else {
+          down(canvas);
+        }
+      }
+      if (base != null) {
+        canvas.restore();
       }
     }
+  }
+
+  /// Whether anything under [component] is not mirrored.
+  static bool _holdsUnmirrored(Component component) {
+    for (final child in component.children) {
+      if (!mirrors(child) || _holdsUnmirrored(child)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /// Whether [c] stands where its reflection can reach the water: anything
@@ -268,17 +307,11 @@ class _Passes {
       }
       final line = water.mirrorLine;
       final squash = water.squash;
-      final reflects = water.reflects;
       var pass = _list
-          .where(
-            (p) =>
-                p.line == line &&
-                p.squash == squash &&
-                identical(p.reflects, reflects),
-          )
+          .where((p) => p.line == line && p.squash == squash)
           .firstOrNull;
       if (pass == null) {
-        pass = MirrorPass._(line, squash, reflects);
+        pass = MirrorPass._(line, squash);
         _list.add(pass);
       }
       pass._members.add(water);

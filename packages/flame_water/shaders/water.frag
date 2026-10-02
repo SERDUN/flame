@@ -26,7 +26,7 @@ precision highp float;
 
 const int kMaxRings = 32;
 const int kMaxLights = 8;
-const int kHeader = 12;
+const int kHeader = 15;
 const int kRings = kHeader;
 const int kLights = kRings + kMaxRings;
 
@@ -68,6 +68,10 @@ uniform vec4 u[kLights + kMaxLights * 6];
                                // lighting's light buffer, uImage its rect
 #define uImage       u[11]     // the mirror's picture: its corner and size,
                                // local units (it covers other waters too)
+#define uSkyTop      u[12]     // the sky drawn at uSkyY.x, premultiplied
+#define uSkyHorizon  u[13]     // ... and at uSkyY.y and below
+#define uSkyY        u[14]     // the sky's top and horizon, local y; z 1:
+                               // the sky shows where the picture is empty
 
 uniform sampler2D uReflection;
 uniform sampler2D uHeights;
@@ -384,6 +388,15 @@ void main() {
             }
         }
         color = sum / total;
+    }
+    if (uSkyY.z > 0.5) {
+        // Where nothing of the world stands across, the sky drawn behind
+        // it, mirrored about the line and squeezed as the world is.
+        float y = uLine - (at.y - uLine) / max(uSquash, 1e-3);
+        float span = uSkyY.y - uSkyY.x;
+        float t = abs(span) < 1e-6 ? 1.0 : clamp((y - uSkyY.x) / span, 0.0, 1.0);
+        vec4 sky = mix(uSkyTop, uSkyHorizon, t);
+        color = color + sky * (1.0 - clamp(color.a, 0.0, 1.0));
     }
     vec4 mirror = color * shown;
     // The mirror over the water, the tint over both; all premultiplied.
