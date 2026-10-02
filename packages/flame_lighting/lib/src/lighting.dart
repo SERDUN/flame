@@ -44,7 +44,8 @@ class Lighting extends Component with OnStage, Ambience, FrameStep {
     this.adaptation = 1,
     this.adaptsIn = 0,
     double? darkAdaptsIn,
-    this.glow = 0.35,
+    this.glow,
+    this.metre = 1,
     this.haze,
     this.useBuffer = true,
     this.bufferScale = 0.5,
@@ -71,7 +72,10 @@ class Lighting extends Component with OnStage, Ambience, FrameStep {
   double adaptation;
 
   @override
-  double glow;
+  double? glow;
+
+  @override
+  double metre;
 
   @override
   double adaptsIn;
@@ -287,7 +291,7 @@ class Lighting extends Component with OnStage, Ambience, FrameStep {
     // the buffer has it), its halo as much light as it is.
     final e = math.max(field.exposure, 1e-6);
     for (var i = 0; i < field.count; i++) {
-      _glowItself(over, field, i, 1 / canvasGain, scale: 1 / (e * canvasGain));
+      _glowItself(over, field, i, scale: 1 / (e * canvasGain));
     }
     return (lights: cast, all: all.endRecording().toImageSync(w, h));
   }
@@ -421,7 +425,7 @@ class Lighting extends Component with OnStage, Ambience, FrameStep {
       );
     for (var i = 0; i < field.count; i++) {
       _cast(canvas, frame, i, _add, e);
-      _glowItself(canvas, field, i, e);
+      _glowItself(canvas, field, i);
     }
     canvas.restore();
   }
@@ -552,12 +556,11 @@ class Lighting extends Component with OnStage, Ambience, FrameStep {
 
   /// Into the illumination: what of light [i] glows itself - a bulb, a lit
   /// pane, a tube - fully, so it shows as bright as it is drawn, and the
-  /// halo the haze makes round it, as much light as it is ([exposure]).
+  /// halo the haze makes round it, a share of it as it is drawn.
   void _glowItself(
     Canvas canvas,
     LightField field,
-    int i,
-    double exposure, {
+    int i, {
     double scale = 1,
   }) {
     // Fully lit, as much as [scale] of white (the canvas path's image holds
@@ -611,10 +614,13 @@ class Lighting extends Component with OnStage, Ambience, FrameStep {
           canvas.drawCircle(center, source * 1.6, _emit);
         }
     }
-    final a = (field.haze * field.strengthOf(i) * 0.6 * exposure).clamp(
-      0.0,
-      1.0,
-    );
+    // Its halo: a share of the source as it is drawn (as much as [scale]),
+    // never brighter than it, whatever the eye's exposure.
+    final a = (field.haze * math.min(field.strengthOf(i), 1.0) * 0.6 * scale)
+        .clamp(
+          0.0,
+          1.0,
+        );
     if (a > 0 && source > 0) {
       final radius = field.haloRadiusOf(i);
       // The same profile as the halo the light draws, or a ring would show.

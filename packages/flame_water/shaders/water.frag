@@ -258,7 +258,9 @@ vec3 lights(vec2 p, float s) {
         float halo = uHaze * 0.6 *
             exp(-0.5 * (d.x * d.x / hx2 + d.y * d.y / hy2)) *
             (hs * hs * uSquash / sqrt(hx2 * hy2));
-        sum += color * body * h.w + c.rgb * halo * c.w;
+        // The halo too as a share of the source as it is drawn: never
+        // brighter than it.
+        sum += (color * body + c.rgb * halo) * h.w;
 
         // What it casts on the street, seen in the mirror: the point the
         // mirror shows here, back where it is on the street line, and the

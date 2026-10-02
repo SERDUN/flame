@@ -244,7 +244,9 @@ void main() {
     // The halo the haze makes round its source.
     if (haze > 0.0 && source > 0.0) {
       float r = length(frag - pos) / (source * (6.0 + 24.0 * haze));
-      glows += haze * strength * 0.6 * halo(r);
+      // A share of the source as it is drawn, unexposed like it: the
+      // halo never outshines what it is the halo of.
+      glows += haze * min(strength, 1.0) * 0.6 * halo(r) / exposure;
     }
   }
   frag_color = vec4(sum, glows);

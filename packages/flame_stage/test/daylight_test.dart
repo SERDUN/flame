@@ -79,6 +79,21 @@ void main() {
     },
   );
 
+  test('the air scatters more light toward the eye the harder it rains', () {
+    // A street in metres, its ground band 2 m high on the screen.
+    final street = StreetProjection(const Rect.fromLTWH(0, 0, 20, 2));
+    WeatherState rain(double mm) => WeatherState()
+      ..present = true
+      ..rainMmPerHour = mm;
+    final clear = LightField.airGlow(rain(0), street);
+    final steady = LightField.airGlow(rain(6), street);
+    final downpour = LightField.airGlow(rain(60), street);
+    expect(clear, lessThan(0.01));
+    expect(steady, greaterThan(clear));
+    expect(downpour, greaterThan(steady));
+    expect(LightField.airGlow(null, street), 0, reason: 'no weather, no air');
+  });
+
   test('the harder it rains, the thicker the cloud it falls from', () {
     expect(cloudOpticalDepthOfRain(0), Daylight.overcastOpticalDepth);
     expect(cloudOpticalDepthOfRain(6), greaterThan(cloudOpticalDepthOfRain(1)));

@@ -353,8 +353,15 @@ mixin Ambience on OnStage {
   double? get haze;
 
   /// How much colour the lights add in the air over what they light,
-  /// `0..1`.
-  double get glow;
+  /// `0..1`; `null`: as much as the air between the eye and the street
+  /// scatters - 1 - exp(-3.912 d / V) over the eye's distance to the street
+  /// d and the weather's visibility V (Koschmieder): next to none in clear
+  /// air, a few hundredths in rain, more in a downpour.
+  double? get glow;
+
+  /// World units a metre: how [glow] puts the street's distance against the
+  /// weather's visibility, in metres. 1 for a world in metres.
+  double get metre => 1;
 }
 
 /// How much light reaches a point, and in what colour: what [LightField]
@@ -478,7 +485,11 @@ class LightField {
 
   /// Starts a frame's field over: no lights, [ambience]'s sky (white and
   /// unlit when there is none).
-  void begin(Ambience? ambience, {WeatherState? weather}) {
+  void begin(
+    Ambience? ambience, {
+    WeatherState? weather,
+    StreetProjection? projection,
+  }) {
     if (ambience == null) {
       count = 0;
       _sunLevel = 0;
@@ -497,8 +508,24 @@ class LightField {
       adaptsIn: ambience.adaptsIn,
       darkAdaptsIn: ambience.darkAdaptsIn,
       haze: ambience.haze ?? weather?.haze ?? 0,
-      glow: ambience.glow,
+      glow:
+          ambience.glow ?? airGlow(weather, projection, metre: ambience.metre),
     );
+  }
+
+  /// How much of the light in the air the air between the eye and the
+  /// street scatters toward it (see [Ambience.glow]): none without a street
+  /// or a weather.
+  static double airGlow(
+    WeatherState? weather,
+    StreetProjection? projection, {
+    double metre = 1,
+  }) {
+    if (weather == null || !weather.present || projection == null) {
+      return 0;
+    }
+    final metres = projection.farDistance / math.max(metre, 1e-6);
+    return 1 - WeatherState.transmittanceOf(metres, weather.visibilityM);
   }
 
   /// Starts a frame's field over under a sky of [sky] colour giving

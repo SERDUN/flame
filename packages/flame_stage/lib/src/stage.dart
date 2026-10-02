@@ -256,6 +256,7 @@ class Stage extends Component {
     field.begin(
       ambiences.isEmpty ? null : ambiences.first,
       weather: frame.weather,
+      projection: frame.projection,
     );
     final projection = frame.projection;
     for (final carrier in members<LightCarrier>()) {

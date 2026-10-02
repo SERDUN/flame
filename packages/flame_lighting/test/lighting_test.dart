@@ -107,6 +107,22 @@ Future<void> _setUp(
 
 void main() {
   testWithFlameGame(
+    'in a dark wet night the halo is a share of the lamp, not a flood',
+    (game) async {
+      // A black night: the eye's exposure as high as it goes; haze at its
+      // thickest.
+      await _setUp(game, [
+        LightSource(position: Vector2(400, 300), radius: 60),
+      ], haze: 1);
+      final at = await _render(game);
+      // Five source radii out the halo shows, no brighter than its share of
+      // the source (0.6 of it at the most), far from white.
+      expect(at(430, 300), greaterThan(0));
+      expect(at(430, 300), lessThan(0.6 * 255));
+    },
+  );
+
+  testWithFlameGame(
     'a cut lights what stands far behind the street by what reaches it',
     (game) async {
       await LightShader.load(directory: 'shaders');

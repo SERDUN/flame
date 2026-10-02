@@ -71,7 +71,6 @@ class LightSource extends PositionComponent with OnStage, LightCarrier {
   Iterable<Light> get lights => [light];
 
   final Paint _glow = Paint();
-  double _air = 1;
 
   /// The halo the haze makes round a source at [center], [radius] wide, in
   /// [color] at [alpha]: one profile for the halo a light draws and the
@@ -106,9 +105,9 @@ class LightSource extends PositionComponent with OnStage, LightCarrier {
       return;
     }
     final haze = stage?.frame.light.haze ?? 0;
-    // The glow in the air is light, as much as the eye adapted to the sky
-    // makes of it; the source itself shows as bright as it is drawn.
-    _air = stage?.frame.light.exposure ?? 1;
+    // The source shows as bright as it is drawn; the halo the wet air makes
+    // round it is its light scattered toward the eye, a share of it - never
+    // brighter than the source, whatever the eye's exposure.
     final glow = s.clamp(0.0, 1.0);
     final at = light.offset.toOffset();
     switch (light.shape) {
@@ -136,7 +135,7 @@ class LightSource extends PositionComponent with OnStage, LightCarrier {
         at,
         halo,
         light.color,
-        haze * s * 0.6 * _air,
+        haze * s * 0.6,
       );
       canvas.drawCircle(at, halo, _glow);
     }
@@ -169,7 +168,7 @@ class LightSource extends PositionComponent with OnStage, LightCarrier {
       final spill = math.min(rect.width, rect.height) * (0.3 + 1.2 * haze);
       _glow.shader = null;
       for (var k = 3; k >= 1; k--) {
-        _glow.color = light.color.withValues(alpha: haze * s * 0.08 * _air);
+        _glow.color = light.color.withValues(alpha: haze * s * 0.08);
         canvas.drawRRect(
           RRect.fromRectAndRadius(
             rect.inflate(spill * k / 3),
@@ -204,7 +203,7 @@ class LightSource extends PositionComponent with OnStage, LightCarrier {
       for (var k = 3; k >= 1; k--) {
         _glow
           ..strokeWidth = width * (1 + (2 + 8 * haze) * k / 3)
-          ..color = light.color.withValues(alpha: haze * s * 0.1 * _air);
+          ..color = light.color.withValues(alpha: haze * s * 0.1);
         canvas.drawLine(a, b, _glow);
       }
     }
