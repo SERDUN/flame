@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import 'package:flame/components.dart';
+import 'package:flame_stage/src/daylight.dart';
 import 'package:flame_stage/src/stage.dart';
 
 /// The weather over a stage: one state the rain, the air, the light and
@@ -27,10 +28,25 @@ mixin Weather on OnStage {
   /// How much of the sky clouds cover, `0..1`.
   double get cloudCover => 1;
 
+  /// How thick the clouds are to light, their optical depth: some 27 a
+  /// common overcast, 70 one it rains steadily from, over 150 a
+  /// thunderhead (`Daylight.cloudTransmittance`). By default, the cloud the
+  /// rain falls from ([cloudOpticalDepthOfRain]).
+  double get cloudOpticalDepth => cloudOpticalDepthOfRain(rainMmPerHour);
+
   /// World seconds a second of the game: how fast water comes and goes, and
   /// the day turns.
   double get pace => 1;
 }
+
+/// The optical depth of the clouds a rain of [mmPerHour] falls from: the
+/// thicker the cloud, the more water it holds and the harder it rains -
+/// some 40 for a drizzle (1 mm/h), 70 a steady rain (6), 110 a downpour
+/// (15), 185 a thunderhead's (40) (rough, after the liquid water paths
+/// such clouds carry).
+double cloudOpticalDepthOfRain(double mmPerHour) =>
+    Daylight.overcastOpticalDepth +
+    12 * math.pow(math.max(mmPerHour, 0), 0.7).toDouble();
 
 /// The weather of one frame, as the stage read it: what everything wet,
 /// the air and the sky ask of it.
@@ -53,6 +69,9 @@ class WeatherState {
 
   /// `0..1`.
   double cloudCover = 0;
+
+  /// The clouds' optical depth.
+  double cloudOpticalDepth = 0;
 
   /// World seconds a game second.
   double pace = 1;
@@ -98,10 +117,12 @@ class WeatherState {
       humidity = 0.6;
       temperature = 15;
       cloudCover = 0;
+      cloudOpticalDepth = 0;
       pace = 1;
       return;
     }
     rainMmPerHour = math.max(weather.rainMmPerHour, 0);
+    cloudOpticalDepth = math.max(weather.cloudOpticalDepth, 0);
     wind.setFrom(weather.wind);
     humidity = weather.humidity.clamp(0.0, 1.0);
     temperature = weather.temperature;

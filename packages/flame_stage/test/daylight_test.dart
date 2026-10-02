@@ -30,13 +30,59 @@ void main() {
   test('clouds take the sun away and make the sky grey and dimmer', () {
     final clear = Daylight.at(sunElevation: 30);
     final overcast = Daylight.at(sunElevation: 30, cloudCover: 1);
-    expect(overcast.sunLight, 0);
+    expect(overcast.sunLight, closeTo(0, 1e-9));
     expect(
       overcast.skyLight,
       lessThan(clear.skyLight + clear.sunLight * 0.5),
     );
     final grey = overcast.skyColor;
     expect((grey.r - grey.b).abs(), lessThan(0.12));
+  });
+
+  test(
+    'a thicker cloud lets less of the day through, and a thin one the sun',
+    () {
+      expect(
+        Daylight.cloudTransmittance(Daylight.overcastOpticalDepth),
+        closeTo(0.25, 0.01),
+      );
+      expect(Daylight.cloudTransmittance(100), closeTo(0.08, 0.005));
+      final overcast = Daylight.at(sunElevation: 30, cloudCover: 1);
+      final thunderhead = Daylight.at(
+        sunElevation: 30,
+        cloudCover: 1,
+        cloudOpticalDepth: 150,
+      );
+      expect(thunderhead.skyLight, lessThan(overcast.skyLight / 3));
+      final haze = Daylight.at(
+        sunElevation: 30,
+        cloudCover: 1,
+        cloudOpticalDepth: 0.5,
+      );
+      expect(
+        haze.sunLight,
+        greaterThan(0),
+        reason: 'the disc through a thin veil',
+      );
+      // At night a thick cloud throws more of the town's glow back down.
+      final thin = Daylight.at(
+        sunElevation: -25,
+        cloudCover: 1,
+        cloudOpticalDepth: 5,
+      );
+      final thick = Daylight.at(
+        sunElevation: -25,
+        cloudCover: 1,
+        cloudOpticalDepth: 150,
+      );
+      expect(thick.skyLight, greaterThan(thin.skyLight));
+    },
+  );
+
+  test('the harder it rains, the thicker the cloud it falls from', () {
+    expect(cloudOpticalDepthOfRain(0), Daylight.overcastOpticalDepth);
+    expect(cloudOpticalDepthOfRain(6), greaterThan(cloudOpticalDepthOfRain(1)));
+    expect(cloudOpticalDepthOfRain(40), greaterThan(150));
   });
 
   test("a cloudy town's night is lit orange by its own glow", () {

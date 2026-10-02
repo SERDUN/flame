@@ -15,10 +15,14 @@ import 'package:flutter/foundation.dart' show immutable;
 /// - the sky's light is some 16 000 lux at a high sun; at sunset some
 ///   400; below the horizon it falls about tenfold every 2.5 degrees,
 ///   through civil and nautical twilight;
-/// - clouds take the direct light away and spread a quarter of the clear
-///   day's light evenly, grey;
-/// - the night's floor is the moon's and a town's glow, which clouds throw
-///   back down warm.
+/// - a cloud layer of optical depth tau (`cloudOpticalDepth`) over the
+///   part of the sky it covers lets the sun's disc through as
+///   exp(-tau / sin h) (Beer-Lambert) and passes on, diffuse and grey, as
+///   much of the light that falls on it as a scattering layer lets through
+///   ([cloudTransmittance]): a quarter under a common overcast, a few
+///   hundredths under a thunderhead;
+/// - the night's floor is the moon's light through the clouds and a town's
+///   glow, which they throw back down warm as much as they reflect.
 @immutable
 class Daylight {
   const Daylight({
@@ -34,17 +38,36 @@ class Daylight {
   /// One lamp, lux.
   static const double lampLux = 20;
 
+  /// How much of the light falling on a cloud layer of optical depth [tau]
+  /// comes out underneath, diffuse: the two-stream answer for a layer that
+  /// scatters without absorbing, 1 / (1 + 3/4 (1 - g) tau), with the
+  /// droplets' asymmetry g of 0.85 - a quarter at tau 27, a common
+  /// overcast; 0.08 at 100, a thunderhead.
+  static double cloudTransmittance(double tau) =>
+      1 / (1 + 0.75 * (1 - _asymmetry) * math.max(tau, 0));
+  static const double _asymmetry = 0.85;
+
+  /// The optical depth of the overcast a `cloudCover` alone stood for: a
+  /// quarter of the clear day's light gets through it.
+  static const double overcastOpticalDepth = 27;
+
   /// The day with the sun [sunElevation] degrees above the horizon (below
-  /// 0 under it), under [cloudCover] (`0..1`), with a town's glow of
-  /// [townGlowLux] reflected by clouds and the moon giving [moonLux].
+  /// 0 under it), clouds of optical depth `cloudOpticalDepth` over
+  /// [cloudCover] of the sky (`0..1`), with a town's glow of [townGlowLux]
+  /// reflected by them and the moon giving [moonLux].
   factory Daylight.at({
     required double sunElevation,
     double cloudCover = 0,
+    double cloudOpticalDepth = overcastOpticalDepth,
     double townGlowLux = 1.5,
     double moonLux = 0.05,
   }) {
     final h = sunElevation;
     final cover = cloudCover.clamp(0.0, 1.0);
+    final tau = math.max(cloudOpticalDepth, 0.0);
+    // Through the clouds: the diffuse share, and the sun's disc.
+    final through = cloudTransmittance(tau);
+    final reflected = 1 - through;
     final up = math.sin(math.max(h, 0) * math.pi / 180);
     // Air mass (Kasten and Young) and what of the sun gets through it.
     final mass = h <= 0
@@ -56,9 +79,12 @@ class Daylight {
         ? 400 + 16000 * math.sqrt(up)
         : 400 * math.pow(10, h / 2.5).toDouble();
     final clearTotal = direct * up + clearSky;
-    final sky = clearSky + cover * (0.25 * clearTotal - clearSky);
-    final sun = direct * math.pow(1 - cover, 1.5);
-    final night = moonLux + townGlowLux * cover;
+    final sky = (1 - cover) * clearSky + cover * through * clearTotal;
+    final disc = up <= 0 ? 0.0 : math.exp(-tau / math.max(up, 0.05));
+    final sun = direct * ((1 - cover) + cover * disc);
+    final night =
+        moonLux * ((1 - cover) + cover * through) +
+        townGlowLux * cover * reflected;
     final skyLux = math.max(sky, 0) + night;
 
     // Colours: the sun reddens through the air; the clear sky is blue, the
@@ -70,7 +96,7 @@ class Daylight {
     final skyColor = _mixWeighted([
       (skyColorDay, math.max(sky, 0)),
       (colorOfKelvin(4100), moonLux),
-      (colorOfKelvin(2200), townGlowLux * cover),
+      (colorOfKelvin(2200), townGlowLux * cover * reflected),
     ]);
 
     // The sky as the eye sees it against a white thing in the same light:
@@ -78,8 +104,11 @@ class Daylight {
     // horizon.
     final total = skyLux + sun * up;
     final glow = (skyLux / math.max(total, 1e-6)).clamp(0.0, 1.0);
+    // The low sun's warmth reaches the horizon as much as the clouds let
+    // the light through.
     final warm = (h > -6 && h < 12)
-        ? (1 - (h - 3).abs() / 9).clamp(0.0, 1.0) * (1 - cover * 0.7)
+        ? (1 - (h - 3).abs() / 9).clamp(0.0, 1.0) *
+              ((1 - cover) + cover * through)
         : 0.0;
     final top = _scale(skyColor, 0.55 + 0.25 * glow);
     final horizon = _scale(
