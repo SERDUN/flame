@@ -42,7 +42,9 @@ abstract class LightBuffer {
   /// Adds up [frame]'s lights over [area] (world) into an image [width] by
   /// [height] pixels: (r, g, b) the light cast, a what glows itself. Above
   /// the street line the light falls on a wall plane [wallAhead] in front of
-  /// the line (behind it, negative: a far layer's). Each [slot] keeps its
+  /// the line (behind it, negative: a far layer's). With [air] the light
+  /// fills that much air in front of the plane instead, each shadow in it
+  /// as deep as its caster is thick against that. Each [slot] keeps its
   /// own image; another slot's render leaves it be.
   ui.Image? render(
     StageFrame frame,
@@ -50,6 +52,7 @@ abstract class LightBuffer {
     int width,
     int height, {
     double wallAhead = 0,
+    double air = 0,
     int slot = 0,
   });
 
@@ -63,6 +66,7 @@ abstract class LightBuffer {
     StageFrame frame,
     ui.Rect area, {
     double wallAhead = 0,
+    double air = 0,
   }) {
     into.fillRange(0, into.length, 0);
     final field = frame.light;
@@ -114,6 +118,7 @@ abstract class LightBuffer {
       ..[11] = field.haze
       ..[12] = field.exposure
       ..[13] = wallAhead
+      ..[14] = air
       ..setRange(
         lightsAt + maxLights * LightField.lightFloats,
         lightsAt +

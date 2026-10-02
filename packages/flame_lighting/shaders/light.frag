@@ -53,6 +53,10 @@ uniform vec4 u[kCapsules + kShadows * 2];
 #define WALL_AHEAD u[6].w
 // What stands in the way: capsules from u[kCapsules], two vec4 each.
 #define S_COUNT u[7].x
+// The depth of air the light fills, along the eye's way; 0: it falls on a
+// surface. A capsule darkens a way through the air only over its own
+// depth, so its shadow there is as deep as it is thick against the air's.
+#define S_AIR u[7].y
 
 const float kArea = 2.0;
 const float kLine = 3.0;
@@ -153,7 +157,8 @@ float through(vec3 l, vec3 p, float source) {
         float blur = max(source * (1.0 - t), radius * 1e-3);
         float s = clamp((dist - radius) / blur + 0.5, 0.0, 1.0);
         float visible = s * s * (3.0 - 2.0 * s);
-        light *= 1.0 - info.w * (1.0 - visible);
+        float share = S_AIR > 0.0 ? min(1.0, 2.0 * slab / S_AIR) : 1.0;
+        light *= 1.0 - info.w * share * (1.0 - visible);
     }
     return light;
 }

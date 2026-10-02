@@ -352,6 +352,34 @@ void main() {
     expect(at(540, 415), lessThan(at(260, 415) ~/ 2));
   });
 
+  testWithFlameGame(
+    'a post throws next to no shadow in the air: it is thin against the air',
+    (game) async {
+      await _setUp(
+        game,
+        [
+          _Ground(),
+          LightSource(position: Vector2(400, 300), radius: 600),
+          // A post on the street line right of the lamp, 30 deep: on the
+          // house front behind it its shadow is full.
+          _Post(470, 250, 350),
+        ],
+        // A black wall: only the light in the air shows.
+        wall: const Color(0xFF000000),
+        glow: 1,
+      );
+      final at = await _render(game);
+      final shaded = at(560, 300);
+      final open = at(240, 300);
+      expect(open, greaterThan(20), reason: 'the air glows round the lamp');
+      expect(
+        shaded,
+        greaterThan(open * 0.85),
+        reason: 'the way through the air passes 30 of shadow in hundreds',
+      );
+    },
+  );
+
   testWithFlameGame('a walker in front of a lamp shades the house front', (
     game,
   ) async {

@@ -86,6 +86,7 @@ class _GpuLightBuffer implements LightBuffer {
     int width,
     int height, {
     double wallAhead = 0,
+    double air = 0,
     int slot = 0,
   }) {
     if (_disposed || width <= 0 || height <= 0) {
@@ -108,7 +109,7 @@ class _GpuLightBuffer implements LightBuffer {
         ..width = width
         ..height = height;
     }
-    LightBuffer.write(_params, frame, area, wallAhead: wallAhead);
+    LightBuffer.write(_params, frame, area, wallAhead: wallAhead, air: air);
     at.host.reset();
     final target = at.targets[at.turn % 3];
     at.turn++;

@@ -115,14 +115,16 @@ class Lighting extends Component with OnStage, Ambience, FrameStep {
   /// and a wet road blurs what it mirrors. A mirror reads the light in the
   /// air from this. Made once a frame, when first asked for.
   Image? get lightImageSoft {
-    final image = _castLights ?? _lightImage;
+    final air = _airLights;
+    final image = air ?? _castLights ?? _lightImage;
     if (image == null) {
       return null;
     }
     if (identical(_softOf, image)) {
       return _soft;
     }
-    final current = _halved(image, 5);
+    // The light in the air is made at an eighth of the buffer each way.
+    final current = _halved(image, air != null ? 2 : 5);
     _soft?.dispose();
     _soft = current;
     _softOf = image;
@@ -190,8 +192,10 @@ class Lighting extends Component with OnStage, Ambience, FrameStep {
     if (_ownsImage) {
       _lightImage?.dispose();
       _castLights?.dispose();
+      _airLights?.dispose();
     }
     _castLights = null;
+    _airLights = null;
     _ownsImage = false;
     _lightImage = null;
     _litLayer?.removeFromParent();
@@ -209,8 +213,10 @@ class Lighting extends Component with OnStage, Ambience, FrameStep {
     if (_ownsImage) {
       _lightImage?.dispose();
       _castLights?.dispose();
+      _airLights?.dispose();
     }
     _castLights = null;
+    _airLights = null;
     _lightImage = null;
     _ownsImage = false;
     for (final cut in stage?.members<LitCut>() ?? const <LitCut>[]) {
@@ -229,14 +235,42 @@ class Lighting extends Component with OnStage, Ambience, FrameStep {
     final h = math.max(1, (view.height * pixels).ceil());
     _lightArea = view;
     final buffer = _buffer;
+    // The light in the air: it fills the air between the eye and the
+    // street line, where a thing's shadow is as deep as the thing is thick
+    // against that air - next to none of a post or a walker. An eighth of
+    // the buffer each way: it is blurred to half a metre anyway.
+    final air = frame.projection?.farDistance ?? 0;
+    final airW = math.max(1, w ~/ 8);
+    final airH = math.max(1, h ~/ 8);
     if (buffer != null && useBuffer) {
       _lightImage = buffer.render(frame, view, w, h);
+      if (air > 0) {
+        _airLights = buffer.render(
+          frame,
+          view,
+          airW,
+          airH,
+          air: air,
+          slot: _airSlot,
+        );
+      }
       _lightGain = 1;
       _alphaIsWhite = true;
     } else if (LightShader.shader != null) {
       final (:lights, :all) = _castImages(frame, view, w, h);
       _castLights = lights;
       _lightImage = all;
+      if (air > 0) {
+        final (lights: airLights, :all) = _castImages(
+          frame,
+          view,
+          airW,
+          airH,
+          air: air,
+        );
+        all.dispose();
+        _airLights = airLights;
+      }
       _ownsImage = true;
       _lightGain = canvasGain;
       _alphaIsWhite = false;
@@ -274,6 +308,7 @@ class Lighting extends Component with OnStage, Ambience, FrameStep {
     int w,
     int h, {
     double wall = 0,
+    double air = 0,
   }) {
     final field = frame.light;
     final lights = PictureRecorder();
@@ -281,7 +316,7 @@ class Lighting extends Component with OnStage, Ambience, FrameStep {
       ..scale(w / view.width, h / view.height)
       ..translate(-view.left, -view.top);
     for (var i = 0; i < field.count; i++) {
-      _cast(into, frame, i, _add, 1 / canvasGain, wallAhead: wall);
+      _cast(into, frame, i, _add, 1 / canvasGain, wallAhead: wall, air: air);
     }
     final cast = lights.endRecording().toImageSync(w, h);
     final all = PictureRecorder();
@@ -300,6 +335,14 @@ class Lighting extends Component with OnStage, Ambience, FrameStep {
 
   /// The canvas path's lights alone ([_castImages]).
   Image? _castLights;
+
+  /// The light filling the air between the eye and the street line, at an
+  /// eighth of the buffer each way: what [lightImageSoft] is made from.
+  Image? _airLights;
+
+  /// The buffer slot the light in the air is rendered into: none of the
+  /// cuts' (1 up).
+  static const int _airSlot = -1;
 
   /// How many times the light the canvas path's image holds is its value:
   /// a lamp's light near it is several times white before the eye's
@@ -531,6 +574,7 @@ class Lighting extends Component with OnStage, Ambience, FrameStep {
     double amount, {
     Rect? clip,
     double wallAhead = 0,
+    double air = 0,
   }) {
     final field = frame.light;
     final view = frame.view.inflate(frame.view.width * 0.01);
@@ -580,6 +624,7 @@ class Lighting extends Component with OnStage, Ambience, FrameStep {
         projection: projection,
         shadows: frame.shadows,
         wall: wallAhead,
+        air: air,
       );
       canvas.drawRect(area, paint..shader = shader);
       paint.shader = null;

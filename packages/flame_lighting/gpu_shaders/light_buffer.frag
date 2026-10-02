@@ -31,7 +31,8 @@ uniform Params {
   vec4 street;    // band top, band height, near distance, far distance
   vec4 info;      // eye height, lights in use, capsules in use, haze
   vec4 look;      // the eye's exposure, the wall plane's distance in front
-                  // of the street line (behind it, negative)
+                  // of the street line (behind it, negative), the depth of
+                  // air the light fills (0: it falls on surfaces)
   vec4 lights[kMaxLights * 5];   // LightField.writeLight's five vectors each
   vec4 capsules[kMaxShadows * 2];
 } params;
@@ -125,7 +126,10 @@ float through(vec3 l, vec3 p, float source) {
     float blur = max(source * (1.0 - t), radius * 1e-3);
     float s = clamp((dist - radius) / blur + 0.5, 0.0, 1.0);
     float visible = s * s * (3.0 - 2.0 * s);
-    light *= 1.0 - info.w * (1.0 - visible);
+    // In the air a capsule darkens the eye's way only over its own depth.
+    float share = params.look.z > 0.0 ? min(1.0, 2.0 * slab / params.look.z)
+                                      : 1.0;
+    light *= 1.0 - info.w * share * (1.0 - visible);
   }
   return light;
 }

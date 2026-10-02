@@ -87,11 +87,14 @@ abstract final class LightShader {
   static const int drawAmount = projectionTop + 6;
   static const int wallAhead = projectionTop + 7;
   static const int shadowCount = projectionTop + 8;
+  static const int airDepth = projectionTop + 9;
 
   static final Float32List _floats = Float32List(vectors * 4);
 
   /// Fills [shader] to draw light [i] of [field] on [plane] at [amount],
-  /// with [projection] and [shadows].
+  /// with [projection] and [shadows]. With [air] the light fills that much
+  /// air in front of the plane rather than falling on it: a thing's shadow
+  /// in it is as deep as the thing is thick against the air's depth.
   static void write(
     FragmentShader shader,
     LightField field,
@@ -101,6 +104,7 @@ abstract final class LightShader {
     StreetProjection? projection,
     ShadowSet? shadows,
     double wall = 0,
+    double air = 0,
   }) {
     final f = _floats..fillRange(0, _floats.length, 0);
     field.writeLight(i, f, 0);
@@ -116,7 +120,8 @@ abstract final class LightShader {
     f
       ..[planeMode] = plane == LightPlane.ground ? 1 : 0
       ..[drawAmount] = amount
-      ..[wallAhead] = wall;
+      ..[wallAhead] = wall
+      ..[airDepth] = air;
     if (shadows != null) {
       final n = shadows.count < maxShadows ? shadows.count : maxShadows;
       f
