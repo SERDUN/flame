@@ -29,7 +29,8 @@ uniform vec4 u[6 + kMaxBanks * 2 + kMaxVeils / 4 + 1];
                                // extinction per metre, veils in the list
 #define uColor       u[3]      // the air's light, premultiplied
 #define uBanks       4         // two vec4 a bank: (extinction, at, cos, sin),
-                               // (width, slant, scale height, on)
+                               // (width, slant, top, top's width); an
+                               // extinction of 0 for none
 #define uVeils       (4 + kMaxBanks * 2)  // the veils' depths, four a vec4
 
 out vec4 fragColor;
@@ -49,10 +50,12 @@ float extinction(vec3 p) {
     for (int i = 0; i < kMaxBanks; i++) {
         vec4 a = u[uBanks + i * 2];
         vec4 b = u[uBanks + i * 2 + 1];
-        if (b.w < 0.5) {
+        if (a.x <= 0.0) {
             continue;
         }
-        float share = exp(-max(p.z, 0.0) / b.z);
+        // A layer up to its top, thinning out round it (AirBank._layer).
+        float s = max(b.w, 1e-3) / 4.0;
+        float share = 1.0 / (1.0 + exp(clamp((p.z - b.z) / s, -60.0, 60.0)));
         if (a.y > -1e8) {
             float along = p.x * a.z + p.y * a.w - b.y * p.z;
             float t = clamp((along - a.y) / max(b.x, 1e-6) + 0.5, 0.0, 1.0);

@@ -136,10 +136,10 @@ class WaterSurface extends PositionComponent
   /// lamp light and all; under a pond its bed is gone in its colour.
   WaterMedium medium;
 
-  /// It lies at its far edge, flat, under what stands there.
+  /// It lies on the ground band, flat: under whatever stands on it and the
+  /// air over it, wherever on the band it is.
   @override
-  double depthIn(StreetProjection? projection) =>
-      projection?.depthAt(absoluteTopLeftPosition.y) ?? 0;
+  double depthIn(StreetProjection? projection) => 0;
 
   @override
   DepthOrder get depthOrder => DepthOrder.flat;

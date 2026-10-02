@@ -74,7 +74,7 @@ void main() {
     (game) async {
       // One sees 50 m through it; what stands at the veil is 480 m off.
       final at = await _render(game, [
-        AirBank(extinction: AirField.ofVisibility(50), scaleHeightM: 1e6),
+        AirBank(extinction: AirField.ofVisibility(50), topM: 1e6),
       ]);
       final far = at(100, 200);
       expect(far.r, lessThan(30), reason: 'white gone into the air');
@@ -87,10 +87,12 @@ void main() {
     'a ground fog lies low: the feet in it, the tops above it clear',
     (game) async {
       final at = await _render(game, [
-        AirBank(extinction: AirField.ofVisibility(50), scaleHeightM: 1),
+        AirBank(extinction: AirField.ofVisibility(50), topM: 1, topWidthM: 0.4),
       ]);
       expect(at(100, 30).r, greaterThan(200), reason: 'high up, clear');
-      expect(at(100, 395).r, lessThan(at(100, 30).r - 100));
+      // 0.4 m up at the veil's distance, inside the fog; 2 m up already above it.
+      expect(at(100, 399).r, lessThan(at(100, 30).r - 100));
+      expect(at(100, 395).r, greaterThan(200));
     },
   );
 }

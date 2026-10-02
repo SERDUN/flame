@@ -118,8 +118,8 @@ void _drawAir(
       ..[o + 3] = math.sin(bank.angle)
       ..[o + 4] = bank.widthM
       ..[o + 5] = bank.slant
-      ..[o + 6] = bank.scaleHeightM
-      ..[o + 7] = 1;
+      ..[o + 6] = bank.topM
+      ..[o + 7] = bank.topWidthM;
   }
   if (veils != null) {
     for (final (i, v) in veils.take(6).indexed) {

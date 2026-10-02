@@ -15,8 +15,10 @@ typedef AirPoint = ({double x, double ahead, double height});
 /// [angle] (0 along the road, pi/2 away from the eye) is [at]; it lies on the
 /// far side of it, eased in over [widthM]. The edge leans [slant] metres
 /// along that way per metre up (a rain cell's, as the wind carries the
-/// drops). Up from the ground it thins as exp(-h / [scaleHeightM]): a ground
-/// fog a metre or two, a deep fog tens of metres.
+/// drops). It is a layer on the ground up to its top [topM], thinning out
+/// over [topWidthM] round it (a logistic step): a fog lies under a warmer
+/// air that keeps it down - a ground fog a metre over the ground and the
+/// water with the air clear above, a deep fog tens of metres up.
 @immutable
 class AirBank {
   const AirBank({
@@ -25,7 +27,8 @@ class AirBank {
     this.angle = 0,
     this.widthM = 20,
     this.slant = 0,
-    this.scaleHeightM = 50,
+    this.topM = 50,
+    this.topWidthM = 10,
   });
 
   /// Per metre, what it adds to the air's extinction at the ground, inside
@@ -45,27 +48,42 @@ class AirBank {
   /// How far its edge leans along [angle] per metre up.
   final double slant;
 
-  /// How high it reaches: it thins to 1/e every this many metres up.
-  final double scaleHeightM;
+  /// How high it reaches, m: where it is half as thick as at the ground.
+  final double topM;
+
+  /// How far round its top it thins out, m.
+  final double topWidthM;
+
+  /// How much of it there is at [height] above the ground, `0..1`.
+  double _layer(double height) {
+    final s = math.max(topWidthM, 1e-3) / 4;
+    return 1 / (1 + math.exp(((height - topM) / s).clamp(-60.0, 60.0)));
+  }
 
   /// How much of it there is at [p], `0..1`.
   double shareAt(AirPoint p) {
     if (at == double.negativeInfinity) {
-      return math.exp(-math.max(p.height, 0) / scaleHeightM);
+      return _layer(p.height);
     }
     final along =
         p.x * math.cos(angle) + p.ahead * math.sin(angle) - slant * p.height;
     final t = ((along - at) / math.max(widthM, 1e-6) + 0.5).clamp(0.0, 1.0);
     final eased = t * t * (3 - 2 * t);
-    return eased * math.exp(-math.max(p.height, 0) / scaleHeightM);
+    return eased * _layer(p.height);
   }
 
   /// How deep it is to light straight up from the ground at [x], [ahead]
   /// inside it: what it takes of the sky's light (as a cloud's optical
   /// depth does).
   double verticalOpticalDepth(double x, double ahead) {
-    final share = shareAt((x: x, ahead: ahead, height: 0));
-    return extinction * share * scaleHeightM;
+    // Its share along the ground, and its thickness: the layer's height
+    // summed from the ground up, s ln(1 + e^(top / s)).
+    final along = at == double.negativeInfinity
+        ? 1.0
+        : shareAt((x: x, ahead: ahead, height: 0)) / _layer(0);
+    final s = math.max(topWidthM, 1e-3) / 4;
+    final depth = s * math.log(1 + math.exp((topM / s).clamp(-60.0, 60.0)));
+    return extinction * along * depth;
   }
 }
 

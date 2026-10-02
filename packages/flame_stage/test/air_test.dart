@@ -16,15 +16,21 @@ void main() {
 
   test('a ground fog: the feet are in it, the tree tops above it', () {
     final air = AirField(
-      banks: [AirBank(extinction: AirField.ofVisibility(30), scaleHeightM: 1)],
+      banks: [
+        AirBank(
+          extinction: AirField.ofVisibility(30),
+          topM: 1.2,
+          topWidthM: 0.4,
+        ),
+      ],
     );
     final feet = air.extinctionAt(at(0, 0));
     final head = air.extinctionAt(at(0));
     final top = air.extinctionAt(at(0, 10));
-    expect(feet, greaterThan(head * 4));
+    expect(feet, greaterThan(head * 20), reason: 'the head above its top');
     expect(top - air.base, lessThan(feet / 1000), reason: 'past it, clear air');
     // The sun through a metre-thick fog: hardly dimmed.
-    expect(air.verticalOpticalDepth(0, 0), closeTo(3.912 / 30, 1e-9));
+    expect(air.verticalOpticalDepth(0, 0), closeTo(3.912 / 30 * 1.2, 1e-3));
   });
 
   test(
