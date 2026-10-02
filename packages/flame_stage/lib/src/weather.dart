@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import 'package:flame/components.dart';
+import 'package:flame_stage/src/air.dart';
 import 'package:flame_stage/src/daylight.dart';
 import 'package:flame_stage/src/stage.dart';
 
@@ -37,6 +38,11 @@ mixin Weather on OnStage {
   /// World seconds a second of the game: how fast water comes and goes, and
   /// the day turns.
   double get pace => 1;
+
+  /// Air thicker than the rest over parts of the scene: a fog, a storm
+  /// cell's rain (at most `AirField.maxBanks`). The rain and the mist over
+  /// all of it are the weather's own (`WeatherState.air`).
+  List<AirBank> get airBanks => const [];
 }
 
 /// The optical depth of the clouds a rain of [mmPerHour] falls from: the
@@ -93,15 +99,27 @@ class WeatherState {
     return (0.12 + 0.06 * wind.length) * short;
   }
 
-  /// How thick the air is with water, `0..1`: what haloes every light.
-  double get haze {
-    final rain = (rainIntensity / 2).clamp(0.0, 1.0);
-    final damp = ((humidity - 0.75) / 0.25).clamp(0.0, 1.0);
-    return (0.08 + 0.45 * rain + 0.3 * damp).clamp(0.0, 1.0);
-  }
+  /// The weather's banks of fog and storm over parts of the scene.
+  List<AirBank> airBanks = const [];
 
-  /// How far one sees, m (Koschmieder): clear air some 20 km, rain and mist
-  /// scatter the light and bring it in.
+  /// The air as light crosses it: the rain and the mist everywhere, the
+  /// banks of fog and storm over parts of it.
+  AirField get air =>
+      AirField(base: AirField.ofVisibility(visibilityM), banks: airBanks);
+
+  /// How far a lamp's halo reaches, m: the light it throws into the air
+  /// round it, which the air there scatters toward the eye.
+  static const double haloM = 5;
+
+  /// How much of a lamp's light the air round it scatters toward the eye,
+  /// `0..1` - what haloes it - at [p]: the share the air takes over a
+  /// halo's reach ([haloM]). None in clear air, a little in rain, much in a
+  /// fog.
+  double hazeAt(AirPoint p) => 1 - math.exp(-air.extinctionAt(p) * haloM);
+
+  /// How far one sees through the rain and the mist over all of it, m
+  /// (Koschmieder): clear air some 20 km, rain and mist scatter the light
+  /// and bring it in. A bank is thicker where it lies ([AirField]).
   double get visibilityM => visibilityMOf(rainMmPerHour, humidity: humidity);
 
   /// How far one sees, m, in rain of [rainMmPerHour] through air of
@@ -130,6 +148,7 @@ class WeatherState {
       cloudCover = 0;
       cloudOpticalDepth = 0;
       pace = 1;
+      airBanks = const [];
       return;
     }
     rainMmPerHour = math.max(weather.rainMmPerHour, 0);
@@ -139,5 +158,6 @@ class WeatherState {
     temperature = weather.temperature;
     cloudCover = weather.cloudCover.clamp(0.0, 1.0);
     pace = math.max(weather.pace, 0);
+    airBanks = weather.airBanks.take(AirField.maxBanks).toList(growable: false);
   }
 }

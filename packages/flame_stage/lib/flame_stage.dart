@@ -5,6 +5,7 @@
 /// a frame instead of walking the tree for each other.
 library;
 
+export 'src/air.dart';
 export 'src/color_temperature.dart';
 export 'src/daylight.dart';
 export 'src/depth.dart';

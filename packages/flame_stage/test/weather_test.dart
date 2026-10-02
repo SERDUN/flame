@@ -44,7 +44,8 @@ void main() {
     final dry = _state();
     final storm = _state(rain: 15, humidity: 1);
     expect(storm.visibilityM, lessThan(dry.visibilityM / 4));
-    expect(storm.haze, greaterThan(dry.haze));
+    const lamp = (x: 0.0, ahead: 0.0, height: 3.0);
+    expect(storm.hazeAt(lamp), greaterThan(dry.hazeAt(lamp)));
     expect(storm.rainIntensity, 2.5);
   });
 

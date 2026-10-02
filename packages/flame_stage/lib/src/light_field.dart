@@ -489,6 +489,7 @@ class LightField {
     Ambience? ambience, {
     WeatherState? weather,
     StreetProjection? projection,
+    double viewX = 0,
   }) {
     if (ambience == null) {
       count = 0;
@@ -507,9 +508,11 @@ class LightField {
       adaptation: ambience.adaptation,
       adaptsIn: ambience.adaptsIn,
       darkAdaptsIn: ambience.darkAdaptsIn,
-      haze: ambience.haze ?? weather?.haze ?? 0,
+      haze:
+          ambience.haze ?? _hazeOf(weather, projection, viewX, ambience.metre),
       glow:
-          ambience.glow ?? airGlow(weather, projection, metre: ambience.metre),
+          ambience.glow ??
+          airGlow(weather, projection, metre: ambience.metre, viewX: viewX),
     );
   }
 
@@ -520,12 +523,36 @@ class LightField {
     WeatherState? weather,
     StreetProjection? projection, {
     double metre = 1,
+    double viewX = 0,
   }) {
     if (weather == null || !weather.present || projection == null) {
       return 0;
     }
-    final metres = projection.farDistance / math.max(metre, 1e-6);
-    return 1 - WeatherState.transmittanceOf(metres, weather.visibilityM);
+    final m = math.max(metre, 1e-6);
+    final x = viewX / m;
+    final eye = projection.eyeHeight / m;
+    // Along the eye's way level to the street line, at the middle of the view.
+    return 1 -
+        weather.air.transmittance(
+          (x: x, ahead: projection.farDistance / m, height: eye),
+          (x: x, ahead: 0, height: eye),
+        );
+  }
+
+  /// The haze round the lamps at the middle of the view, at a lamp's height
+  /// on the street line ([WeatherState.hazeAt]).
+  static double _hazeOf(
+    WeatherState? weather,
+    StreetProjection? projection,
+    double viewX,
+    double metre,
+  ) {
+    if (weather == null || !weather.present) {
+      return 0;
+    }
+    final m = math.max(metre, 1e-6);
+    final eye = (projection?.eyeHeight ?? 0) / m;
+    return weather.hazeAt((x: viewX / m, ahead: 0, height: eye));
   }
 
   /// Starts a frame's field over under a sky of [sky] colour giving
