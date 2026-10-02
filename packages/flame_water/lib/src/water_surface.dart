@@ -786,11 +786,33 @@ class WaterSurface extends PositionComponent
       width: whole.width * _fill,
       height: whole.height * _fill,
     );
+    final projection = _projection;
+    if (shape == WaterShape.rect &&
+        liesOnGround &&
+        projection != null &&
+        !projection.lift.isLevel) {
+      // On the ground over hills: its top no higher than the street line
+      // under it, a step at a time.
+      final origin = absoluteTopLeftPosition;
+      final path = Path()..moveTo(rect.left, rect.bottom);
+      const step = 0.25;
+      for (var x = rect.left; x <= rect.right + step; x += step) {
+        final line = projection.lineAt(origin.x + x) - origin.y;
+        path.lineTo(x, math.max(rect.top, line));
+      }
+      return path
+        ..lineTo(rect.right + step, rect.bottom)
+        ..close();
+    }
     return switch (shape) {
       WaterShape.rect => Path()..addRect(rect),
       WaterShape.ellipse => Path()..addOval(rect),
     };
   }
+
+  /// Whether it lies over the ground from the street line down - a wet road,
+  /// a pond's water - so over hills its top follows the street line.
+  bool liesOnGround = false;
 
   /// Starts a ripple where a drop hit, [worldPoint] in world coordinates.
   void splash(Vector2 worldPoint, {double strength = 1}) {
@@ -940,11 +962,27 @@ class WaterSurface extends PositionComponent
     if ((!film && _dry) || !_inView) {
       return;
     }
+    // Over hills, on the ground only: no higher than the street line under it.
+    final projection = _projection;
+    final hilly =
+        liesOnGround && projection != null && !projection.lift.isLevel;
+    void draw() {
+      if (hilly) {
+        canvas
+          ..save()
+          ..clipPath(outline());
+      }
+      _renderWater(canvas);
+      if (hilly) {
+        canvas.restore();
+      }
+    }
+
     final lighting = Lighting.of(this);
     if (lighting == null) {
-      _renderWater(canvas);
+      draw();
     } else {
-      lighting.unlit(canvas, () => _renderWater(canvas));
+      lighting.unlit(canvas, draw);
     }
   }
 
