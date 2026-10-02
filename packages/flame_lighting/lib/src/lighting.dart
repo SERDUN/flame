@@ -203,6 +203,9 @@ class Lighting extends Component with OnStage, Ambience, FrameStep {
     _castLights = null;
     _lightImage = null;
     _ownsImage = false;
+    for (final cut in stage?.members<LitCut>() ?? const <LitCut>[]) {
+      cut._set(null);
+    }
     if (LightShader.compose == null) {
       return;
     }
@@ -221,10 +224,30 @@ class Lighting extends Component with OnStage, Ambience, FrameStep {
       _lightGain = 1;
       _alphaIsWhite = true;
     } else if (LightShader.shader != null) {
-      _lightImage = _castImage(frame, view, w, h);
+      final (:lights, :all) = _castImages(frame, view, w, h);
+      _castLights = lights;
+      _lightImage = all;
       _ownsImage = true;
       _lightGain = canvasGain;
       _alphaIsWhite = false;
+    }
+    // Each cut's plane: what stands behind the street line lit where it
+    // stands.
+    if (lightsBackdrop || _lightImage == null) {
+      return;
+    }
+    final cuts = stage?.members<LitCut>() ?? const <LitCut>[];
+    for (final (k, cut) in cuts.indexed) {
+      final wall = cut.ahead();
+      if (buffer != null && useBuffer) {
+        cut._set(
+          buffer.render(frame, view, w, h, wallAhead: wall, slot: k + 1),
+        );
+      } else {
+        final (:lights, :all) = _castImages(frame, view, w, h, wall: wall);
+        lights.dispose();
+        cut._set(all, owned: true);
+      }
     }
   }
 
@@ -235,17 +258,22 @@ class Lighting extends Component with OnStage, Ambience, FrameStep {
   /// read the buffer's colour - and the illumination, those with what glows
   /// itself and the haze's halo round it added as white. Both at a
   /// [canvasGain]th of the light, so an 8-bit image holds it.
-  Image _castImage(StageFrame frame, Rect view, int w, int h) {
+  ({Image lights, Image all}) _castImages(
+    StageFrame frame,
+    Rect view,
+    int w,
+    int h, {
+    double wall = 0,
+  }) {
     final field = frame.light;
     final lights = PictureRecorder();
     final into = Canvas(lights)
       ..scale(w / view.width, h / view.height)
       ..translate(-view.left, -view.top);
     for (var i = 0; i < field.count; i++) {
-      _cast(into, frame, i, _add, 1 / canvasGain);
+      _cast(into, frame, i, _add, 1 / canvasGain, wallAhead: wall);
     }
     final cast = lights.endRecording().toImageSync(w, h);
-    _castLights = cast;
     final all = PictureRecorder();
     final over = Canvas(all)..drawImage(cast, Offset.zero, Paint());
     over
@@ -257,10 +285,10 @@ class Lighting extends Component with OnStage, Ambience, FrameStep {
     for (var i = 0; i < field.count; i++) {
       _glowItself(over, field, i, 1 / canvasGain, scale: 1 / (e * canvasGain));
     }
-    return all.endRecording().toImageSync(w, h);
+    return (lights: cast, all: all.endRecording().toImageSync(w, h));
   }
 
-  /// The canvas path's lights alone ([_castImage]).
+  /// The canvas path's lights alone ([_castImages]).
   Image? _castLights;
 
   /// How many times the light the canvas path's image holds is its value:
@@ -290,7 +318,11 @@ class Lighting extends Component with OnStage, Ambience, FrameStep {
     required int mode,
     double amount = 0,
     Image? image,
+    double? gain,
+    bool? alphaIsWhite,
   }) {
+    final g = gain ?? _lightGain;
+    final white = alphaIsWhite ?? _alphaIsWhite;
     final shader = LightShader.compose!;
     image ??= _lightImage!;
     final a = _lightArea;
@@ -299,13 +331,13 @@ class Lighting extends Component with OnStage, Ambience, FrameStep {
       ..setFloat(1, a.top)
       ..setFloat(2, a.width)
       ..setFloat(3, a.height)
-      ..setFloat(4, field.skyRed / _lightGain)
-      ..setFloat(5, field.skyGreen / _lightGain)
-      ..setFloat(6, field.skyBlue / _lightGain)
-      ..setFloat(7, field.exposure * _lightGain)
+      ..setFloat(4, field.skyRed / g)
+      ..setFloat(5, field.skyGreen / g)
+      ..setFloat(6, field.skyBlue / g)
+      ..setFloat(7, field.exposure * g)
       ..setFloat(8, mode.toDouble())
-      ..setFloat(9, amount * _lightGain)
-      ..setFloat(10, _alphaIsWhite ? 0 : 1)
+      ..setFloat(9, amount * g)
+      ..setFloat(10, white ? 0 : 1)
       ..setFloat(11, 0)
       ..setImageSampler(0, image, filterQuality: FilterQuality.low);
     canvas.drawRect(area, paint..shader = shader);
@@ -399,6 +431,7 @@ class Lighting extends Component with OnStage, Ambience, FrameStep {
     Paint paint,
     double amount, {
     Rect? clip,
+    double wallAhead = 0,
   }) {
     final field = frame.light;
     final view = frame.view.inflate(frame.view.width * 0.01);
@@ -447,6 +480,7 @@ class Lighting extends Component with OnStage, Ambience, FrameStep {
         amount: amount,
         projection: projection,
         shadows: frame.shadows,
+        wall: wallAhead,
       );
       canvas.drawRect(area, paint..shader = shader);
       paint.shader = null;
@@ -708,5 +742,79 @@ class LitLayer extends Component {
     }
     _openAt = null;
     canvas.restoreToCount(at);
+  }
+
+  /// Lays what is in the layer over what is below it and opens the next.
+  void _turn(Canvas canvas) {
+    final at = _openAt;
+    if (at == null) {
+      return;
+    }
+    canvas
+      ..restoreToCount(at)
+      ..saveLayer(null, _paint);
+  }
+}
+
+/// A cut in the world's depth under a [Lighting] that spares the backdrop:
+/// what was drawn below its priority stands [ahead] of the street line
+/// (behind it, negative - a far layer of trees), and is lit there, by as
+/// much of every light as reaches that far, shadows and all, then laid over
+/// what is behind it; what draws above it is lit on the street line, by the
+/// lighting. A lamp on the pavement does not light a tree twenty metres back
+/// as it lights the wall behind it, nor lay a walker's shadow on it.
+class LitCut extends Component with OnStage {
+  LitCut({required this.ahead, super.priority});
+
+  /// How far in front of the street line what is below it stands, in the
+  /// world's units (behind it, negative).
+  final double Function() ahead;
+
+  Image? _image;
+  bool _owned = false;
+  double _gain = 1;
+  bool _alphaIsWhite = true;
+
+  void _set(Image? image, {bool owned = false}) {
+    if (_owned) {
+      _image?.dispose();
+    }
+    _image = image;
+    _owned = owned;
+    final lighting = Lighting.of(this);
+    _gain = owned ? Lighting.canvasGain : 1;
+    _alphaIsWhite = !owned;
+    if (lighting == null) {
+      _image = null;
+    }
+  }
+
+  @override
+  void render(Canvas canvas) {
+    final lighting = Lighting.of(this);
+    final layer = lighting?._litLayer;
+    final image = _image;
+    final frame = stage?.frame;
+    if (lighting == null || layer == null || image == null || frame == null) {
+      return;
+    }
+    final view = frame.view.inflate(frame.view.width * 0.01);
+    lighting._drawBuffer(
+      canvas,
+      view,
+      lighting._illumination,
+      frame.light,
+      mode: 0,
+      image: image,
+      gain: _gain,
+      alphaIsWhite: _alphaIsWhite,
+    );
+    layer._turn(canvas);
+  }
+
+  @override
+  void onRemove() {
+    _set(null);
+    super.onRemove();
   }
 }

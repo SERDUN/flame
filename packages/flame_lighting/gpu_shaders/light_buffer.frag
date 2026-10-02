@@ -30,7 +30,8 @@ uniform Params {
   vec4 view;      // the world rect the target covers: left, top, width, height
   vec4 street;    // band top, band height, near distance, far distance
   vec4 info;      // eye height, lights in use, capsules in use, haze
-  vec4 look;      // the eye's exposure, unused
+  vec4 look;      // the eye's exposure, the wall plane's distance in front
+                  // of the street line (behind it, negative)
   vec4 lights[kMaxLights * 5];   // LightField.writeLight's five vectors each
   vec4 capsules[kMaxShadows * 2];
 } params;
@@ -140,10 +141,10 @@ float halo(float r) {
 
 void main() {
   vec2 frag = params.view.xy + v_uv * params.view.zw;
-  // Above the street line, the wall plane; below it, the ground at the
-  // depth of its row.
+  // Above the street line, the wall plane at its distance; below it, the
+  // ground at the depth of its row.
   bool ground = params.street.y > 0.0 && frag.y > params.street.x;
-  vec3 p = vec3(frag, 0.0);
+  vec3 p = vec3(frag, params.look.y);
   if (ground) {
     float depth = clamp((frag.y - params.street.x) / params.street.y, 0.0, 1.0);
     p.z = aheadAt(depth);

@@ -72,28 +72,28 @@ class _GpuLightBuffer implements LightBuffer {
   _GpuLightBuffer(this._shared);
 
   final _Shared _shared;
-
-  /// Where a frame's parameters go: a buffer that cycles through a few
-  /// frames' worth, told when a frame starts.
-  final gpu.HostBuffer _host = gpu.gpuContext.createHostBuffer();
   final Float32List _params = Float32List(LightBuffer.floats);
 
-  /// Three targets in turn: a frame's image is read while it is drawn,
-  /// after this one has moved on to the next.
-  final List<gpu.Texture> _targets = [];
-  int _width = 0;
-  int _height = 0;
-  int _turn = 0;
-  ui.Image? _image;
+  /// Each slot its own targets, parameters and image: a frame renders the
+  /// street's plane and each cut's, and none may overwrite another's.
+  final Map<int, _Slot> _slots = {};
   bool _disposed = false;
 
   @override
-  ui.Image? render(StageFrame frame, ui.Rect area, int width, int height) {
+  ui.Image? render(
+    StageFrame frame,
+    ui.Rect area,
+    int width,
+    int height, {
+    double wallAhead = 0,
+    int slot = 0,
+  }) {
     if (_disposed || width <= 0 || height <= 0) {
       return null;
     }
-    if (width != _width || height != _height) {
-      _targets
+    final at = _slots[slot] ??= _Slot();
+    if (width != at.width || height != at.height) {
+      at.targets
         ..clear()
         ..addAll([
           for (var i = 0; i < 3; i++)
@@ -104,13 +104,14 @@ class _GpuLightBuffer implements LightBuffer {
               format: gpu.PixelFormat.r16g16b16a16Float,
             ),
         ]);
-      _width = width;
-      _height = height;
+      at
+        ..width = width
+        ..height = height;
     }
-    LightBuffer.write(_params, frame, area);
-    _host.reset();
-    final target = _targets[_turn % 3];
-    _turn++;
+    LightBuffer.write(_params, frame, area, wallAhead: wallAhead);
+    at.host.reset();
+    final target = at.targets[at.turn % 3];
+    at.turn++;
     final pipeline = _shared.pipeline;
     final commands = gpu.gpuContext.createCommandBuffer();
     commands.createRenderPass(
@@ -120,19 +121,35 @@ class _GpuLightBuffer implements LightBuffer {
       ..bindVertexBuffer(_shared.quad)
       ..bindUniform(
         pipeline.fragmentShader.getUniformSlot('Params'),
-        _host.emplace(ByteData.sublistView(_params)),
+        at.host.emplace(ByteData.sublistView(_params)),
       )
       ..draw(3);
     commands.submit();
-    _image?.dispose();
-    return _image = target.asImage();
+    at.image?.dispose();
+    return at.image = target.asImage();
   }
 
   @override
   void dispose() {
     _disposed = true;
-    _image?.dispose();
-    _image = null;
-    _targets.clear();
+    for (final at in _slots.values) {
+      at.image?.dispose();
+      at.image = null;
+      at.targets.clear();
+    }
+    _slots.clear();
   }
+}
+
+/// One plane's rendering: three targets in turn (a frame's image is read
+/// while it is drawn, after this one has moved on to the next), and the
+/// parameters' buffer, which cycles through a few frames' worth and is told
+/// when a frame starts.
+class _Slot {
+  final gpu.HostBuffer host = gpu.gpuContext.createHostBuffer();
+  final List<gpu.Texture> targets = [];
+  int width = 0;
+  int height = 0;
+  int turn = 0;
+  ui.Image? image;
 }

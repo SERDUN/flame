@@ -85,6 +85,7 @@ abstract final class LightShader {
   static const int projectionEye = projectionTop + 4;
   static const int planeMode = projectionTop + 5;
   static const int drawAmount = projectionTop + 6;
+  static const int wallAhead = projectionTop + 7;
   static const int shadowCount = projectionTop + 8;
 
   static final Float32List _floats = Float32List(vectors * 4);
@@ -99,6 +100,7 @@ abstract final class LightShader {
     required double amount,
     StreetProjection? projection,
     ShadowSet? shadows,
+    double wall = 0,
   }) {
     final f = _floats..fillRange(0, _floats.length, 0);
     field.writeLight(i, f, 0);
@@ -113,7 +115,8 @@ abstract final class LightShader {
     }
     f
       ..[planeMode] = plane == LightPlane.ground ? 1 : 0
-      ..[drawAmount] = amount;
+      ..[drawAmount] = amount
+      ..[wallAhead] = wall;
     if (shadows != null) {
       final n = shadows.count < maxShadows ? shadows.count : maxShadows;
       f

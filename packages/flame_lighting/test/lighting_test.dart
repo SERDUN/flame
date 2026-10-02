@@ -107,6 +107,39 @@ Future<void> _setUp(
 
 void main() {
   testWithFlameGame(
+    'a cut lights what stands far behind the street by what reaches it',
+    (game) async {
+      await LightShader.load(directory: 'shaders');
+      game.onGameResize(Vector2(800, 600));
+      game.camera.viewfinder.anchor = Anchor.topLeft;
+      game.camera.backdrop.add(_Wall(const Color(0xFF000000)));
+      // The same white board twice by a lamp of reach 300: on the left
+      // behind a cut 1000 behind the street line, on the right in front of
+      // it, on the line.
+      game.world.addAll([
+        RectangleComponent(
+          position: Vector2(250, 200),
+          size: Vector2(100, 200),
+          paint: Paint()..color = const Color(0xFFFFFFFF),
+          priority: -10,
+        ),
+        LitCut(ahead: () => -1000, priority: -5),
+        RectangleComponent(
+          position: Vector2(450, 200),
+          size: Vector2(100, 200),
+          paint: Paint()..color = const Color(0xFFFFFFFF),
+        ),
+        LightSource(position: Vector2(400, 300), radius: 300),
+        Lighting(skyLight: 0, glow: 0, lightsBackdrop: false),
+      ]);
+      await game.ready();
+      final at = await _render(game);
+      expect(at(500, 300), greaterThan(60), reason: 'on the line, lit');
+      expect(at(300, 300), lessThan(10), reason: 'far behind, out of reach');
+    },
+  );
+
+  testWithFlameGame(
     'sparing the backdrop, a lamp lights what stands in the world, not the sky',
     (game) async {
       await LightShader.load(directory: 'shaders');

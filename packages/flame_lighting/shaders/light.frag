@@ -49,6 +49,8 @@ uniform vec4 u[kCapsules + kShadows * 2];
 // How to draw: on the wall (0) or the ground (1), and how much.
 #define MODE u[6].y
 #define AMOUNT u[6].z
+// The wall plane's distance in front of the street line (behind, negative).
+#define WALL_AHEAD u[6].w
 // What stands in the way: capsules from u[kCapsules], two vec4 each.
 #define S_COUNT u[7].x
 
@@ -163,7 +165,7 @@ void main() {
         float depth = clamp((frag.y - P_TOP) / P_BAND, 0.0, 1.0);
         p = vec3(frag, ahead(depth));
     } else {
-        p = vec3(frag, 0.0);
+        p = vec3(frag, WALL_AHEAD);
     }
     if (abs(L_SHAPE - kSun) < 0.5) {
         // The sun: from far off along its way, everywhere; on the ground as
