@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'dart:ui';
 
 import 'package:flame/components.dart';
+import 'package:flame_lighting/flame_lighting.dart';
 import 'package:flame_stage/flame_stage.dart';
 import 'package:flame_water/src/rain.dart';
 import 'package:flame_water/src/rain_drops.dart';
@@ -96,11 +97,27 @@ class RainVeil {
       visibilityM,
     );
     final haze = 1 - through(depth) / (nearer == null ? 1 : through(nearer));
-    // The air's own light, as much as it takes of what is behind: the rain's
-    // colour (the light in the air), the opacity the air's alone - not the
-    // drops' own.
-    _haze.color = color.withValues(alpha: haze);
-    canvas.drawRect(view.inflate(metre), _haze);
+    // The air's own light, as much as it takes of what is behind - the
+    // opacity the air's alone, not the drops' own. It is light the air
+    // scatters toward the eye, not a surface the light falls on: through
+    // more and more air it becomes the sky at the horizon, and no walker's
+    // shadow lies on it as on a wall. So where the sky drawn is known it is
+    // that sky's horizon as the eye sees it, out of the lighting's multiply;
+    // otherwise the rain's colour, lit with the rest.
+    final sky = rain.stage?.frame.sky;
+    final lighting = Lighting.of(rain);
+    final area = view.inflate(metre);
+    if (sky != null && sky.present && lighting != null) {
+      lighting.unlit(
+        canvas,
+        () => canvas.drawRect(
+          area,
+          _haze..color = sky.horizon.withValues(alpha: haze),
+        ),
+      );
+    } else {
+      canvas.drawRect(area, _haze..color = color.withValues(alpha: haze));
+    }
 
     final program = _program;
     if (program == null && !_asked) {
