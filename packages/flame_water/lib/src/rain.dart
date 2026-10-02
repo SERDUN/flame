@@ -898,8 +898,9 @@ class Rain extends Component with OnStage, Reflectable, Weather {
     final dark = mirror == null ? underLighting : _underLighting(mirror.drawer);
     final view = _lastView;
     final projection = stage?.projection;
-    if (mirror == null && view != null && projection != null) {
-      // A veil is far behind; water does not need it.
+    if (view != null && projection != null) {
+      // The veils in water too: the way to what water mirrors crosses the
+      // same air, and more of it.
       for (final depth in veils) {
         if (depth >= from && depth < to) {
           _veil.render(

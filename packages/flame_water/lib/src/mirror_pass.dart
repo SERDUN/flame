@@ -125,16 +125,18 @@ class MirrorPass implements Mirror {
         Lighting.of(drawer),
         litArea(view ?? bounds),
       );
-      drawWorld(
-        canvas,
-        Stage.worldOf(drawer),
-        left: left,
-        right: right,
-        projection: stage.projection,
-        shift: mirrorShift,
-        lit: lit,
-      );
-      lit?.finish(canvas);
+      LitPicture.apart(lit, () {
+        drawWorld(
+          canvas,
+          Stage.worldOf(drawer),
+          left: left,
+          right: right,
+          projection: stage.projection,
+          shift: mirrorShift,
+          lit: lit,
+        );
+        lit?.finish(canvas);
+      });
     });
     final picture = recorder.endRecording();
     image = picture.toImageSync(width, height);

@@ -115,7 +115,7 @@ void main() {
       RainSlice(rain, to: -0.3).render(canvas);
       final image = await recorder.endRecording().toImage(800, 600);
       final bytes = (await image.toByteData())!;
-      final at = (20 * 800 + 20) * 4;
+      const at = (20 * 800 + 20) * 4;
       expect(bytes.getUint8(at + 1), greaterThan(4), reason: 'the green haze');
       expect(bytes.getUint8(at), lessThan(2), reason: 'not the rain colour');
     },

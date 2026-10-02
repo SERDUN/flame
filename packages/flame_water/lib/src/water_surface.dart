@@ -931,16 +931,18 @@ class WaterSurface extends PositionComponent
               Lighting.of(this),
               MirrorPass.litArea(view ?? toAbsoluteRect()),
             );
-            MirrorPass.drawWorld(
-              canvas,
-              Stage.worldOf(this),
-              left: area.left,
-              right: area.right,
-              projection: _projection,
-              shift: mirrorShift,
-              lit: lit,
-            );
-            lit?.finish(canvas);
+            LitPicture.apart(lit, () {
+              MirrorPass.drawWorld(
+                canvas,
+                Stage.worldOf(this),
+                left: area.left,
+                right: area.right,
+                projection: _projection,
+                shift: mirrorShift,
+                lit: lit,
+              );
+              lit?.finish(canvas);
+            });
           }),
         ),
       );
