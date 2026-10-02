@@ -537,7 +537,7 @@ class WaterSurface extends PositionComponent
       final area = lighting!.lightArea;
       final origin = absoluteTopLeftPosition;
       f
-        ..[WaterShader.air] = glow * field.exposure
+        ..[WaterShader.air] = glow * field.exposure * lighting.lightGain
         ..[WaterShader.airMap] = 1
         ..[WaterShader.image] = area.left - origin.x
         ..[WaterShader.image + 1] = area.top - origin.y

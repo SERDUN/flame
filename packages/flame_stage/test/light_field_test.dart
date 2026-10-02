@@ -21,6 +21,20 @@ LightField _field(
 }
 
 void main() {
+  test('lamps fill what the sky leaves up to white, never past it', () {
+    expect(LightField.fill(0.3, 0), closeTo(0.3, 1e-12), reason: 'no lamp');
+    expect(LightField.fill(1, 5), 1, reason: 'nothing left to fill');
+    // Faint, in proportion; strong, ever nearer white, still rising.
+    expect(LightField.fill(0, 0.01), closeTo(0.01, 1e-4));
+    var last = 0.0;
+    for (var lamps = 0.5; lamps <= 8; lamps += 0.5) {
+      final shown = LightField.fill(0.2, lamps);
+      expect(shown, greaterThan(last));
+      expect(shown, lessThan(1));
+      last = shown;
+    }
+  });
+
   test(
     'a bulb lights round itself, less the farther, nothing past its reach',
     () {

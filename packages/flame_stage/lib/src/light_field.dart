@@ -363,6 +363,10 @@ class LightSample {
   /// What the lights give it beyond the base, `0..`.
   double added = 0;
 
+  /// What the lighting makes of [light] on the screen, `0..1`: the base,
+  /// and the lights filling what it leaves up to white ([LightField.fill]).
+  double shown = 0;
+
   /// Light thrown on toward the eye by a drop there (forward scatter).
   double scattered = 0;
 
@@ -382,6 +386,17 @@ class LightSample {
 /// wet walls, water, the lighting that draws the night, shaders (through
 /// [writeLight]). Nothing walks the component tree to find a light.
 class LightField {
+  /// How bright the lighting shows a point lit by the sky to [base] (as the
+  /// eye takes it, `0..1`) and by lamps to [lamps] more: the lamps fill what
+  /// the base leaves up to white as film and the eye do - in proportion
+  /// while faint, more and more slowly near white, never at a hard stop.
+  /// The one curve: the compose shader (light_compose.frag) draws it, rain
+  /// and anything else lit under the lighting reads it here.
+  static double fill(double base, double lamps) {
+    final room = math.max(1 - base.clamp(0.0, 1.0), 1e-4);
+    return 1 - room * math.exp(-math.max(lamps, 0) / room);
+  }
+
   /// Floats per light in [data]; see the `_` offsets.
   static const int stride = 22;
 
@@ -931,6 +946,7 @@ class LightField {
     out
       ..added = total * e
       ..light = base + total * e
+      ..shown = fill(base, total * e)
       ..scattered = g > 0 ? scattered : base + total * e;
     if (total <= 0) {
       out

@@ -134,7 +134,7 @@ void main() {
       expect(at(300, 200), 0x80, reason: 'the sky by the lamp, as drawn');
       expect(
         at(400, 220),
-        greaterThan(150),
+        greaterThan(100),
         reason: 'the post by the lamp, lit',
       );
       expect(at(400, 480), lessThan(at(400, 220)), reason: 'lit less far off');
@@ -146,7 +146,7 @@ void main() {
   ) async {
     await _setUp(game, [LightSource(position: Vector2(400, 300))]);
     final at = await _render(game);
-    expect(at(400, 300), greaterThan(230), reason: 'at the light');
+    expect(at(400, 300), greaterThan(200), reason: 'at the light');
     expect(at(400, 400), lessThan(at(400, 330)), reason: 'fades');
     expect(at(100, 100), lessThan(10), reason: 'out of reach');
   });
@@ -386,8 +386,13 @@ void main() {
       (600, 300),
       (400, 480),
     ]) {
-      final expected = (field.reach(0, x.toDouble(), y.toDouble(), 0) * 255)
-          .clamp(0, 255);
+      // As the lighting shows it: filled up to white along its one curve.
+      final expected =
+          LightField.fill(
+            0,
+            field.reach(0, x.toDouble(), y.toDouble(), 0) * field.exposure,
+          ) *
+          255;
       expect(at(x, y), closeTo(expected, 4), reason: 'at ($x, $y)');
     }
   });
@@ -415,8 +420,13 @@ void main() {
       (400, 150),
       (400, 300),
     ]) {
-      final expected = (field.reach(0, x.toDouble(), y.toDouble(), 0) * 255)
-          .clamp(0, 255);
+      // As the lighting shows it: filled up to white along its one curve.
+      final expected =
+          LightField.fill(
+            0,
+            field.reach(0, x.toDouble(), y.toDouble(), 0) * field.exposure,
+          ) *
+          255;
       expect(at(x, y), closeTo(expected, 4), reason: 'at ($x, $y)');
     }
     expect(at(400, 170), greaterThan(40), reason: 'above the bulb, lit');
@@ -438,7 +448,7 @@ void main() {
     await game.ready();
     final at = await _render(game);
     // World (400, 300) is at ((400 - 300) * 2, (300 - 200) * 2) on screen.
-    expect(at(200, 200), greaterThan(230));
+    expect(at(200, 200), greaterThan(200));
     expect(at(400, 300), lessThan(10), reason: 'not at its world place');
   });
 

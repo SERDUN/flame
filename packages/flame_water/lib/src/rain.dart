@@ -764,9 +764,9 @@ class Rain extends Component with OnStage, Reflectable, Weather {
         forwardScatter: 0.7,
       );
       final tint = _sample.added * 0.8;
-      // Under the lighting it is multiplied by the light there (as the eye
-      // sees it, no brighter than white): it carries the rest.
-      final under = math.max(math.min(_sample.light, 1.0), 0.02);
+      // Under the lighting it is multiplied by what the lighting shows
+      // there (LightField.fill): it carries the rest.
+      final under = math.max(_sample.shown, 0.02);
       drops
         ..color[i] = _tinted(water, tint, share * _sample.scattered)
         ..colorUnder[i] = _tinted(
@@ -795,7 +795,7 @@ class Rain extends Component with OnStage, Reflectable, Weather {
         _sample,
         inFront: projection?.ahead(droplets.depth(i)) ?? 0,
       );
-      final light = _sample.light.clamp(0.0, 1.0);
+      final light = _sample.shown;
       final tint = _sample.added * 0.8;
       droplets
         ..color[i] = _tinted(water, tint, 0.9 * light * focusShare)

@@ -17,6 +17,8 @@ uniform vec4 u[3];
 #define uExpose  u[1].a    // the eye's exposure
 #define uMode    u[2].x    // 0 the illumination, 1 the light cast (a sheen)
 #define uAmount  u[2].y    // how much of the light cast
+#define uNoWhite u[2].z    // 1: alpha is coverage, its white already in the
+                           // colour (the canvas path's image)
 
 uniform sampler2D uLight;
 
@@ -32,7 +34,7 @@ void main() {
         // hard stop. A clamp turned a cone's soft edge, lit far past white,
         // into a straight line where it met the clamp.
         vec3 base = min(uSky * uExpose, vec3(1.0));
-        vec3 lamps = (light.rgb + vec3(light.a)) * uExpose;
+        vec3 lamps = (light.rgb + vec3(light.a) * (1.0 - uNoWhite)) * uExpose;
         vec3 room = max(vec3(1.0) - base, vec3(1e-4));
         vec3 seen = vec3(1.0) - room * exp(-lamps / room);
         fragColor = vec4(seen, 1.0);

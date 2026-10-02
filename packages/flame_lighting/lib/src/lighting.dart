@@ -105,7 +105,7 @@ class Lighting extends Component with OnStage, Ambience, FrameStep {
   /// and a wet road blurs what it mirrors. A mirror reads the light in the
   /// air from this. Made once a frame, when first asked for.
   Image? get lightImageSoft {
-    final image = _lightImage;
+    final image = _castLights ?? _lightImage;
     if (image == null) {
       return null;
     }
@@ -177,6 +177,12 @@ class Lighting extends Component with OnStage, Ambience, FrameStep {
     _buffer?.dispose();
     _buffer = null;
     _bufferAsked = false;
+    if (_ownsImage) {
+      _lightImage?.dispose();
+      _castLights?.dispose();
+    }
+    _castLights = null;
+    _ownsImage = false;
     _lightImage = null;
     _litLayer?.removeFromParent();
     _litLayer = null;
@@ -190,9 +196,14 @@ class Lighting extends Component with OnStage, Ambience, FrameStep {
   /// so a wet wall drawn before the night reads this frame's light.
   @override
   void prepareFrame(Canvas canvas, StageFrame frame) {
+    if (_ownsImage) {
+      _lightImage?.dispose();
+      _castLights?.dispose();
+    }
+    _castLights = null;
     _lightImage = null;
-    final buffer = _buffer;
-    if (buffer == null || !useBuffer || LightShader.compose == null) {
+    _ownsImage = false;
+    if (LightShader.compose == null) {
       return;
     }
     if (!frame.light.isLit || frame.light.count == 0) {
@@ -201,14 +212,72 @@ class Lighting extends Component with OnStage, Ambience, FrameStep {
     final view = frame.view.inflate(frame.view.width * 0.01);
     final m = canvas.getTransform();
     final pixels = math.sqrt(m[0] * m[0] + m[1] * m[1]) * bufferScale;
+    final w = math.max(1, (view.width * pixels).ceil());
+    final h = math.max(1, (view.height * pixels).ceil());
     _lightArea = view;
-    _lightImage = buffer.render(
-      frame,
-      view,
-      (view.width * pixels).ceil(),
-      (view.height * pixels).ceil(),
-    );
+    final buffer = _buffer;
+    if (buffer != null && useBuffer) {
+      _lightImage = buffer.render(frame, view, w, h);
+      _lightGain = 1;
+      _alphaIsWhite = true;
+    } else if (LightShader.shader != null) {
+      _lightImage = _castImage(frame, view, w, h);
+      _ownsImage = true;
+      _lightGain = canvasGain;
+      _alphaIsWhite = false;
+    }
   }
+
+  /// Without the GPU buffer, the same light on the canvas, in two images
+  /// (an 8-bit image cannot hold colour past its alpha, so it cannot keep
+  /// the buffer's white light apart): [_castLights], the lights cast on
+  /// their planes - what the light in the air and the mirrors read, as they
+  /// read the buffer's colour - and the illumination, those with what glows
+  /// itself and the haze's halo round it added as white. Both at a
+  /// [canvasGain]th of the light, so an 8-bit image holds it.
+  Image _castImage(StageFrame frame, Rect view, int w, int h) {
+    final field = frame.light;
+    final lights = PictureRecorder();
+    final into = Canvas(lights)
+      ..scale(w / view.width, h / view.height)
+      ..translate(-view.left, -view.top);
+    for (var i = 0; i < field.count; i++) {
+      _cast(into, frame, i, _add, 1 / canvasGain);
+    }
+    final cast = lights.endRecording().toImageSync(w, h);
+    _castLights = cast;
+    final all = PictureRecorder();
+    final over = Canvas(all)..drawImage(cast, Offset.zero, Paint());
+    over
+      ..scale(w / view.width, h / view.height)
+      ..translate(-view.left, -view.top);
+    // What glows itself as bright as it is drawn whatever the exposure (as
+    // the buffer has it), its halo as much light as it is.
+    final e = math.max(field.exposure, 1e-6);
+    for (var i = 0; i < field.count; i++) {
+      _glowItself(over, field, i, 1 / canvasGain, scale: 1 / (e * canvasGain));
+    }
+    return all.endRecording().toImageSync(w, h);
+  }
+
+  /// The canvas path's lights alone ([_castImage]).
+  Image? _castLights;
+
+  /// How many times the light the canvas path's image holds is its value:
+  /// a lamp's light near it is several times white before the eye's
+  /// exposure, and an 8-bit image stops at one.
+  static const double canvasGain = 4;
+
+  bool _ownsImage = false;
+  double _lightGain = 1;
+
+  /// Whether [lightImage]'s alpha is white light (the buffer's) or its
+  /// coverage (the canvas path's, with the white already in its colour).
+  bool _alphaIsWhite = true;
+
+  /// How many times its value the light in [lightImage] is (1 for the GPU
+  /// buffer, [canvasGain] for the canvas path's image).
+  double get lightGain => _lightGain;
 
   /// Lays the light buffer over [area] with [paint]: the illumination as
   /// seen under [field]'s sky (mode 0, to multiply), or the light in the
@@ -230,13 +299,13 @@ class Lighting extends Component with OnStage, Ambience, FrameStep {
       ..setFloat(1, a.top)
       ..setFloat(2, a.width)
       ..setFloat(3, a.height)
-      ..setFloat(4, field.skyRed)
-      ..setFloat(5, field.skyGreen)
-      ..setFloat(6, field.skyBlue)
-      ..setFloat(7, field.exposure)
+      ..setFloat(4, field.skyRed / _lightGain)
+      ..setFloat(5, field.skyGreen / _lightGain)
+      ..setFloat(6, field.skyBlue / _lightGain)
+      ..setFloat(7, field.exposure * _lightGain)
       ..setFloat(8, mode.toDouble())
-      ..setFloat(9, amount)
-      ..setFloat(10, 0)
+      ..setFloat(9, amount * _lightGain)
+      ..setFloat(10, _alphaIsWhite ? 0 : 1)
       ..setFloat(11, 0)
       ..setImageSampler(0, image, filterQuality: FilterQuality.low);
     canvas.drawRect(area, paint..shader = shader);
@@ -288,45 +357,17 @@ class Lighting extends Component with OnStage, Ambience, FrameStep {
           image: soft,
         );
       } else {
-        _glowSoftAll(canvas, frame, view, field.glow * e);
+        // No shaders: each light in the air as it is cast.
+        for (var i = 0; i < field.count; i++) {
+          _cast(canvas, frame, i, _add, field.glow * e);
+        }
       }
     }
   }
 
-  /// The canvas path's light in the air, soft as the buffer's: every light
-  /// cast at a quarter of the screen's pixels, halved three times more, and
-  /// laid over [view] at [amount], added.
-  void _glowSoftAll(Canvas canvas, StageFrame frame, Rect view, double amount) {
-    final m = canvas.getTransform();
-    final pixels = math.sqrt(m[0] * m[0] + m[1] * m[1]) / 4;
-    final w = math.max(1, (view.width * pixels).ceil());
-    final h = math.max(1, (view.height * pixels).ceil());
-    final recorder = PictureRecorder();
-    final into = Canvas(recorder)
-      ..scale(w / view.width, h / view.height)
-      ..translate(-view.left, -view.top);
-    for (var i = 0; i < frame.light.count; i++) {
-      _cast(into, frame, i, _add, amount);
-    }
-    final cast = recorder.endRecording().toImageSync(w, h);
-    final soft = _halved(cast, 3);
-    cast.dispose();
-    canvas.drawImageRect(
-      soft,
-      Rect.fromLTWH(0, 0, soft.width.toDouble(), soft.height.toDouble()),
-      view,
-      _softAdd,
-    );
-    soft.dispose();
-  }
-
-  static final Paint _softAdd = Paint()
-    ..blendMode = BlendMode.plus
-    ..filterQuality = FilterQuality.low;
-
-  /// The canvas path: the illumination built in a layer - the sky's light,
+  /// Without shaders: the illumination built in a layer - the sky's light,
   /// every light added on each plane, what glows itself and its halo - and
-  /// multiplied onto the scene.
+  /// multiplied onto the scene, clamped at white.
   void _illuminateAll(Canvas canvas, StageFrame frame, Rect view) {
     final field = frame.light;
     final e = field.exposure;
@@ -474,7 +515,16 @@ class Lighting extends Component with OnStage, Ambience, FrameStep {
   /// Into the illumination: what of light [i] glows itself - a bulb, a lit
   /// pane, a tube - fully, so it shows as bright as it is drawn, and the
   /// halo the haze makes round it, as much light as it is ([exposure]).
-  void _glowItself(Canvas canvas, LightField field, int i, double exposure) {
+  void _glowItself(
+    Canvas canvas,
+    LightField field,
+    int i,
+    double exposure, {
+    double scale = 1,
+  }) {
+    // Fully lit, as much as [scale] of white (the canvas path's image holds
+    // a fraction of the light).
+    final white = Color.fromRGBO(255, 255, 255, scale);
     if (field.isSunOf(i)) {
       // The sun is not in the scene.
       return;
@@ -491,7 +541,7 @@ class Lighting extends Component with OnStage, Ambience, FrameStep {
           ),
           _emit
             ..shader = null
-            ..color = const Color(0xFFFFFFFF),
+            ..color = white,
         );
       case LightShape.line:
         final half = field.extentXOf(i) / 2;
@@ -502,7 +552,7 @@ class Lighting extends Component with OnStage, Ambience, FrameStep {
           center + along,
           _emit
             ..shader = null
-            ..color = const Color(0xFFFFFFFF)
+            ..color = white
             ..style = PaintingStyle.stroke
             ..strokeCap = StrokeCap.round
             ..strokeWidth = math.max(source, field.extentXOf(i) * 0.02),
@@ -517,7 +567,7 @@ class Lighting extends Component with OnStage, Ambience, FrameStep {
           _emit.shader = Gradient.radial(
             center,
             source * 1.6,
-            const [Color(0xFFFFFFFF), Color(0xFFFFFFFF), Color(0x00FFFFFF)],
+            [white, white, const Color(0x00FFFFFF)],
             const [0, 0.55, 1],
           );
           canvas.drawCircle(center, source * 1.6, _emit);
