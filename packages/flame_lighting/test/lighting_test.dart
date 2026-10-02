@@ -106,6 +106,41 @@ Future<void> _setUp(
 }
 
 void main() {
+  testWithFlameGame(
+    'sparing the backdrop, a lamp lights what stands in the world, not the sky',
+    (game) async {
+      await LightShader.load(directory: 'shaders');
+      game.onGameResize(Vector2(800, 600));
+      game.camera.viewfinder.anchor = Anchor.topLeft;
+      // A grey sky behind the world, a white post in it, a lamp beside the
+      // post in a black night.
+      game.camera.backdrop.add(_Wall(const Color(0xFF808080)));
+      game.world.addAll([
+        RectangleComponent(
+          position: Vector2(380, 200),
+          size: Vector2(40, 300),
+          paint: Paint()..color = const Color(0xFFFFFFFF),
+        ),
+        LightSource(position: Vector2(400, 150), radius: 400),
+        Lighting(skyLight: 0, glow: 0, lightsBackdrop: false),
+      ]);
+      await game.ready();
+      final at = await _render(game);
+      expect(
+        at(100, 300),
+        0x80,
+        reason: 'the sky, far from the lamp, as drawn',
+      );
+      expect(at(300, 200), 0x80, reason: 'the sky by the lamp, as drawn');
+      expect(
+        at(400, 220),
+        greaterThan(150),
+        reason: 'the post by the lamp, lit',
+      );
+      expect(at(400, 480), lessThan(at(400, 220)), reason: 'lit less far off');
+    },
+  );
+
   testWithFlameGame('under a dark sky only what a light falls on shows', (
     game,
   ) async {
@@ -206,8 +241,8 @@ void main() {
         LightSource(position: Vector2(400, 330), radius: 600, depth: 0.1),
         _Post(470, 360, 415, depth: 0.1),
       ],
-      wall: const Color(0xFF000000),
-      glow: 1,
+      // Light on the wall as the lighting gives it (its multiply on white);
+      // the light in the air is soft and no measure of where light falls.
     );
     final at = await _render(game);
     // The same distance from the lamp: past the post in its shadow, on the
@@ -230,8 +265,8 @@ void main() {
         LightSource(position: Vector2(300, 300), radius: 1400, depth: 0.8),
         _Post(400, 260, 340, depth: 0.4),
       ],
-      wall: const Color(0xFF000000),
-      glow: 1,
+      // Light on the wall as the lighting gives it (its multiply on white);
+      // the light in the air is soft and no measure of where light falls.
     );
     final at = await _render(game);
     expect(at(660, 300), lessThan(at(660, 120) ~/ 2));
@@ -246,8 +281,8 @@ void main() {
     await _setUp(
       game,
       [_Ground(), lamp, _Post(470, 360, 415, depth: 0.1)],
-      wall: const Color(0xFF000000),
-      glow: 1,
+      // Light on the wall as the lighting gives it (its multiply on white);
+      // the light in the air is soft and no measure of where light falls.
     );
     var at = await _render(game);
     // The lamp left of the post: the shadow right of it.
@@ -270,8 +305,8 @@ void main() {
           position: Vector2(400, 300),
         ),
       ],
-      wall: const Color(0xFF000000),
-      glow: 1,
+      // Light on the wall as the lighting gives it (its multiply on white);
+      // the light in the air is soft and no measure of where light falls.
     );
     final at = await _render(game);
     // In front of its corner as bright as in front of its middle: the
@@ -312,8 +347,8 @@ void main() {
           color: const Color(0xFF0000FF),
         ),
       ],
-      wall: const Color(0xFF000000),
-      glow: 1,
+      // Light on the wall as the lighting gives it (its multiply on white);
+      // the light in the air is soft and no measure of where light falls.
     );
     final at = await _renderRgb(game);
     // Each draw keeps the uniforms it was given: the red lamp's light is
@@ -336,8 +371,8 @@ void main() {
     await _setUp(
       game,
       [lamp],
-      wall: const Color(0xFF000000),
-      glow: 1,
+      // Light on the wall as the lighting gives it (its multiply on white);
+      // the light in the air is soft and no measure of where light falls.
     );
     final at = await _render(game);
     final field = lamp.stage!.frame.light;
@@ -369,8 +404,8 @@ void main() {
     await _setUp(
       game,
       [lamp],
-      wall: const Color(0xFF000000),
-      glow: 1,
+      // Light on the wall as the lighting gives it (its multiply on white);
+      // the light in the air is soft and no measure of where light falls.
     );
     final at = await _render(game);
     final field = lamp.stage!.frame.light;

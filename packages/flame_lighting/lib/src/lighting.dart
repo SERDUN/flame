@@ -47,8 +47,18 @@ class Lighting extends Component with OnStage, Ambience, FrameStep {
     this.haze,
     this.useBuffer = true,
     this.bufferScale = 0.5,
+    this.lightsBackdrop = true,
     super.priority = 1000,
   });
+
+  /// Whether the lights fall on what was drawn before the world (a sky in
+  /// the camera's backdrop). Off, the world below the lighting's priority is
+  /// drawn into a layer of its own ([LitLayer], added beside the lighting),
+  /// lit there, and only then laid over the backdrop: a lamp's cone and the
+  /// shadows in it fall on what stands in the street, not on the sky behind
+  /// it, which is no wall. The light in the air still glows over it, soft.
+  final bool lightsBackdrop;
+  LitLayer? _litLayer;
 
   @override
   Color sky;
@@ -102,11 +112,20 @@ class Lighting extends Component with OnStage, Ambience, FrameStep {
     if (identical(_softOf, image)) {
       return _soft;
     }
-    // Halved five times, each a bilinear 2 x 2 average: a true box filter
-    // whether or not the image has mipmaps (one step down by 32 would only
-    // pick a few of the pixels, and a thin shadow could survive it).
+    final current = _halved(image, 5);
+    _soft?.dispose();
+    _soft = current;
+    _softOf = image;
+    return _soft;
+  }
+
+  /// [image] halved [times] times, each a bilinear 2 x 2 average: a true
+  /// box filter whether or not the image has mipmaps (one step down by many
+  /// would only pick a few of the pixels, and a thin shadow could survive).
+  /// Disposes what it makes on the way, not [image].
+  static Image _halved(Image image, int times) {
     var current = image;
-    for (var step = 0; step < 5; step++) {
+    for (var step = 0; step < times; step++) {
       final w = math.max(1, current.width ~/ 2);
       final h = math.max(1, current.height ~/ 2);
       final recorder = PictureRecorder();
@@ -127,10 +146,7 @@ class Lighting extends Component with OnStage, Ambience, FrameStep {
       }
       current = next;
     }
-    _soft?.dispose();
-    _soft = current;
-    _softOf = image;
-    return _soft;
+    return current;
   }
 
   Image? _soft;
@@ -140,6 +156,9 @@ class Lighting extends Component with OnStage, Ambience, FrameStep {
   @override
   void onMount() {
     super.onMount();
+    if (!lightsBackdrop && _litLayer == null) {
+      parent!.add(_litLayer = LitLayer._(this));
+    }
     if (_bufferAsked || !useBuffer || LightBuffer.available == false) {
       return;
     }
@@ -159,6 +178,8 @@ class Lighting extends Component with OnStage, Ambience, FrameStep {
     _buffer = null;
     _bufferAsked = false;
     _lightImage = null;
+    _litLayer?.removeFromParent();
+    _litLayer = null;
     _soft?.dispose();
     _soft = null;
     _softOf = null;
@@ -199,9 +220,10 @@ class Lighting extends Component with OnStage, Ambience, FrameStep {
     LightField field, {
     required int mode,
     double amount = 0,
+    Image? image,
   }) {
     final shader = LightShader.compose!;
-    final image = _lightImage!;
+    image ??= _lightImage!;
     final a = _lightArea;
     shader
       ..setFloat(0, a.left)
@@ -233,33 +255,79 @@ class Lighting extends Component with OnStage, Ambience, FrameStep {
   @override
   void render(Canvas canvas) {
     final frame = stage?.frame;
-    if (frame == null) {
+    if (frame == null || !frame.light.isLit) {
+      _litLayer?._close(canvas);
       return;
     }
     final field = frame.light;
-    if (!field.isLit) {
-      return;
-    }
     // A little past the view, so nothing shows at its edge.
     final view = frame.view.inflate(frame.view.width * 0.01);
     final e = field.exposure;
     if (_lightImage != null) {
       _drawBuffer(canvas, view, _illumination, field, mode: 0);
-      if (field.glow > 0) {
-        _drawBuffer(canvas, view, _add, field, mode: 1, amount: field.glow * e);
-      }
     } else {
-      _lightAll(canvas, frame, view);
+      _illuminateAll(canvas, frame, view);
     }
     for (final mirror in stage!.members<LightReflector>()) {
       mirror.renderReflectedLights(canvas, frame);
     }
+    // The world lit, laid over the backdrop; the light in the air over both.
+    _litLayer?._close(canvas);
+    if (field.glow > 0) {
+      final soft = lightImageSoft;
+      if (soft != null) {
+        // Light in the air is scattered all through its depth: soft, with
+        // no edge to a cone and next to no shadow of a thin post in it.
+        _drawBuffer(
+          canvas,
+          view,
+          _add,
+          field,
+          mode: 1,
+          amount: field.glow * e,
+          image: soft,
+        );
+      } else {
+        _glowSoftAll(canvas, frame, view, field.glow * e);
+      }
+    }
   }
+
+  /// The canvas path's light in the air, soft as the buffer's: every light
+  /// cast at a quarter of the screen's pixels, halved three times more, and
+  /// laid over [view] at [amount], added.
+  void _glowSoftAll(Canvas canvas, StageFrame frame, Rect view, double amount) {
+    final m = canvas.getTransform();
+    final pixels = math.sqrt(m[0] * m[0] + m[1] * m[1]) / 4;
+    final w = math.max(1, (view.width * pixels).ceil());
+    final h = math.max(1, (view.height * pixels).ceil());
+    final recorder = PictureRecorder();
+    final into = Canvas(recorder)
+      ..scale(w / view.width, h / view.height)
+      ..translate(-view.left, -view.top);
+    for (var i = 0; i < frame.light.count; i++) {
+      _cast(into, frame, i, _add, amount);
+    }
+    final cast = recorder.endRecording().toImageSync(w, h);
+    final soft = _halved(cast, 3);
+    cast.dispose();
+    canvas.drawImageRect(
+      soft,
+      Rect.fromLTWH(0, 0, soft.width.toDouble(), soft.height.toDouble()),
+      view,
+      _softAdd,
+    );
+    soft.dispose();
+  }
+
+  static final Paint _softAdd = Paint()
+    ..blendMode = BlendMode.plus
+    ..filterQuality = FilterQuality.low;
 
   /// The canvas path: the illumination built in a layer - the sky's light,
   /// every light added on each plane, what glows itself and its halo - and
-  /// multiplied onto the scene; then each light added in the air.
-  void _lightAll(Canvas canvas, StageFrame frame, Rect view) {
+  /// multiplied onto the scene.
+  void _illuminateAll(Canvas canvas, StageFrame frame, Rect view) {
     final field = frame.light;
     final e = field.exposure;
     canvas
@@ -279,11 +347,6 @@ class Lighting extends Component with OnStage, Ambience, FrameStep {
       _glowItself(canvas, field, i, e);
     }
     canvas.restore();
-    if (field.glow > 0) {
-      for (var i = 0; i < field.count; i++) {
-        _cast(canvas, frame, i, _add, field.glow * e);
-      }
-    }
   }
 
   /// Light [i] on the wall plane above the street line and on the ground
@@ -566,4 +629,34 @@ class Lighting extends Component with OnStage, Ambience, FrameStep {
   }
 
   final Paint _rivulet = Paint()..blendMode = BlendMode.plus;
+}
+
+/// The layer the world is drawn into under a [Lighting] that spares the
+/// backdrop ([Lighting.lightsBackdrop] off): opened before anything of the
+/// world draws, closed by the lighting once it has lit what is in it. What
+/// the layer leaves empty stays empty under the lighting's multiply, so the
+/// backdrop shows through unlit.
+class LitLayer extends Component {
+  LitLayer._(this.lighting) : super(priority: -(1 << 30));
+
+  /// The lighting that closes it.
+  final Lighting lighting;
+
+  int? _openAt;
+  static final Paint _paint = Paint();
+
+  @override
+  void render(Canvas canvas) {
+    _openAt = canvas.getSaveCount();
+    canvas.saveLayer(null, _paint);
+  }
+
+  void _close(Canvas canvas) {
+    final at = _openAt;
+    if (at == null) {
+      return;
+    }
+    _openAt = null;
+    canvas.restoreToCount(at);
+  }
 }

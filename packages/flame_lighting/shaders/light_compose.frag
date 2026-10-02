@@ -26,7 +26,15 @@ void main() {
     vec2 p = FlutterFragCoord().xy;
     vec4 light = texture(uLight, (p - uArea.xy) / uArea.zw);
     if (uMode < 0.5) {
-        vec3 seen = min((uSky + light.rgb + vec3(light.a)) * uExpose, vec3(1.0));
+        // The sky's light as the eye takes it, and the lamps' filling what
+        // is left up to white the way film and the eye do: in proportion
+        // while faint, more and more slowly as it nears white, never at a
+        // hard stop. A clamp turned a cone's soft edge, lit far past white,
+        // into a straight line where it met the clamp.
+        vec3 base = min(uSky * uExpose, vec3(1.0));
+        vec3 lamps = (light.rgb + vec3(light.a)) * uExpose;
+        vec3 room = max(vec3(1.0) - base, vec3(1e-4));
+        vec3 seen = vec3(1.0) - room * exp(-lamps / room);
         fragColor = vec4(seen, 1.0);
         return;
     }
