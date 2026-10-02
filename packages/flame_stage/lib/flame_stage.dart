@@ -7,6 +7,7 @@ library;
 
 export 'src/air.dart';
 export 'src/air_body.dart';
+export 'src/celestial.dart';
 export 'src/color_temperature.dart';
 export 'src/daylight.dart';
 export 'src/depth.dart';
