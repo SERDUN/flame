@@ -2,8 +2,10 @@ import 'dart:ui';
 
 import 'package:flame/components.dart';
 import 'package:flame/game.dart';
+import 'package:flame_stage/src/form.dart';
 import 'package:flame_stage/src/light_field.dart';
 import 'package:flame_stage/src/shadow.dart';
+import 'package:flame_stage/src/sky_view.dart';
 import 'package:flame_stage/src/street_projection.dart';
 import 'package:flame_stage/src/weather.dart';
 
@@ -35,6 +37,10 @@ class StageFrame {
 
   /// Every light of the scene, and its night; it knows what is in the way.
   late final LightField light = LightField()..shadows = shadows;
+
+  /// The sky behind the world, as whatever draws it says; not [SkyView.present]
+  /// until something does.
+  final SkyView sky = SkyView();
 }
 
 /// A component on a [Stage]: on it while mounted, so systems find it in the
@@ -62,7 +68,9 @@ mixin OnStage on Component {
 /// The ground of a side-view street: the band of the view from the line
 /// things stand on (its top edge) down towards the viewer. The stage builds
 /// the frame's [StreetProjection] from it.
-mixin Ground on OnStage {
+///
+/// It lies flat ([LiesFlat]): water lying on it does not mirror it.
+mixin Ground on OnStage implements LiesFlat {
   /// The band, world coordinates.
   Rect groundBand();
 

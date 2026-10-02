@@ -7,6 +7,7 @@ library;
 
 export 'src/color_temperature.dart';
 export 'src/daylight.dart';
+export 'src/form.dart';
 export 'src/light_field.dart'
     show
         Ambience,
@@ -17,6 +18,7 @@ export 'src/light_field.dart'
         LightSample,
         LightShape;
 export 'src/shadow.dart' show ShadowCaster, ShadowSet, UprightShadow;
+export 'src/sky_view.dart';
 export 'src/stage.dart' show FrameStep, Ground, OnStage, Stage, StageFrame;
 export 'src/street_projection.dart' show DepthCamera, StreetProjection;
 export 'src/substance.dart';
