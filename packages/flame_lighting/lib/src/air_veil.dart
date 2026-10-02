@@ -129,8 +129,28 @@ void _drawAir(
   for (var i = 0; i < f.length; i++) {
     shader.setFloat(i, f[i]);
   }
-  final view = frame.view.inflate(frame.view.width * 0.02);
-  void draw() => canvas.drawRect(view, _paint..shader = shader);
+  // Only where it lays anything: a veil over what is drawn above where its
+  // depth meets the ground, the ground's air over the ground band.
+  final whole = frame.view.inflate(frame.view.width * 0.02);
+  final line = projection.yAt(veils == null ? depth : 0);
+  final area = veils == null
+      ? Rect.fromLTRB(whole.left, whole.top, whole.right, line)
+      : Rect.fromLTRB(whole.left, line, whole.right, whole.bottom);
+  if (area.isEmpty) {
+    return;
+  }
+  // With no bank over the scene, as thick as its base over the whole way to
+  // the street: nothing to lay if that is next to nothing.
+  if (air.banks.isEmpty) {
+    final m = math.max(metre, 1e-6);
+    final farthest = veils == null
+        ? projection.distanceAt(depth)
+        : projection.farDistance;
+    if (air.base * farthest / m < 2e-3) {
+      return;
+    }
+  }
+  void draw() => canvas.drawRect(area, _paint..shader = shader);
   if (lighting == null) {
     draw();
   } else {

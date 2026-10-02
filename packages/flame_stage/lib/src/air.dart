@@ -60,6 +60,67 @@ class AirBank {
     return 1 / (1 + math.exp(((height - topM) / s).clamp(-60.0, 60.0)));
   }
 
+  /// The layer summed from the ground up to [height]: the integral of
+  /// [_layer], h - s ln(1 + e^((h - top) / s)).
+  double _layerUpTo(double height) {
+    final s = math.max(topWidthM, 1e-3) / 4;
+    final x = (height - topM) / s;
+    // ln(1 + e^x), kept finite both ways.
+    final soft = x > 30 ? x : math.log(1 + math.exp(math.max(x, -60)));
+    return height - s * soft;
+  }
+
+  /// Whether it lies everywhere, with no edge across the ground.
+  bool get everywhere => at == double.negativeInfinity;
+
+  /// Where [p] is across its edge: 0 before it, 1 past it, eased between.
+  double _across(AirPoint p) =>
+      (p.x * math.cos(angle) +
+              p.ahead * math.sin(angle) -
+              slant * p.height -
+              at) /
+          math.max(widthM, 1e-6) +
+      0.5;
+
+  /// The smoothstep summed from 0 up to [u]: u^3 - u^4 / 2 over its ease.
+  static double _easedUpTo(double u) {
+    if (u <= 0) {
+      return 0;
+    }
+    if (u >= 1) {
+      return u - 0.5;
+    }
+    return u * u * u - u * u * u * u / 2;
+  }
+
+  /// Its mean share over the straight way from [from] to [to]: the edge's
+  /// and the layer's, each averaged along it - exact when either is even
+  /// along the way, as for a rain cell or a deep fog seen low.
+  double meanShare(AirPoint from, AirPoint to) {
+    final layer = meanLayer(from.height, to.height);
+    if (everywhere) {
+      return layer;
+    }
+    final u0 = _across(from);
+    final u1 = _across(to);
+    final double edge;
+    if ((u1 - u0).abs() < 1e-6) {
+      final u = u0.clamp(0.0, 1.0);
+      edge = u * u * (3 - 2 * u);
+    } else {
+      edge = (_easedUpTo(u1) - _easedUpTo(u0)) / (u1 - u0);
+    }
+    return edge.clamp(0.0, 1.0) * layer;
+  }
+
+  /// Its mean share over a straight way from [h0] up or down to [h1].
+  double meanLayer(double h0, double h1) {
+    if ((h1 - h0).abs() < 1e-4) {
+      return _layer(h0);
+    }
+    return (_layerUpTo(h1) - _layerUpTo(h0)) / (h1 - h0);
+  }
+
   /// How much of it there is at [p], `0..1`.
   double shareAt(AirPoint p) {
     if (at == double.negativeInfinity) {
@@ -126,12 +187,8 @@ class AirField {
   /// How far one sees at [p], m (Koschmieder).
   double visibilityAt(AirPoint p) => 3.912 / extinctionAt(p);
 
-  /// Steps the way from one point to another is cut into: a bank's edge is
-  /// some metres wide, and the way tens of metres long.
-  static const int steps = 24;
-
   /// The optical depth of the straight way from [from] to [to]: the
-  /// extinction summed along it (midpoints of [steps] equal parts).
+  /// extinction summed along it, in closed form ([AirBank.meanShare]).
   double opticalDepth(AirPoint from, AirPoint to) {
     final dx = to.x - from.x;
     final da = to.ahead - from.ahead;
@@ -140,19 +197,11 @@ class AirField {
     if (length <= 0) {
       return 0;
     }
-    if (banks.isEmpty) {
-      return base * length;
+    var tau = base * length;
+    for (final bank in banks) {
+      tau += bank.extinction * bank.meanShare(from, to) * length;
     }
-    var sum = 0.0;
-    for (var i = 0; i < steps; i++) {
-      final t = (i + 0.5) / steps;
-      sum += extinctionAt((
-        x: from.x + dx * t,
-        ahead: from.ahead + da * t,
-        height: from.height + dh * t,
-      ));
-    }
-    return sum / steps * length;
+    return tau;
   }
 
   /// The share of light that crosses from [from] to [to].

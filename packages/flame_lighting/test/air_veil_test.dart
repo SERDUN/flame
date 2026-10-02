@@ -90,7 +90,7 @@ void main() {
         AirBank(extinction: AirField.ofVisibility(50), topM: 1, topWidthM: 0.4),
       ]);
       expect(at(100, 30).r, greaterThan(200), reason: 'high up, clear');
-      // 0.4 m up at the veil's distance, inside the fog; 2 m up already above it.
+      // 0.4 m up at the veil's distance, inside the fog; 2 m up above it.
       expect(at(100, 399).r, lessThan(at(100, 30).r - 100));
       expect(at(100, 395).r, greaterThan(200));
     },

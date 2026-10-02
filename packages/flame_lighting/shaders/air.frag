@@ -17,7 +17,6 @@ precision highp float;
 
 const int kMaxBanks = 3;
 const int kMaxVeils = 6;
-const int kSteps = 16;
 
 uniform vec4 u[6 + kMaxBanks * 2 + kMaxVeils / 4 + 1];
 
@@ -43,42 +42,63 @@ float distanceAt(float depth) {
     return 1.0 / inverse;
 }
 
-// Per metre, what the air takes away at (x along the road, ahead of the
-// street line, height), metres.
-float extinction(vec3 p) {
-    float sigma = uDepths.z;
-    for (int i = 0; i < kMaxBanks; i++) {
-        vec4 a = u[uBanks + i * 2];
-        vec4 b = u[uBanks + i * 2 + 1];
-        if (a.x <= 0.0) {
-            continue;
-        }
-        // A layer up to its top, thinning out round it (AirBank._layer).
-        float s = max(b.w, 1e-3) / 4.0;
-        float share = 1.0 / (1.0 + exp(clamp((p.z - b.z) / s, -60.0, 60.0)));
-        if (a.y > -1e8) {
-            float along = p.x * a.z + p.y * a.w - b.y * p.z;
-            float t = clamp((along - a.y) / max(b.x, 1e-6) + 0.5, 0.0, 1.0);
-            share *= t * t * (3.0 - 2.0 * t);
-        }
-        sigma += a.x * share;
-    }
-    return sigma;
+// A layer summed from the ground up to h (AirBank._layerUpTo).
+float layerUpTo(float h, float top, float s) {
+    float x = (h - top) / s;
+    float soft = x > 30.0 ? x : log(1.0 + exp(max(x, -60.0)));
+    return h - s * soft;
 }
 
-// The optical depth of the eye's way to point q from t0 to t1 of the way.
+// The smoothstep summed from 0 up to u (AirBank._easedUpTo).
+float easedUpTo(float u) {
+    if (u <= 0.0) {
+        return 0.0;
+    }
+    if (u >= 1.0) {
+        return u - 0.5;
+    }
+    return u * u * u - u * u * u * u * 0.5;
+}
+
+// The optical depth of the eye's way to point q from t0 to t1 of the way, in
+// closed form (AirBank.meanShare): each bank's layer and edge averaged along
+// it.
 float opticalDepth(vec3 eye, vec3 q, float t0, float t1) {
     vec3 d = q - eye;
     float length_ = length(d) * (t1 - t0);
     if (length_ <= 0.0) {
         return 0.0;
     }
-    float sum = 0.0;
-    for (int i = 0; i < kSteps; i++) {
-        float t = t0 + (t1 - t0) * (float(i) + 0.5) / float(kSteps);
-        sum += extinction(eye + d * t);
+    vec3 p0 = eye + d * t0;
+    vec3 p1 = eye + d * t1;
+    float tau = uDepths.z * length_;
+    for (int i = 0; i < kMaxBanks; i++) {
+        vec4 a = u[uBanks + i * 2];
+        vec4 b = u[uBanks + i * 2 + 1];
+        if (a.x <= 0.0) {
+            continue;
+        }
+        float s = max(b.w, 1e-3) / 4.0;
+        float layer = abs(p1.z - p0.z) < 1e-4
+            ? 1.0 / (1.0 + exp(clamp((p0.z - b.z) / s, -60.0, 60.0)))
+            : (layerUpTo(p1.z, b.z, s) - layerUpTo(p0.z, b.z, s)) /
+                (p1.z - p0.z);
+        float edge = 1.0;
+        if (a.y > -1e8) {
+            float w = max(b.x, 1e-6);
+            float u0 = (p0.x * a.z + p0.y * a.w - b.y * p0.z - a.y) / w + 0.5;
+            float u1 = (p1.x * a.z + p1.y * a.w - b.y * p1.z - a.y) / w + 0.5;
+            if (abs(u1 - u0) < 1e-6) {
+                float e = clamp(u0, 0.0, 1.0);
+                edge = e * e * (3.0 - 2.0 * e);
+            } else {
+                edge = clamp((easedUpTo(u1) - easedUpTo(u0)) / (u1 - u0),
+                             0.0, 1.0);
+            }
+        }
+        tau += a.x * layer * edge * length_;
     }
-    return sum / float(kSteps) * length_;
+    return tau;
 }
 
 // The nearest of the veils nearer than depth, of those in v; nearer below
