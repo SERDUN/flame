@@ -43,6 +43,7 @@ class Substance {
     'cloth': cloth,
     'foliage': foliage,
     'soil': soil,
+    'mud': mud,
     'wood': wood,
     'water': water,
   };
@@ -186,6 +187,23 @@ class Substance {
     soundHz: 800,
     ringSec: 0,
     hitSec: 0.01,
+  );
+
+  /// The silt of a pond's bed: as porous as earth, but full - it has
+  /// soaked up all it will, so water standing on it stays.
+  static const mud = Substance(
+    name: 'mud',
+    porosity: 0.5,
+    holdsMm: 3,
+    roughness: 0.9,
+    restitution: 0,
+    slip: 0.2,
+    splashAbove: 120,
+    loudness: 0.1,
+    soundHz: 600,
+    ringSec: 0,
+    hitSec: 0.012,
+    friction: 0.3,
   );
 
   /// Wood: a bench, a fence.
