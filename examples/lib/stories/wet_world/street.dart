@@ -291,7 +291,6 @@ WaterSurface wetRoad({double reflectivity = 0.85}) => WaterSurface(
   position: Vector2(0, groundLine),
   size: Vector2(800, 120),
   shape: WaterShape.rect,
-  color: const Color(0x00000000),
   reflectivity: reflectivity,
   fade: 0.9,
   tint: const Color(0x2219202A),

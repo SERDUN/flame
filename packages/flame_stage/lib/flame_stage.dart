@@ -7,6 +7,7 @@ library;
 
 export 'src/color_temperature.dart';
 export 'src/daylight.dart';
+export 'src/depth.dart';
 export 'src/form.dart';
 export 'src/light_field.dart'
     show

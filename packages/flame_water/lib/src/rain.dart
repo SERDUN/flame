@@ -938,19 +938,33 @@ class Rain extends Component with OnStage, Reflectable, Weather {
 /// each range. Water mirrors a slice as it mirrors the rain. A slice below
 /// the lighting among its siblings has the lighting laid over it, and its
 /// drops are drawn for that.
-class RainSlice extends Component with Reflectable {
+class RainSlice extends Component with Reflectable, OnStage, AtDepth {
   RainSlice(
     this.rain, {
     this.from = double.negativeInfinity,
     this.to = double.infinity,
     super.priority,
-  });
+  }) : placedByDepth = priority == null;
+
+  /// Placed at its depth unless given a priority outright.
+  @override
+  final bool placedByDepth;
 
   final Rain rain;
 
-  /// The depths it draws, from [from] up to (not including) [to].
-  final double from;
-  final double to;
+  /// The depths it draws, from [from] up to (not including) [to]: set them
+  /// as what stands at those depths moves.
+  double from;
+  double to;
+
+  /// It holds the drops up to its nearer edge: it is drawn at that depth,
+  /// behind what stands there - or nearest of all, with no edge.
+  @override
+  double depthIn(StreetProjection? projection) =>
+      to.isFinite ? to : double.maxFinite;
+
+  @override
+  DepthOrder get depthOrder => DepthOrder.rain;
 
   // The rain's drops and droplets in its depths this frame, sorted by the
   // rain while the slice is mounted.

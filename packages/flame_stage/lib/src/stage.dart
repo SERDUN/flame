@@ -2,6 +2,7 @@ import 'dart:ui';
 
 import 'package:flame/components.dart';
 import 'package:flame/game.dart';
+import 'package:flame_stage/src/depth.dart';
 import 'package:flame_stage/src/form.dart';
 import 'package:flame_stage/src/light_field.dart';
 import 'package:flame_stage/src/shadow.dart';
@@ -69,8 +70,18 @@ mixin OnStage on Component {
 /// things stand on (its top edge) down towards the viewer. The stage builds
 /// the frame's [StreetProjection] from it.
 ///
-/// It lies flat ([LiesFlat]): water lying on it does not mirror it.
-mixin Ground on OnStage implements LiesFlat {
+/// It lies flat ([LiesFlat]): water lying on it does not mirror it. It is at
+/// the street line, under everything there ([DepthOrder.ground]).
+mixin Ground on OnStage implements LiesFlat, AtDepth {
+  @override
+  double depthIn(StreetProjection? projection) => 0;
+
+  @override
+  DepthOrder get depthOrder => DepthOrder.ground;
+
+  @override
+  bool get placedByDepth => true;
+
   /// The band, world coordinates.
   Rect groundBand();
 
@@ -103,7 +114,8 @@ mixin FrameStep on OnStage {
 /// 2. the rest of the world updates, reading the frame;
 /// 3. it draws before everything else and runs the [FrameStep]s: what the
 ///    frame's drawing needs made once;
-/// 4. the rest of the world draws.
+/// 4. the rest of the world draws: what is at a depth ([AtDepth]) far to
+///    near, ordered in step 1 by its depth under the frame's projection.
 /// Components that light, mirror, catch rain or need the depth read the
 /// frame and the registry, and never walk the tree or ask the camera
 /// themselves.
@@ -231,6 +243,44 @@ class Stage extends Component {
       ..projection = _currentProjection();
     frame.weather.read(members<Weather>().firstOrNull);
     _gatherLight();
+    _orderByDepth();
+  }
+
+  /// Where the things at a depth start, in their parents' priorities: above
+  /// everything else drawn at the default 0, below the lighting's passes.
+  static const int firstDepthPriority = 1;
+
+  final List<(AtDepth, double, int, int)> _byDepth = [];
+
+  /// Gives every thing at a depth its place in the drawing: far to near,
+  /// then by what it is at its depth, then by when it joined.
+  void _orderByDepth() {
+    final placed = members<AtDepth>();
+    if (placed.isEmpty) {
+      return;
+    }
+    final projection = frame.projection;
+    _byDepth
+      ..clear()
+      ..addAll([
+        for (final (i, c) in placed.indexed)
+          if (c.placedByDepth)
+            (c, c.depthIn(projection), c.depthOrder.index, i),
+      ])
+      ..sort((a, b) {
+        final depth = a.$2.compareTo(b.$2);
+        if (depth != 0) {
+          return depth;
+        }
+        final order = a.$3.compareTo(b.$3);
+        return order != 0 ? order : a.$4.compareTo(b.$4);
+      });
+    for (final (rank, (thing, _, _, _)) in _byDepth.indexed) {
+      final priority = firstDepthPriority + rank;
+      if (thing.priority != priority) {
+        thing.priority = priority;
+      }
+    }
   }
 
   @override

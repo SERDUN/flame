@@ -1010,8 +1010,13 @@ class LitLayer extends Component {
 /// what is behind it; what draws above it is lit on the street line, by the
 /// lighting. A lamp on the pavement does not light a tree twenty metres back
 /// as it lights the wall behind it, nor lay a walker's shadow on it.
-class LitCut extends Component with OnStage {
-  LitCut({required this.ahead, super.priority});
+class LitCut extends Component with OnStage, AtDepth {
+  LitCut({required this.ahead, super.priority})
+    : placedByDepth = priority == null;
+
+  /// Placed at its depth unless given a priority outright.
+  @override
+  final bool placedByDepth;
 
   /// How far in front of the street line what is below it stands, in the
   /// world's units (behind it, negative).
@@ -1024,6 +1029,14 @@ class LitCut extends Component with OnStage {
 
   /// The frame it last drew in.
   int _turnedAt = -1;
+
+  /// It lights what is at its depth and behind it: drawn after all of that.
+  @override
+  double depthIn(StreetProjection? projection) =>
+      projection?.depthAhead(ahead()) ?? 0;
+
+  @override
+  DepthOrder get depthOrder => DepthOrder.light;
 
   void _set(Image? image, {bool owned = false}) {
     if (_owned) {

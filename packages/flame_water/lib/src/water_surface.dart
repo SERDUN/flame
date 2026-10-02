@@ -65,7 +65,7 @@ enum WaterShape {
 /// The surface must not be rotated or scaled, nor its parents: it maps world
 /// coordinates to its own by its absolute top-left corner.
 class WaterSurface extends PositionComponent
-    with OnStage, RainCatcher, Wettable, LightReflector
+    with OnStage, RainCatcher, Wettable, LightReflector, AtDepth
     implements Mirror {
   WaterSurface({
     super.position,
@@ -135,6 +135,14 @@ class WaterSurface extends PositionComponent
   /// its depth (`WaterMedium`). Under a film or a puddle the ground shows,
   /// lamp light and all; under a pond its bed is gone in its colour.
   WaterMedium medium;
+
+  /// It lies at its far edge, flat, under what stands there.
+  @override
+  double depthIn(StreetProjection? projection) =>
+      projection?.depthAt(absoluteTopLeftPosition.y) ?? 0;
+
+  @override
+  DepthOrder get depthOrder => DepthOrder.flat;
 
   /// How deep it is, m: the water it holds ([waterMm]).
   double get depthM => waterMm / 1000;
