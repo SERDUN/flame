@@ -303,8 +303,19 @@ class Stage extends Component {
     }
   }
 
+  /// The frame its steps last ran for.
+  int _preparedAt = -1;
+
   @override
   void render(Canvas canvas) {
+    // Once a frame: the world drawn again apart from it (a mirror's
+    // picture) draws the stage again, and its steps would make the frame's
+    // resources - every lamp's light added up - all over again, for the
+    // same frame.
+    if (_preparedAt == frame.index) {
+      return;
+    }
+    _preparedAt = frame.index;
     for (final step in members<FrameStep>()) {
       step.prepareFrame(canvas, frame);
     }

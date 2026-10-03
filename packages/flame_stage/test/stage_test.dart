@@ -89,6 +89,23 @@ void main() {
     expect(log, ['prepared 1', 'drawn']);
   });
 
+  testWithFlameGame('a frame step runs once a frame, the world drawn twice', (
+    game,
+  ) async {
+    final log = <String>[];
+    game.world.addAll([_Drawer(log), _Step(log)]);
+    await game.ready();
+    game.update(1 / 60);
+    // A mirror draws the world again, the stage with it.
+    game.render(Canvas(PictureRecorder()));
+    game.world.children.whereType<Stage>().single.renderTree(
+      Canvas(PictureRecorder()),
+    );
+    game.update(1 / 60);
+    game.render(Canvas(PictureRecorder()));
+    expect(log, ['prepared 1', 'drawn', 'prepared 2', 'drawn']);
+  });
+
   testWithFlameGame('one stage a world, made when first asked for', (
     game,
   ) async {
