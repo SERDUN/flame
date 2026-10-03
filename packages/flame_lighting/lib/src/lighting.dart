@@ -429,8 +429,23 @@ class Lighting extends Component with OnStage, Ambience, FrameStep {
   final Paint _add = Paint()..blendMode = BlendMode.plus;
   final Paint _emit = Paint()..blendMode = BlendMode.plus;
 
+  /// The drawing of the world now under way: one more each time the
+  /// lighting, last of the world's lit things, has drawn. A frame of the
+  /// stage is drawn more than once - a screen faster than the steps, a
+  /// slowed clock - and what was drawn in the drawing before is not drawn
+  /// in this one.
+  int _pass = 0;
+
   @override
   void render(Canvas canvas) {
+    try {
+      _render(canvas);
+    } finally {
+      _pass++;
+    }
+  }
+
+  void _render(Canvas canvas) {
     final frame = stage?.frame;
     if (frame == null || !frame.light.isLit) {
       _litLayer?._close(canvas);
@@ -516,7 +531,7 @@ class Lighting extends Component with OnStage, Ambience, FrameStep {
         light: () {
           // What the layer holds stands where the cut that would light it
           // says: the next one still to come, or the street line.
-          final cut = _cutAhead(frame);
+          final cut = _cutAhead();
           if (cut != null && cut._image != null) {
             cut._light(canvas, view);
           } else if (_lightImage != null) {
@@ -534,12 +549,16 @@ class Lighting extends Component with OnStage, Ambience, FrameStep {
 
   int _unlitDepth = 0;
 
-  /// The first of the stage's cuts not drawn yet this frame: the one that
-  /// lights what the world drew since the last; `null` past the last cut.
-  LitCut? _cutAhead(StageFrame frame) {
+  /// The first of the stage's cuts not drawn yet in this drawing of the
+  /// world: the one that lights what the world drew since the last; `null`
+  /// past the last cut. Asked by the frame's index instead, a frame drawn
+  /// a second time found every cut drawn already, and lit what stands
+  /// behind the street line - a tree far back - as on the street line,
+  /// near the lamps: every other drawing of the frame, it blinked.
+  LitCut? _cutAhead() {
     LitCut? ahead;
     for (final cut in stage?.members<LitCut>() ?? const <LitCut>[]) {
-      if (cut._turnedAt == frame.index) {
+      if (cut._turnedAt == _pass) {
         continue;
       }
       if (ahead == null || cut.priority < ahead.priority) {
@@ -1060,7 +1079,7 @@ class LitCut extends Component with OnStage, AtDepth {
   double _gain = 1;
   bool _alphaIsWhite = true;
 
-  /// The frame it last drew in.
+  /// The drawing of the world it last drew in ([Lighting._pass]).
   int _turnedAt = -1;
 
   /// It lights what is at its depth and behind it: drawn after all of that.
@@ -1095,8 +1114,8 @@ class LitCut extends Component with OnStage, AtDepth {
     final lighting = Lighting.of(this);
     final layer = lighting?._litLayer;
     final frame = stage?.frame;
-    if (frame != null) {
-      _turnedAt = frame.index;
+    if (lighting != null) {
+      _turnedAt = lighting._pass;
     }
     if (lighting == null || layer == null || _image == null || frame == null) {
       return;

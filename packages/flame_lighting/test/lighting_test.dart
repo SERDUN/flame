@@ -175,6 +175,49 @@ void main() {
   );
 
   testWithFlameGame(
+    'a frame drawn twice lights what stands far behind by its cut both times',
+    (game) async {
+      await LightShader.load(directory: 'shaders');
+      game.onGameResize(Vector2(800, 600));
+      game.camera.viewfinder.anchor = Anchor.topLeft;
+      game.camera.backdrop.add(_Wall(const Color(0xFF000000)));
+      // A white board 1000 behind the street line, beside a lamp of reach
+      // 300, and something drawn unlit after it, before its cut: the board
+      // is lit where it stands - out of reach - however often the frame is
+      // drawn (a screen faster than the steps draws a frame twice).
+      final unlit = _Unlit(
+        const Rect.fromLTWH(0, 0, 10, 10),
+        const Color(0xFFFFFFFF),
+        position: Vector2(700, 50),
+      )..priority = -8;
+      game.world.addAll([
+        RectangleComponent(
+          position: Vector2(250, 200),
+          size: Vector2(100, 200),
+          paint: Paint()..color = const Color(0xFFFFFFFF),
+          priority: -10,
+        ),
+        unlit,
+        LitCut(ahead: () => -1000, priority: -5),
+        LightSource(position: Vector2(400, 300), radius: 300),
+        Lighting(skyLight: 0, glow: 0, lightsBackdrop: false),
+      ]);
+      await game.ready();
+      final first = await _render(game);
+      expect(first(300, 300), lessThan(10), reason: 'out of reach');
+      final recorder = PictureRecorder();
+      game.render(Canvas(recorder));
+      final image = await recorder.endRecording().toImage(800, 600);
+      final bytes = (await image.toByteData())!;
+      expect(
+        bytes.getUint8((300 * 800 + 300) * 4),
+        lessThan(10),
+        reason: 'drawn again, still out of reach',
+      );
+    },
+  );
+
+  testWithFlameGame(
     'what draws unlit keeps its colour; what draws before and after is lit',
     (game) async {
       await LightShader.load(directory: 'shaders');
