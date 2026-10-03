@@ -139,6 +139,19 @@ class _GpuLightBuffer implements LightBuffer {
   }
 
   @override
+  void releaseSlotsFrom(int first) {
+    _slots.removeWhere((slot, at) {
+      if (slot < first) {
+        return false;
+      }
+      at.image?.dispose();
+      at.image = null;
+      at.targets.clear();
+      return true;
+    });
+  }
+
+  @override
   void dispose() {
     _disposed = true;
     for (final at in _slots.values) {

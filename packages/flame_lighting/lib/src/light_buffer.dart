@@ -66,6 +66,10 @@ abstract class LightBuffer {
     int slot = 0,
   });
 
+  /// Lets go of every slot from [first] on: the cuts that used them are
+  /// gone, and a slot's images are kept until it is let go.
+  void releaseSlotsFrom(int first);
+
   void dispose();
 
   /// Writes [frame]'s parameters over [area] into [into]: the area, the

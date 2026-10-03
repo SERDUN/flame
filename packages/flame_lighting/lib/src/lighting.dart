@@ -303,6 +303,10 @@ class Lighting extends Component with OnStage, Ambience, FrameStep {
         cut._set(all, owned: true);
       }
     }
+    // A cut gone since leaves its slot: let go of it.
+    if (buffer != null && useBuffer) {
+      buffer.releaseSlotsFrom(cuts.length + 1);
+    }
   }
 
   /// Without the GPU buffer, the same light on the canvas, in two images
@@ -1043,9 +1047,15 @@ class LitLayer extends Component {
 /// lighting. A lamp on the pavement does not light a tree twenty metres back
 /// as it lights the wall behind it, nor lay a walker's shadow on it.
 class LitCut extends Component with OnStage, AtDepth {
-  LitCut({required double Function() this._ahead, super.priority})
-    : _depth = null,
-      placedByDepth = priority == null;
+  /// A cut placed by hand at [priority], lighting what is below it as it
+  /// stands [ahead] of the street line. One placed by depth stands at the
+  /// depth of what it lights ([LitCut.at]): a depth worked back from how far
+  /// ahead it stands is a rounding off it.
+  LitCut({
+    required double Function() this._ahead,
+    required int super.priority,
+  }) : _depth = null,
+       placedByDepth = false;
 
   /// A cut at the very [depth] what it lights stands at (a parallax layer's,
   /// `StreetProjection.depthOfScale`): drawn after it, as [depthOrder] says,
@@ -1083,6 +1093,7 @@ class LitCut extends Component with OnStage, AtDepth {
   int _turnedAt = -1;
 
   /// It lights what is at its depth and behind it: drawn after all of that.
+  /// A cut placed by hand is not ordered by depth; it says where it stands.
   @override
   double depthIn(StreetProjection? projection) {
     final depth = _depth;
@@ -1099,14 +1110,20 @@ class LitCut extends Component with OnStage, AtDepth {
     if (_owned) {
       _image?.dispose();
     }
+    // With no lighting to draw it, an image of its own is let go now: kept,
+    // it would never be.
+    if (Lighting.of(this) == null) {
+      if (owned) {
+        image?.dispose();
+      }
+      _image = null;
+      _owned = false;
+      return;
+    }
     _image = image;
     _owned = owned;
-    final lighting = Lighting.of(this);
     _gain = owned ? Lighting.canvasGain : 1;
     _alphaIsWhite = !owned;
-    if (lighting == null) {
-      _image = null;
-    }
   }
 
   @override
