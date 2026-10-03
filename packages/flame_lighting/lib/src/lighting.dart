@@ -573,15 +573,29 @@ class Lighting extends Component with OnStage, Ambience, FrameStep {
       // canvas path's cast image has none: both read without it.
       _drawBuffer(
         canvas,
-        area,
+        area.intersect(_lightArea),
         _illumination,
         field,
         mode: 0,
         image: cast,
         alphaIsWhite: false,
       );
+      _castBeyond(canvas, frame, area, _lightArea);
       return;
     }
+    _castOver(canvas, frame, area);
+  }
+
+  /// Multiplies what [canvas] holds over [area] by the sky's light and every
+  /// light cast there, on a wall [wallAhead] of the street line: the light
+  /// drawn light by light, wherever the frame's images do not reach.
+  void _castOver(
+    Canvas canvas,
+    StageFrame frame,
+    Rect area, {
+    double wallAhead = 0,
+  }) {
+    final field = frame.light;
     final e = field.exposure;
     canvas
       ..saveLayer(area, _illumination)
@@ -596,8 +610,34 @@ class Lighting extends Component with OnStage, Ambience, FrameStep {
           ),
       );
     for (var i = 0; i < field.count; i++) {
-      _cast(canvas, frame, i, _add, e);
+      _cast(canvas, frame, i, _add, e, within: area, wallAhead: wallAhead);
     }
+    canvas.restore();
+  }
+
+  /// [_castOver] on the part of [area] outside [covered]: a mirror's
+  /// picture reaches past the view, which the frame's light images cover -
+  /// stretched there, their edge lit what stood beyond it.
+  void _castBeyond(
+    Canvas canvas,
+    StageFrame frame,
+    Rect area,
+    Rect covered, {
+    double wallAhead = 0,
+  }) {
+    if (covered.contains(area.topLeft) && covered.contains(area.bottomRight)) {
+      return;
+    }
+    canvas
+      ..save()
+      ..clipPath(
+        Path.combine(
+          PathOperation.difference,
+          Path()..addRect(area),
+          Path()..addRect(covered),
+        ),
+      );
+    _castOver(canvas, frame, area, wallAhead: wallAhead);
     canvas.restore();
   }
 
@@ -635,12 +675,14 @@ class Lighting extends Component with OnStage, Ambience, FrameStep {
     Paint paint,
     double amount, {
     Rect? clip,
+    Rect? within,
     double wallAhead = 0,
     double air = 0,
     double visibility = 1e9,
   }) {
     final field = frame.light;
-    final view = frame.view.inflate(frame.view.width * 0.01);
+    // Over the view, or the part of the world a mirror's picture shows.
+    final view = within ?? frame.view.inflate(frame.view.width * 0.01);
     final bounds = _bounds(field, i);
     if (!bounds.overlaps(view)) {
       return;
@@ -1155,16 +1197,24 @@ class LitCut extends Component with OnStage, AtDepth {
     if (lighting == null || image == null || frame == null) {
       return;
     }
-    lighting._drawBuffer(
-      canvas,
-      area,
-      lighting._illumination,
-      frame.light,
-      mode: 0,
-      image: image,
-      gain: _gain,
-      alphaIsWhite: false,
-    );
+    lighting
+      .._drawBuffer(
+        canvas,
+        area.intersect(lighting._lightArea),
+        lighting._illumination,
+        frame.light,
+        mode: 0,
+        image: image,
+        gain: _gain,
+        alphaIsWhite: false,
+      )
+      .._castBeyond(
+        canvas,
+        frame,
+        area,
+        lighting._lightArea,
+        wallAhead: ahead(),
+      );
   }
 
   @override
