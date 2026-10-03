@@ -559,6 +559,21 @@ void main() {
 }
 
 /// How bright the whole frame is, the red channel summed.
+/// The red and the blue [game] draws, summed over the view.
+Future<(int, int)> _redBlue(FlameGame game) async {
+  final recorder = PictureRecorder();
+  game.render(Canvas(recorder));
+  final image = await recorder.endRecording().toImage(800, 600);
+  final bytes = (await image.toByteData())!;
+  var red = 0;
+  var blue = 0;
+  for (var i = 0; i < bytes.lengthInBytes; i += 4) {
+    red += bytes.getUint8(i);
+    blue += bytes.getUint8(i + 2);
+  }
+  return (red, blue);
+}
+
 Future<int> _brightness(FlameGame game) async {
   final recorder = PictureRecorder();
   game.render(Canvas(recorder));
@@ -617,4 +632,38 @@ void _nightTests() {
     expect(over, greaterThan(0));
     expect(under / over, closeTo(1, 0.08));
   });
+
+  testWithFlameGame(
+    "rain under a dusk's light comes out as over it, not in its colour twice",
+    (game) async {
+      game.camera.viewfinder.anchor = Anchor.topLeft;
+      // A dusk: the air orange, under an orange sky's light.
+      final rain = Rain(intensity: 2, color: const Color(0xFFC08040))
+        ..drawsItself = false;
+      final slice = RainSlice(rain, priority: 500);
+      game.world.addAll([
+        _Ground(),
+        rain,
+        slice,
+        Lighting(sky: const Color(0xFFFF9050), skyLight: 0.4, haze: 0),
+      ]);
+      await game.ready();
+      await _rainFor(game, 1);
+      // The rain's own red and blue: the view with it, less the view
+      // without it.
+      final (underRed, underBlue) = await _redBlue(game);
+      slice.removeFromParent();
+      await game.ready();
+      final (red0, blue0) = await _redBlue(game);
+      game.world.add(slice..priority = 1500);
+      await game.ready();
+      final (overRed, overBlue) = await _redBlue(game);
+      final under = (underRed - red0, underBlue - blue0);
+      final over = (overRed - red0, overBlue - blue0);
+      expect(over.$1, greaterThan(0));
+      // The same hue: the lighting lays the sky's colour over the drops
+      // under it once, as they carry it over it.
+      expect((under.$2 / under.$1) / (over.$2 / over.$1), closeTo(1, 0.15));
+    },
+  );
 }

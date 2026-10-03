@@ -755,16 +755,10 @@ class Rain extends Component with OnStage, Reflectable, Weather {
         forwardScatter: 0.7,
       );
       final tint = _sample.added * 0.8;
-      // Under the lighting it is multiplied by what the lighting shows
-      // there (LightField.fill): it carries the rest.
-      final under = math.max(_sample.shown, 0.02);
+      final over = _tinted(water, tint, share * _sample.scattered);
       drops
-        ..color[i] = _tinted(water, tint, share * _sample.scattered)
-        ..colorUnder[i] = _tinted(
-          water,
-          tint,
-          share * _sample.scattered / under,
-        );
+        ..color[i] = over
+        ..colorUnder[i] = _underLight(over);
     }
     final droplets = _droplets;
     for (var i = 0; i < droplets.length; i++) {
@@ -788,9 +782,10 @@ class Rain extends Component with OnStage, Reflectable, Weather {
       );
       final light = _sample.shown;
       final tint = _sample.added * 0.8;
+      final over = _tinted(water, tint, 0.9 * light * focusShare);
       droplets
-        ..color[i] = _tinted(water, tint, 0.9 * light * focusShare)
-        ..colorUnder[i] = _tinted(water, tint, 0.9 * focusShare);
+        ..color[i] = over
+        ..colorUnder[i] = _underLight(over);
     }
     _sort();
   }
@@ -804,6 +799,31 @@ class Rain extends Component with OnStage, Reflectable, Weather {
         ((c.r * 255).round() << 16) |
         ((c.g * 255).round() << 8) |
         (c.b * 255).round();
+  }
+
+  /// What drawn under the lighting comes out as [over] drawn over it:
+  /// the lighting multiplies it by what it shows there, channel by channel
+  /// (the sky's colour and the lamps'), so it carries [over] over that;
+  /// past white in a channel, the rest goes into its cover. Its own colour
+  /// as well - the air's, the lamps' tint - it took the light's colour
+  /// twice: a splash by the camera, at dusk, came out a bright orange blot.
+  int _underLight(int over) {
+    final a = ((over >>> 24) & 0xFF) / 255;
+    var r = ((over >> 16) & 0xFF) / 255 / math.max(_sample.shownRed, 0.02);
+    var g = ((over >> 8) & 0xFF) / 255 / math.max(_sample.shownGreen, 0.02);
+    var b = (over & 0xFF) / 255 / math.max(_sample.shownBlue, 0.02);
+    var cover = a;
+    final top = math.max(r, math.max(g, b));
+    if (top > 1) {
+      r /= top;
+      g /= top;
+      b /= top;
+      cover = a * top;
+    }
+    return ((cover.clamp(0.0, 1.0) * 255).round() << 24) |
+        ((r * 255).round() << 16) |
+        ((g * 255).round() << 8) |
+        (b * 255).round();
   }
 
   /// [c] taking [share] of the light's colour ([_sample]'s), at [alpha].

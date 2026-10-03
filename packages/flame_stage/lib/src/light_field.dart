@@ -378,6 +378,13 @@ class LightSample {
   /// and the lights filling what it leaves up to white ([LightField.fill]).
   double shown = 0;
 
+  /// [shown] in each channel: what the lighting multiplies a thing drawn
+  /// under it by there, the sky's colour and the lamps' with it, as the
+  /// compose shader works it.
+  double shownRed = 1;
+  double shownGreen = 1;
+  double shownBlue = 1;
+
   /// Light thrown on toward the eye by a drop there (forward scatter).
   double scattered = 0;
 
@@ -1113,6 +1120,9 @@ class LightField {
       ..added = total * e
       ..light = base + total * e
       ..shown = fill(base, total * e)
+      ..shownRed = lit ? fill(math.min(skyRed * e, 1.0), r * e) : 1
+      ..shownGreen = lit ? fill(math.min(skyGreen * e, 1.0), gr * e) : 1
+      ..shownBlue = lit ? fill(math.min(skyBlue * e, 1.0), b * e) : 1
       ..scattered = g > 0 ? scattered : base + total * e;
     if (total <= 0) {
       out
