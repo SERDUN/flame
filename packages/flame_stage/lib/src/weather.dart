@@ -1,0 +1,163 @@
+import 'dart:math' as math;
+
+import 'package:flame/components.dart';
+import 'package:flame_stage/src/air.dart';
+import 'package:flame_stage/src/daylight.dart';
+import 'package:flame_stage/src/stage.dart';
+
+/// The weather over a stage: one state the rain, the air, the light and
+/// every wet thing follow, in physical terms.
+///
+/// How hard it rains (mm an hour), the wind, the air's humidity and
+/// temperature, how much of the sky clouds cover, and how fast the world's
+/// time runs against the game's ([pace]: a run that goes from dusk to night
+/// in minutes runs the world faster). One on a stage; the stage reads it
+/// once a frame into [StageFrame.weather].
+mixin Weather on OnStage {
+  /// Rain, mm an hour: 1 a drizzle, 6 a steady rain, 15 a downpour.
+  double get rainMmPerHour;
+
+  /// The wind, m/s (y down).
+  Vector2 get wind;
+
+  /// The air's relative humidity, `0..1`.
+  double get humidity => 0.8;
+
+  /// The air's temperature, degrees Celsius.
+  double get temperature => 12;
+
+  /// How much of the sky clouds cover, `0..1`.
+  double get cloudCover => 1;
+
+  /// How thick the clouds are to light, their optical depth: some 27 a
+  /// common overcast, 70 one it rains steadily from, over 150 a
+  /// thunderhead (`Daylight.cloudTransmittance`). By default, the cloud the
+  /// rain falls from ([cloudOpticalDepthOfRain]).
+  double get cloudOpticalDepth => cloudOpticalDepthOfRain(rainMmPerHour);
+
+  /// World seconds a second of the game: how fast water comes and goes, and
+  /// the day turns.
+  double get pace => 1;
+
+  /// Air thicker than the rest over parts of the scene: a fog, a storm
+  /// cell's rain (at most `AirField.maxBanks`). The rain and the mist over
+  /// all of it are the weather's own (`WeatherState.air`).
+  List<AirBank> get airBanks => const [];
+}
+
+/// The optical depth of the clouds a rain of [mmPerHour] falls from: the
+/// thicker the cloud, the more water it holds and the harder it rains -
+/// some 40 for a drizzle (1 mm/h), 70 a steady rain (6), 110 a downpour
+/// (15), 185 a thunderhead's (40) (rough, after the liquid water paths
+/// such clouds carry).
+double cloudOpticalDepthOfRain(double mmPerHour) =>
+    Daylight.overcastOpticalDepth +
+    12 * math.pow(math.max(mmPerHour, 0), 0.7).toDouble();
+
+/// The weather of one frame, as the stage read it: what everything wet,
+/// the air and the sky ask of it.
+class WeatherState {
+  /// Whether a [Weather] gave it; without one the air is still and dry and
+  /// no rain falls.
+  bool present = false;
+
+  /// Rain, mm an hour.
+  double rainMmPerHour = 0;
+
+  /// The wind, m/s (y down).
+  final Vector2 wind = Vector2.zero();
+
+  /// Relative humidity, `0..1`.
+  double humidity = 0.6;
+
+  /// Degrees Celsius.
+  double temperature = 15;
+
+  /// `0..1`.
+  double cloudCover = 0;
+
+  /// The clouds' optical depth.
+  double cloudOpticalDepth = 0;
+
+  /// World seconds a game second.
+  double pace = 1;
+
+  /// The rain a scene was tuned for, mm an hour.
+  static const double tunedRainMmPerHour = 6;
+
+  /// How hard it rains against the rain the scene was tuned for: 1 steady,
+  /// 2 a downpour, 0 dry.
+  double get rainIntensity => rainMmPerHour / tunedRainMmPerHour;
+
+  /// How fast still water evaporates, mm an hour (Dalton's law): as much as
+  /// the air is short of saturated, faster in a wind. In rain the air is
+  /// saturated and nothing dries.
+  double get evaporationMmPerHour {
+    final saturated =
+        0.6108 * math.exp(17.27 * temperature / (temperature + 237.3));
+    final short = saturated * (1 - humidity.clamp(0.0, 1.0));
+    return (0.12 + 0.06 * wind.length) * short;
+  }
+
+  /// The weather's banks of fog and storm over parts of the scene.
+  List<AirBank> airBanks = const [];
+
+  /// The air as light crosses it: the rain and the mist everywhere, the
+  /// banks of fog and storm over parts of it.
+  AirField get air =>
+      AirField(base: AirField.ofVisibility(visibilityM), banks: airBanks);
+
+  /// How far a lamp's halo reaches, m: the light it throws into the air
+  /// round it, which the air there scatters toward the eye.
+  static const double haloM = 5;
+
+  /// How much of a lamp's light the air round it scatters toward the eye,
+  /// `0..1` - what haloes it - at [p]: the share the air takes over a
+  /// halo's reach ([haloM]). None in clear air, a little in rain, much in a
+  /// fog.
+  double hazeAt(AirPoint p) => 1 - math.exp(-air.extinctionAt(p) * haloM);
+
+  /// How far one sees through the rain and the mist over all of it, m
+  /// (Koschmieder): clear air some 20 km, rain and mist scatter the light
+  /// and bring it in. A bank is thicker where it lies ([AirField]).
+  double get visibilityM => visibilityMOf(rainMmPerHour, humidity: humidity);
+
+  /// How far one sees, m, in rain of [rainMmPerHour] through air of
+  /// [humidity]: clear air's extinction, the rain's (growing as the rain to
+  /// the 0.63), a mist's near saturation.
+  static double visibilityMOf(double rainMmPerHour, {double humidity = 0.8}) {
+    final rain = 3.5e-4 * math.pow(math.max(rainMmPerHour, 0), 0.63);
+    final mist = 2e-3 * math.pow(((humidity - 0.9) / 0.1).clamp(0.0, 1.0), 2);
+    return 1 / (1 / 20000 + rain + mist);
+  }
+
+  /// The share of the light that crosses [metres] of air one sees
+  /// [visibilityM] through (Koschmieder: exp(-3.912 d / V)); the rest is the
+  /// air's own light, the haze.
+  static double transmittanceOf(double metres, double visibilityM) =>
+      math.exp(-3.912 * math.max(metres, 0) / math.max(visibilityM, 1e-3));
+
+  /// Takes [weather]'s state; with none, a still dry day.
+  void read(Weather? weather) {
+    present = weather != null;
+    if (weather == null) {
+      rainMmPerHour = 0;
+      wind.setZero();
+      humidity = 0.6;
+      temperature = 15;
+      cloudCover = 0;
+      cloudOpticalDepth = 0;
+      pace = 1;
+      airBanks = const [];
+      return;
+    }
+    rainMmPerHour = math.max(weather.rainMmPerHour, 0);
+    cloudOpticalDepth = math.max(weather.cloudOpticalDepth, 0);
+    wind.setFrom(weather.wind);
+    humidity = weather.humidity.clamp(0.0, 1.0);
+    temperature = weather.temperature;
+    cloudCover = weather.cloudCover.clamp(0.0, 1.0);
+    pace = math.max(weather.pace, 0);
+    airBanks = weather.airBanks.take(AirField.maxBanks).toList(growable: false);
+  }
+}

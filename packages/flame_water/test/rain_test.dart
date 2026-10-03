@@ -1,0 +1,620 @@
+import 'dart:ui';
+
+import 'package:flame/components.dart';
+import 'package:flame/game.dart';
+import 'package:flame_lighting/flame_lighting.dart';
+import 'package:flame_stage/flame_stage.dart';
+import 'package:flame_test/flame_test.dart';
+import 'package:flame_water/flame_water.dart';
+import 'package:flutter_test/flutter_test.dart';
+
+/// The ground from y 400 down to 520.
+class _Ground extends Component with OnStage, Ground {
+  @override
+  Rect groundBand() => const Rect.fromLTWH(0, 400, 800, 120);
+}
+
+/// A roof at y 200 across x 100..300: it catches the rain behind the street
+/// line.
+class _Roof extends Component with OnStage, RainCatcher {
+  final List<double> depths = [];
+
+  @override
+  double? catchDrop(double x, double fromY, double toY, double depth) =>
+      depth < 0 && x >= 100 && x <= 300 && fromY < 200 && toY >= 200
+      ? 200
+      : null;
+
+  @override
+  void onDrop(Vector2 at, double strength) => depths.add(at.y);
+}
+
+class _Wall extends Component with Wettable {
+  _Wall({this.sheltered = false, this.substance = Substance.asphalt});
+
+  @override
+  final bool sheltered;
+
+  @override
+  final Substance substance;
+}
+
+/// An umbrella's canopy at depth 0: a dome over (400, 300), 80 wide, 30 tall,
+/// meeting only the drops falling within [thickness] of the street line.
+class _Canopy extends Component with OnStage, RainDeflector {
+  _Canopy({this.thickness = 0.1, this.standsAtDepth});
+
+  final double thickness;
+
+  @override
+  final double? standsAtDepth;
+
+  @override
+  bool deflect(Vector2 from, Vector2 to, Vector2 velocity, double depth) =>
+      depth.abs() <= thickness &&
+      RainBounce.offDome(
+        from: from,
+        to: to,
+        velocity: velocity,
+        center: Vector2(400, 300),
+        angle: 0,
+        halfWidth: 80,
+        height: 30,
+      );
+}
+
+Future<void> _rainFor(FlameGame game, double seconds) async {
+  for (var t = 0.0; t < seconds; t += 1 / 30) {
+    game.update(1 / 30);
+  }
+}
+
+void main() {
+  _nightTests();
+  testWithFlameGame('rain lands in the puddle over the road, on the road '
+      'beside it and on a roof by the far drops', (game) async {
+    game.camera.viewfinder.anchor = Anchor.topLeft;
+    final road = WaterSurface(
+      position: Vector2(0, 400),
+      size: Vector2(800, 120),
+      shape: WaterShape.rect,
+      waterDepth: 0.1,
+      film: true,
+    );
+    final puddle = WaterSurface(
+      position: Vector2(300, 420),
+      size: Vector2(300, 80),
+    );
+    final roof = _Roof();
+    game.world.addAll([_Ground(), road, puddle, roof, Rain()]);
+    await game.ready();
+    await _rainFor(game, 3);
+    expect(puddle.ripples.count, greaterThan(0), reason: 'the puddle');
+    expect(road.ripples.count, greaterThan(0), reason: 'the road beside it');
+    expect(roof.depths, isNotEmpty, reason: 'the roof');
+    // A drop the puddle covers is the puddle's, not the road's.
+    expect(puddle.catchOrder, greaterThan(road.catchOrder));
+  });
+
+  testWithFlameGame(
+    'things get wet in the rain, dry after it, not under cover',
+    (
+      game,
+    ) async {
+      // Ten world minutes a second.
+      final rain = Rain(pace: 600);
+      final open = _Wall();
+      final covered = _Wall(sheltered: true);
+      game.world.addAll([rain, open, covered]);
+      await game.ready();
+      await _rainFor(game, 5);
+      expect(open.wetness, greaterThan(0.6));
+      expect(covered.wetness, 0);
+      rain.intensity = 0;
+      final soaked = open.wetness;
+      await _rainFor(game, 10);
+      expect(
+        open.wetness,
+        inExclusiveRange(0, soaked),
+        reason: 'drying slowly',
+      );
+    },
+  );
+
+  testWithFlameGame('water is as astir as the rain over it is hard', (
+    game,
+  ) async {
+    final rain = Rain(intensity: 0.5);
+    final water = WaterSurface(chopPerRain: 4);
+    game.world.addAll([rain, water]);
+    await game.ready();
+    expect(water.chop, closeTo(2, 1e-9));
+    rain.intensity = 2;
+    expect(water.chop, closeTo(8, 1e-9));
+  });
+
+  testWithFlameGame(
+    'a drizzle fills a road slowly, a downpour at once',
+    (game) async {
+      final road = _Wall();
+      // A world minute a second.
+      final rain = Rain(intensity: 0.3, pace: 60);
+      game.world.addAll([rain, road]);
+      await game.ready();
+      await _rainFor(game, 20);
+      // 1.8 mm an hour in, 0.5 soaking away, into the 1 mm asphalt holds:
+      // 1.3 mm an hour for 20 minutes.
+      expect(road.wetness, closeTo(1.3 / 3, 0.02), reason: 'a drizzle');
+      rain.intensity = 2;
+      await _rainFor(game, 10);
+      expect(road.wetness, 1, reason: 'a downpour fills it and runs off');
+    },
+  );
+
+  testWithFlameGame(
+    'after the rain things dry as fast as the air takes the water',
+    (game) async {
+      // Glass: nothing soaks into it, only the air takes its water.
+      final pane = _Wall(substance: Substance.glass)..wetness = 1;
+      // An hour a second, dry air.
+      final rain = Rain(intensity: 0, humidity: 0.5, pace: 3600);
+      game.world.addAll([rain, pane]);
+      await game.ready();
+      game.update(0);
+      final evaporation = Stage.maybeOf(
+        pane,
+      )!.frame.weather.evaporationMmPerHour;
+      final before = pane.waterMm;
+      // Half an hour, in fifteen steps.
+      for (var i = 0; i < 15; i++) {
+        game.update(1 / 30);
+      }
+      expect(pane.waterMm, closeTo(before - evaporation * 0.5, 1e-6));
+      rain.humidity = 1;
+      final still = pane.waterMm;
+      await _rainFor(game, 0.5);
+      expect(pane.waterMm, closeTo(still, 1e-9), reason: 'saturated air');
+    },
+  );
+
+  testWithFlameGame('a puddle dries slower than a road', (game) async {
+    final road = _Wall()..wetness = 1;
+    final puddle = WaterSurface()..wetness = 1;
+    game.world.addAll([Rain(intensity: 0, pace: 3600), road, puddle]);
+    await game.ready();
+    await _rainFor(game, 2);
+    expect(road.wetness, 0, reason: 'its millimetre gone in two hours');
+    expect(puddle.wetness, greaterThan(0.8), reason: '20 mm in its hollow');
+  });
+
+  test(
+    'standing water holds what its hollow does, a film what its ground does',
+    () {
+      final film = WaterSurface(waterDepth: 0.1, film: true);
+      final puddle = WaterSurface();
+      expect(film.capacityMm, Substance.asphalt.holdsMm);
+      expect(film.rainShare, 1);
+      expect(puddle.capacityMm, 20);
+      expect(puddle.rainShare, 3, reason: 'it collects from round it');
+      expect(puddle.surface, Substance.water);
+    },
+  );
+
+  test('a drop splashes only if it hits hard enough', () {
+    // A 1 mm drop at its terminal ~4 m/s splashes; a 0.5 mm drizzle drop at
+    // ~2 m/s only wets.
+    expect(Rain.impactNumber(1, 4), greaterThan(Substance.asphalt.splashAbove));
+    expect(Rain.impactNumber(0.5, 2), lessThan(Substance.asphalt.splashAbove));
+  });
+
+  testWithFlameGame('a puddle shrinks on drier ground', (game) async {
+    final puddle = WaterSurface(size: Vector2(200, 40), wetness: 0.1);
+    game.world.add(puddle);
+    await game.ready();
+    final small = puddle.outline().getBounds().width;
+    puddle.wetness = 1;
+    expect(puddle.outline().getBounds().width, greaterThan(small * 2));
+    puddle.wetness = 0;
+    expect(puddle.outline().getBounds().isEmpty, isTrue, reason: 'dry: gone');
+    expect(puddle.covers(Vector2(100, 20)), isFalse);
+  });
+
+  test('a drop falling on a dome bounces up off it, slower', () {
+    final from = Vector2(400, 255);
+    final to = Vector2(400, 275);
+    final velocity = Vector2(0, 300);
+    final hit = RainBounce.offDome(
+      from: from,
+      to: to,
+      velocity: velocity,
+      center: Vector2(400, 300),
+      angle: 0,
+      halfWidth: 80,
+      height: 30,
+    );
+    expect(hit, isTrue);
+    expect(velocity.y, closeTo(-300 * Substance.canvas.restitution, 1e-6));
+    expect(to.y, lessThan(270.0), reason: 'put back above the surface');
+    final miss = Vector2(600, 275);
+    expect(
+      RainBounce.offDome(
+        from: Vector2(600, 255),
+        to: miss,
+        velocity: Vector2(0, 300),
+        center: Vector2(400, 300),
+        angle: 0,
+        halfWidth: 80,
+        height: 30,
+      ),
+      isFalse,
+    );
+  });
+
+  testWithFlameGame(
+    'rain bounces off a canopy at its depth and counts it; the rest passes',
+    (game) async {
+      game.camera.viewfinder.anchor = Anchor.topLeft;
+      final rain = Rain(intensity: 2);
+      game.world.addAll([_Ground(), _Canopy(), rain]);
+      await game.ready();
+      await _rainFor(game, 3);
+      final bounced = rain.takeBounces();
+      expect(bounced.count, greaterThan(0));
+      expect(bounced.speed, greaterThan(2), reason: 'm/s, falling drops');
+      expect(rain.takeBounces().count, 0, reason: 'taken');
+      expect(rain.landed[null], greaterThan(0), reason: 'the rest lands');
+    },
+  );
+
+  Future<List<RainStrikes>> heard(
+    FlameGame game, {
+    double intensity = 1,
+    Substance ground = Substance.asphalt,
+    Vector3? listener,
+    bool canopy = false,
+  }) async {
+    game.camera.viewfinder.anchor = Anchor.topLeft;
+    final rain = Rain(intensity: intensity)
+      ..ground = ground
+      ..listener = listener;
+    game.world.addAll([_Ground(), if (canopy) _Canopy(), rain]);
+    await game.ready();
+    await _rainFor(game, 2);
+    rain.takeImpacts();
+    await _rainFor(game, 4);
+    final impacts = rain.takeImpacts();
+    expect(impacts.seconds, closeTo(4, 0.1));
+    expect(rain.takeImpacts().on, isEmpty, reason: 'taken');
+    game.world.removeAll(game.world.children.toList());
+    await game.ready();
+    return impacts.on;
+  }
+
+  double energyOn(List<RainStrikes> strikes, Substance on) =>
+      strikes.where((s) => s.on == on).fold(0, (e, s) => e + s.energy);
+
+  testWithFlameGame('heavier rain is heard louder: more drops, and bigger', (
+    game,
+  ) async {
+    final tuned = energyOn(await heard(game), Substance.asphalt);
+    final heavy = energyOn(await heard(game, intensity: 2), Substance.asphalt);
+    expect(tuned, greaterThan(0));
+    expect(heavy / tuned, greaterThan(2), reason: 'twice the drops, bigger');
+  });
+
+  testWithFlameGame('rain on cloth is heard softer than on metal', (
+    game,
+  ) async {
+    final metal = energyOn(
+      await heard(game, ground: Substance.metal),
+      Substance.metal,
+    );
+    final cloth = energyOn(
+      await heard(game, ground: Substance.cloth),
+      Substance.cloth,
+    );
+    expect(
+      cloth / metal,
+      closeTo(Substance.cloth.loudness / Substance.metal.loudness, 0.05),
+    );
+  });
+
+  testWithFlameGame('a drop is heard fainter the farther it falls', (
+    game,
+  ) async {
+    // The ground runs 0..800 across; a listener in its middle and one far
+    // off to the side, both on the street line.
+    final near = energyOn(
+      await heard(game, listener: Vector3(400, 400, 0)),
+      Substance.asphalt,
+    );
+    final far = energyOn(
+      await heard(game, listener: Vector3(4000, 400, 0)),
+      Substance.asphalt,
+    );
+    expect(near, greaterThan(far * 5));
+  });
+
+  testWithFlameGame('drops on a canopy are heard as its surface', (
+    game,
+  ) async {
+    final strikes = await heard(
+      game,
+      intensity: 2,
+      canopy: true,
+      listener: Vector3(400, 320, 0),
+    );
+    final on = strikes.map((s) => s.on).toSet();
+    expect(on, contains(Substance.canvas), reason: "RainDeflector's default");
+    expect(on, contains(Substance.asphalt));
+  });
+
+  testWithFlameGame(
+    'a canopy is heard from the depth it stands at, not the slab it turns',
+    (game) async {
+      Future<double> canopy(double? standsAt) async {
+        game.camera.viewfinder.anchor = Anchor.topLeft;
+        final rain = Rain(intensity: 2)..listener = Vector3(400, 320, 0);
+        game.world.addAll([
+          _Ground(),
+          _Canopy(thickness: 0.3, standsAtDepth: standsAt),
+          rain,
+        ]);
+        await game.ready();
+        await _rainFor(game, 4);
+        final heard = rain.takeImpacts().on;
+        game.world.removeAll(game.world.children.toList());
+        await game.ready();
+        return heard
+            .where((s) => s.on == Substance.canvas)
+            .fold<double>(0, (e, s) => e + s.energy);
+      }
+
+      expect(await canopy(0), greaterThan(await canopy(null)));
+    },
+  );
+
+  testWithFlameGame('no canopy depth, no bounce', (game) async {
+    game.camera.viewfinder.anchor = Anchor.topLeft;
+    final rain = Rain(intensity: 2);
+    game.world.addAll([_Ground(), _Canopy(thickness: -1), rain]);
+    await game.ready();
+    await _rainFor(game, 3);
+    expect(rain.takeBounces().count, 0);
+  });
+
+  testWithFlameGame('rain falls only where the cloud lets it', (game) async {
+    game.camera.viewfinder.anchor = Anchor.topLeft;
+    final rain = Rain(
+      wind: Vector2.zero(),
+      releaseShare: (x) => x < 400 ? 1 : 0,
+      cloudTop: () => 50,
+    );
+    game.world.addAll([_Ground(), rain]);
+    await game.ready();
+    await _rainFor(game, 2);
+    expect(rain.dropsInAir, greaterThan(0));
+    expect(rain.dropXs.every((x) => x < 400 + 1), isTrue);
+    expect(
+      rain.dropYs.every((y) => y >= 50 - 60),
+      isTrue,
+      reason: 'born at the cloud',
+    );
+  });
+
+  testWithFlameGame('each drop takes the wind where it is', (game) async {
+    game.camera.viewfinder.anchor = Anchor.topLeft;
+    final rain = Rain(
+      wind: Vector2.zero(),
+      windAt: (at, out) => out.setValues(at.y < 200 ? 6 : 0, 0),
+    );
+    game.world.addAll([_Ground(), rain]);
+    await game.ready();
+    await _rainFor(game, 2);
+    expect(rain.dropVelocities.where((v) => v.x > 50), isNotEmpty);
+  });
+
+  testWithFlameGame('a slice draws only the rain at its depths', (game) async {
+    game.camera.viewfinder.anchor = Anchor.topLeft;
+    final rain = Rain(intensity: 2)..drawsItself = false;
+    game.world.addAll([_Ground(), rain]);
+    await game.ready();
+    await _rainFor(game, 1);
+    Future<int> lit(void Function(Canvas) draw) async {
+      final recorder = PictureRecorder();
+      draw(Canvas(recorder));
+      final image = await recorder.endRecording().toImage(800, 600);
+      final bytes = (await image.toByteData())!;
+      var n = 0;
+      for (var i = 3; i < bytes.lengthInBytes; i += 4) {
+        if (bytes.getUint8(i) > 0) {
+          n++;
+        }
+      }
+      return n;
+    }
+
+    expect(await lit(rain.render), 0, reason: 'it does not draw itself');
+    final all = await lit((c) => RainSlice(rain).render(c));
+    final behind = await lit((c) => RainSlice(rain, to: 0).render(c));
+    final front = await lit((c) => RainSlice(rain, from: 0).render(c));
+    expect(all, greaterThan(0));
+    expect(behind, greaterThan(0));
+    expect(front, greaterThan(behind), reason: 'more, and bigger, in front');
+    expect(behind + front, greaterThanOrEqualTo(all));
+  });
+
+  testWithFlameGame(
+    'a veil far behind is drawn by the slice holding its depth',
+    (
+      game,
+    ) async {
+      game.camera.viewfinder.anchor = Anchor.topLeft;
+      final rain = Rain(intensity: 2)
+        ..drawsItself = false
+        ..veils = [-1];
+      game.world.addAll([_Ground(), rain]);
+      await game.ready();
+      await _rainFor(game, 0.5);
+      Future<int> lit(Component slice) async {
+        final recorder = PictureRecorder();
+        slice.render(Canvas(recorder));
+        final image = await recorder.endRecording().toImage(800, 600);
+        final bytes = (await image.toByteData())!;
+        var n = 0;
+        for (var i = 3; i < bytes.lengthInBytes; i += 4) {
+          if (bytes.getUint8(i) > 0) {
+            n++;
+          }
+        }
+        return n;
+      }
+
+      // Nothing but the veil falls behind -0.5: the drops start at -0.25.
+      expect(await lit(RainSlice(rain, to: -0.5)), greaterThan(0));
+      expect(await lit(RainSlice(rain, from: -0.9, to: -0.5)), 0);
+    },
+  );
+
+  testWithFlameGame(
+    'out of focus a drop is wider and fainter, with as much light',
+    (game) async {
+      game.camera.viewfinder.anchor = Anchor.topLeft;
+      final sharp = Rain(seed: 3);
+      final focused = Rain(seed: 3)..aperture = 0.1;
+      game.world.addAll([_Ground(), sharp, focused]);
+      await game.ready();
+      await _rainFor(game, 1);
+
+      final before = sharp.dropLooks.toList();
+      final after = focused.dropLooks.toList();
+      expect(after, hasLength(before.length));
+      var near = 0;
+      var inFocus = 0;
+      for (var i = 0; i < before.length; i++) {
+        final (a, b) = (before[i], after[i]);
+        expect(b.depth, a.depth);
+        expect(b.width, greaterThanOrEqualTo(a.width));
+        if (a.alpha < 0.99) {
+          // The streak's light is its brightness across its width.
+          expect(b.width * b.alpha, closeTo(a.width * a.alpha, 0.02 * a.width));
+        }
+        if (a.depth.abs() < 0.02) {
+          inFocus++;
+          // Only the focused plane is sharp; next to it the blur barely starts.
+          expect(b.width, lessThan(1.3 * a.width));
+        }
+        if (a.depth > 0.8) {
+          near++;
+          expect(b.width, greaterThan(2 * a.width));
+          expect(b.alpha, lessThan(a.alpha));
+        }
+      }
+      expect(inFocus, greaterThan(0));
+      expect(near, greaterThan(0));
+    },
+  );
+
+  testWithFlameGame(
+    'a view that follows someone gets rain on its leading side too',
+    (game) async {
+      game.onGameResize(Vector2(800, 600));
+      game.camera.viewfinder.anchor = Anchor.topLeft;
+      // The cloud 12 m up at 50 units a metre: a drop takes about two
+      // seconds down, while the view moves on 1.5 m a second.
+      final rain = Rain(seed: 3, cloudTop: () => -600 + 400);
+      game.world.addAll([_Ground(), rain]);
+      await game.ready();
+      for (var t = 0.0; t < 8; t += 1 / 30) {
+        game.camera.viewfinder.position += Vector2(75 / 30, 0);
+        game.update(1 / 30);
+      }
+      final view = game.camera.visibleWorldRect;
+      int quarter(int i) => rain.dropXs.where((x) {
+        final at = (x - view.left) / view.width * 4;
+        return at >= i && at < i + 1;
+      }).length;
+      expect(quarter(3), greaterThan(0.6 * quarter(0)));
+    },
+  );
+
+  testWithFlameGame(
+    'rain under a high cloud is simulated only over the view',
+    (game) async {
+      game.onGameResize(Vector2(800, 600));
+      game.camera.viewfinder.anchor = Anchor.topLeft;
+      // A cloud 20 m over a view 12 m tall, at 50 units a metre.
+      final rain = Rain(seed: 3, cloudTop: () => -1000 + 400);
+      game.world.addAll([_Ground(), rain]);
+      await game.ready();
+      await _rainFor(game, 3);
+      final top = game.camera.visibleWorldRect.top;
+      final ys = rain.dropYs.toList();
+      // A metre of margin over the view, and a step's spread over that.
+      final above = ys.where((y) => y < top - 2 * rain.metre).length;
+      expect(ys, isNotEmpty);
+      expect(above, 0);
+    },
+  );
+}
+
+/// How bright the whole frame is, the red channel summed.
+Future<int> _brightness(FlameGame game) async {
+  final recorder = PictureRecorder();
+  game.render(Canvas(recorder));
+  final image = await recorder.endRecording().toImage(800, 600);
+  final bytes = (await image.toByteData())!;
+  var sum = 0;
+  for (var i = 0; i < bytes.lengthInBytes; i += 4) {
+    sum += bytes.getUint8(i);
+  }
+  return sum;
+}
+
+void _nightTests() {
+  testWithFlameGame('a slice on the stage draws what one off it would', (
+    game,
+  ) async {
+    game.camera.viewfinder.anchor = Anchor.topLeft;
+    final rain = Rain(intensity: 2)..drawsItself = false;
+    final front = RainSlice(rain, from: 0);
+    game.world.addAll([_Ground(), rain, front]);
+    await game.ready();
+    await _rainFor(game, 1);
+    Future<List<int>> pixels(Component slice) async {
+      final recorder = PictureRecorder();
+      slice.render(Canvas(recorder));
+      final image = await recorder.endRecording().toImage(800, 600);
+      return (await image.toByteData())!.buffer.asUint8List();
+    }
+
+    // The mounted one draws the drops the rain sorted to it; the loose one
+    // picks them out itself.
+    expect(await pixels(front), await pixels(RainSlice(rain, from: 0)));
+  });
+
+  testWithFlameGame('rain is as bright under the night as over it', (
+    game,
+  ) async {
+    game.camera.viewfinder.anchor = Anchor.topLeft;
+    final rain = Rain()..drawsItself = false;
+    final slice = RainSlice(rain, priority: 500);
+    game.world.addAll([
+      _Ground(),
+      rain,
+      slice,
+      Lighting(skyLight: 0.5, haze: 0),
+    ]);
+    await game.ready();
+    await _rainFor(game, 1);
+    // Under the night layer the night darkens the drops; over it, the
+    // drops carry the night's darkness themselves. The same drops, as
+    // bright either way - not darker for being under it.
+    final under = await _brightness(game);
+    slice.priority = 1500;
+    game.update(0);
+    final over = await _brightness(game);
+    expect(over, greaterThan(0));
+    expect(under / over, closeTo(1, 0.08));
+  });
+}

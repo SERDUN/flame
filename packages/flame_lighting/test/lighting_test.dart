@@ -1,0 +1,717 @@
+import 'dart:math' as math;
+import 'dart:ui';
+
+import 'package:flame/components.dart';
+import 'package:flame/game.dart';
+import 'package:flame_lighting/flame_lighting.dart';
+import 'package:flame_stage/flame_stage.dart';
+import 'package:flame_test/flame_test.dart';
+import 'package:flutter_test/flutter_test.dart';
+
+/// A wall filling the view, so any light shows as brightness.
+class _Wall extends RectangleComponent {
+  _Wall(Color color)
+    : super(size: Vector2(800, 600), paint: Paint()..color = color);
+}
+
+/// The ground from y 400 down.
+class _Ground extends Component with OnStage, Ground {
+  @override
+  Rect groundBand() => const Rect.fromLTWH(0, 400, 800, 150);
+}
+
+/// A wet wall right of x 400.
+class _WetWall extends Component with Glossy {
+  _WetWall(this.gloss);
+
+  @override
+  final double gloss;
+
+  @override
+  Path glossArea() => Path()..addRect(const Rect.fromLTWH(400, 250, 400, 150));
+}
+
+/// A post standing in the light's way, at a [depth] of the street.
+class _Post extends Component with OnStage, ShadowCaster {
+  _Post(this.x, this.top, this.bottom, {this.depth = 0});
+
+  final double x;
+  final double top;
+  final double bottom;
+  final double depth;
+
+  @override
+  void castShadow(ShadowSet shadows) => shadows.capsule(
+    x,
+    top,
+    x,
+    bottom,
+    radius: 6,
+    ahead: stage?.frame.projection?.ahead(depth) ?? 0,
+    thickness: 30,
+  );
+}
+
+/// The sun, going [toward].
+class _Sun extends Component with OnStage, LightCarrier {
+  _Sun(this.toward);
+
+  final Vector3 toward;
+
+  @override
+  Iterable<Light> get lights => [
+    Light.sun(toward: toward, color: const Color(0xFFFFFFFF)),
+  ];
+}
+
+/// The moon.
+class _Moon extends Component with OnStage, LightCarrier {
+  _Moon(this.intensity);
+
+  final double intensity;
+
+  @override
+  Iterable<Light> get lights => [
+    Light.directional(color: const Color(0xFFFFFFFF), intensity: intensity),
+  ];
+}
+
+/// Brightness (red channel, 0..255) of the rendered game at a pixel.
+/// Draws a rect of [color] through the lighting's [Lighting.unlit].
+class _Unlit extends PositionComponent {
+  _Unlit(this.rect, this.color, {super.position}) : super(priority: 1);
+
+  final Rect rect;
+  final Color color;
+
+  @override
+  void render(Canvas canvas) {
+    void draw() => canvas.drawRect(rect, Paint()..color = color);
+    final lighting = Lighting.of(this);
+    if (lighting == null) {
+      draw();
+    } else {
+      lighting.unlit(canvas, draw);
+    }
+  }
+}
+
+Future<int Function(int x, int y)> _render(FlameGame game) async {
+  game.update(1 / 60);
+  final recorder = PictureRecorder();
+  game.render(Canvas(recorder));
+  final image = await recorder.endRecording().toImage(800, 600);
+  final bytes = (await image.toByteData())!;
+  return (int x, int y) => bytes.getUint8((y * 800 + x) * 4);
+}
+
+Future<void> _setUp(
+  FlameGame game,
+  List<Component> extra, {
+  double skyLight = 0,
+  double haze = 0,
+  double glow = 0,
+  Color wall = const Color(0xFFFFFFFF),
+}) async {
+  await LightShader.load(directory: 'shaders');
+  game.onGameResize(Vector2(800, 600));
+  game.camera.viewfinder.anchor = Anchor.topLeft;
+  game.world.addAll([
+    _Wall(wall),
+    Lighting(skyLight: skyLight, glow: glow, haze: haze),
+    ...extra,
+  ]);
+  await game.ready();
+}
+
+void main() {
+  testWithFlameGame(
+    'in a dark wet night the halo is a share of the lamp, not a flood',
+    (game) async {
+      // A black night: the eye's exposure as high as it goes; haze at its
+      // thickest.
+      await _setUp(game, [
+        LightSource(position: Vector2(400, 300), radius: 60),
+      ], haze: 1);
+      final at = await _render(game);
+      // Five source radii out the halo shows, no brighter than its share of
+      // the source (0.6 of it at the most), far from white.
+      expect(at(430, 300), greaterThan(0));
+      expect(at(430, 300), lessThan(0.6 * 255));
+    },
+  );
+
+  testWithFlameGame(
+    'a cut lights what stands far behind the street by what reaches it',
+    (game) async {
+      await LightShader.load(directory: 'shaders');
+      game.onGameResize(Vector2(800, 600));
+      game.camera.viewfinder.anchor = Anchor.topLeft;
+      game.camera.backdrop.add(_Wall(const Color(0xFF000000)));
+      // The same white board twice by a lamp of reach 300: on the left
+      // behind a cut 1000 behind the street line, on the right in front of
+      // it, on the line.
+      game.world.addAll([
+        RectangleComponent(
+          position: Vector2(250, 200),
+          size: Vector2(100, 200),
+          paint: Paint()..color = const Color(0xFFFFFFFF),
+          priority: -10,
+        ),
+        LitCut(ahead: () => -1000, priority: -5),
+        RectangleComponent(
+          position: Vector2(450, 200),
+          size: Vector2(100, 200),
+          paint: Paint()..color = const Color(0xFFFFFFFF),
+        ),
+        LightSource(position: Vector2(400, 300), radius: 300),
+        Lighting(skyLight: 0, glow: 0, lightsBackdrop: false),
+      ]);
+      await game.ready();
+      final at = await _render(game);
+      expect(at(500, 300), greaterThan(60), reason: 'on the line, lit');
+      expect(at(300, 300), lessThan(10), reason: 'far behind, out of reach');
+    },
+  );
+
+  testWithFlameGame(
+    'what draws unlit keeps its colour; what draws before and after is lit',
+    (game) async {
+      await LightShader.load(directory: 'shaders');
+      game.onGameResize(Vector2(800, 600));
+      game.camera.viewfinder.anchor = Anchor.topLeft;
+      game.world.addAll([
+        RectangleComponent(
+          size: Vector2(200, 600),
+          paint: Paint()..color = const Color(0xFFFFFFFF),
+        ),
+        // Placed: it draws in its own transform, the light falls in the
+        // world's.
+        _Unlit(
+          const Rect.fromLTWH(0, 0, 200, 600),
+          const Color(0xFFFFFFFF),
+          position: Vector2(300, 0),
+        ),
+        RectangleComponent(
+          position: Vector2(600, 0),
+          size: Vector2(200, 600),
+          paint: Paint()..color = const Color(0xFFFFFFFF),
+          priority: 2,
+        ),
+        Lighting(skyLight: 0, glow: 0, lightsBackdrop: false),
+      ]);
+      await game.ready();
+      final at = await _render(game);
+      expect(at(100, 300), lessThan(10), reason: 'before it, lit: dark');
+      expect(at(400, 300), 0xFF, reason: 'unlit, as drawn');
+      expect(at(700, 300), lessThan(10), reason: 'after it, lit: dark');
+    },
+  );
+
+  testWithFlameGame(
+    'sparing the backdrop, a lamp lights what stands in the world, not the sky',
+    (game) async {
+      await LightShader.load(directory: 'shaders');
+      game.onGameResize(Vector2(800, 600));
+      game.camera.viewfinder.anchor = Anchor.topLeft;
+      // A grey sky behind the world, a white post in it, a lamp beside the
+      // post in a black night.
+      game.camera.backdrop.add(_Wall(const Color(0xFF808080)));
+      game.world.addAll([
+        RectangleComponent(
+          position: Vector2(380, 200),
+          size: Vector2(40, 300),
+          paint: Paint()..color = const Color(0xFFFFFFFF),
+        ),
+        LightSource(position: Vector2(400, 150), radius: 400),
+        Lighting(skyLight: 0, glow: 0, lightsBackdrop: false),
+      ]);
+      await game.ready();
+      final at = await _render(game);
+      expect(
+        at(100, 300),
+        0x80,
+        reason: 'the sky, far from the lamp, as drawn',
+      );
+      expect(at(300, 200), 0x80, reason: 'the sky by the lamp, as drawn');
+      expect(
+        at(400, 220),
+        greaterThan(100),
+        reason: 'the post by the lamp, lit',
+      );
+      expect(at(400, 480), lessThan(at(400, 220)), reason: 'lit less far off');
+    },
+  );
+
+  testWithFlameGame('under a dark sky only what a light falls on shows', (
+    game,
+  ) async {
+    await _setUp(game, [LightSource(position: Vector2(400, 300))]);
+    final at = await _render(game);
+    expect(at(400, 300), greaterThan(200), reason: 'at the light');
+    expect(at(400, 400), lessThan(at(400, 330)), reason: 'fades');
+    expect(at(100, 100), lessThan(10), reason: 'out of reach');
+  });
+
+  testWithFlameGame('under the noon sky with no lamp on it draws nothing', (
+    game,
+  ) async {
+    await _setUp(
+      game,
+      [
+        // Its sensor switches it on below a sky of 2: noon is 40.
+        LightSource(position: Vector2(400, 300), switchOnBelow: 2),
+      ],
+      skyLight: 40,
+      wall: const Color(0xFF808080),
+    );
+    final at = await _render(game);
+    expect(at(400, 300), 0x80, reason: 'the lamp off, the wall as it is');
+    expect(at(100, 100), 0x80);
+  });
+
+  testWithFlameGame('a lamp lights the street below it, not the sky', (
+    game,
+  ) async {
+    await _setUp(game, [
+      LightSource(position: Vector2(400, 300), coneAngle: math.pi / 2),
+    ]);
+    final at = await _render(game);
+    expect(at(400, 340), greaterThan(60));
+    expect(at(400, 260), lessThan(10));
+  });
+
+  testWithFlameGame('a cone has no hard edge: light eases off to its sides', (
+    game,
+  ) async {
+    await _setUp(game, [
+      LightSource(position: Vector2(400, 200), radius: 300, coneAngle: 1.6),
+    ]);
+    final at = await _render(game);
+    final row = [for (var x = 400; x < 640; x++) at(x, 350)];
+    var steepest = 0;
+    for (var i = 1; i < row.length; i++) {
+      steepest = math.max(steepest, (row[i] - row[i - 1]).abs());
+    }
+    expect(row.first, greaterThan(50), reason: 'lit along the axis');
+    expect(row.last, lessThan(5), reason: 'dark past the edge');
+    expect(steepest, lessThan(8), reason: 'no step at the edge: $row');
+  });
+
+  testWithFlameGame('in thick air a lamp glows round its bulb, above it too', (
+    game,
+  ) async {
+    await _setUp(game, [
+      LightSource(position: Vector2(400, 300), coneAngle: math.pi / 2),
+    ], haze: 1);
+    final at = await _render(game);
+    expect(at(400, 280), greaterThan(40), reason: 'the halo above the bulb');
+    expect(at(400, 60), lessThan(5), reason: 'not the whole sky');
+  });
+
+  testWithFlameGame(
+    'the air under a lamp glows brightest at the lamp, fainter down its beam',
+    (game) async {
+      await _setUp(
+        game,
+        [
+          _Ground(),
+          LightSource(position: Vector2(400, 100), radius: 300, coneAngle: 1.2),
+        ],
+        // A black wall: only the light in the air shows.
+        wall: const Color(0xFF000000),
+        glow: 1,
+        haze: 1,
+      );
+      final at = await _render(game);
+      // Down the beam past the bulb's own halo: no brighter anywhere below
+      // than nearer the lamp.
+      final beam = [for (var y = 150; y <= 350; y += 25) at(400, y)];
+      for (var i = 1; i < beam.length; i++) {
+        expect(
+          beam[i],
+          lessThanOrEqualTo(beam[i - 1]),
+          reason: 'a blob down the beam: $beam',
+        );
+      }
+    },
+  );
+
+  testWithFlameGame(
+    'a lamp lays its pool from how its light falls on the ground',
+    (game) async {
+      await _setUp(
+        game,
+        [
+          _Ground(),
+          // Hanging 150 over the ground at x 400, pointing straight down.
+          LightSource(position: Vector2(400, 250), radius: 400, coneAngle: 1.6),
+        ],
+        // The light on the ground itself, as the lighting lays it on white;
+        // the light in the air is no measure of where light falls.
+      );
+      final at = await _render(game);
+      final under = at(400, 405);
+      expect(under, greaterThan(40));
+      expect(at(560, 405), lessThan(under));
+      expect(at(400, 540), lessThan(under));
+      expect(at(100, 405), lessThan(5), reason: 'outside the cone');
+    },
+  );
+
+  testWithFlameGame('a post on the road casts its shadow along it', (
+    game,
+  ) async {
+    await _setUp(
+      game,
+      [
+        _Ground(),
+        // A lamp and a post at the same depth on the road (depth 0.1, row
+        // 415): the post's shadow runs along that row away from the lamp.
+        LightSource(position: Vector2(400, 330), radius: 600, depth: 0.1),
+        _Post(470, 360, 415, depth: 0.1),
+      ],
+      // Light on the wall as the lighting gives it (its multiply on white);
+      // the light in the air is soft and no measure of where light falls.
+    );
+    final at = await _render(game);
+    // The same distance from the lamp: past the post in its shadow, on the
+    // other side lit.
+    expect(at(540, 415), lessThan(at(260, 415) ~/ 2));
+  });
+
+  testWithFlameGame(
+    'a post throws next to no shadow in the air: it is thin against the air',
+    (game) async {
+      await _setUp(
+        game,
+        [
+          _Ground(),
+          LightSource(position: Vector2(400, 300), radius: 600),
+          // A post on the street line right of the lamp, 30 deep: on the
+          // house front behind it its shadow is full.
+          _Post(470, 250, 350),
+        ],
+        // A black wall: only the light in the air shows.
+        wall: const Color(0xFF000000),
+        glow: 1,
+      );
+      final at = await _render(game);
+      final shaded = at(560, 300);
+      final open = at(240, 300);
+      expect(open, greaterThan(20), reason: 'the air glows round the lamp');
+      expect(
+        shaded,
+        greaterThan(open * 0.85),
+        reason: 'the way through the air passes 30 of shadow in hundreds',
+      );
+    },
+  );
+
+  testWithFlameGame('a walker in front of a lamp shades the house front', (
+    game,
+  ) async {
+    await _setUp(
+      game,
+      [
+        _Ground(),
+        // A lamp near the eye (depth 0.8, 554 in front of the line), a
+        // walker between it and the house fronts (depth 0.4, 400 in front):
+        // its shadow lands on the wall behind, larger - the way from the
+        // lamp passes the walker 0.28 of the way, so x 400 on the walker is
+        // x 660 on the wall.
+        LightSource(position: Vector2(300, 300), radius: 1400, depth: 0.8),
+        _Post(400, 260, 340, depth: 0.4),
+      ],
+      // Light on the wall as the lighting gives it (its multiply on white);
+      // the light in the air is soft and no measure of where light falls.
+    );
+    final at = await _render(game);
+    expect(at(660, 300), lessThan(at(660, 120) ~/ 2));
+  });
+
+  testWithFlameGame('a moving light drags the shadows with it', (game) async {
+    final lamp = LightSource(
+      position: Vector2(300, 330),
+      radius: 600,
+      depth: 0.1,
+    );
+    await _setUp(
+      game,
+      [_Ground(), lamp, _Post(470, 360, 415, depth: 0.1)],
+      // Light on the wall as the lighting gives it (its multiply on white);
+      // the light in the air is soft and no measure of where light falls.
+    );
+    var at = await _render(game);
+    // The lamp left of the post: the shadow right of it.
+    expect(at(540, 415), lessThan(at(400, 415) ~/ 2));
+    lamp.position.x = 640;
+    at = await _render(game);
+    // The lamp moved right of the post: the shadow swings to its left, and
+    // the right is lit.
+    expect(at(400, 415), lessThan(at(540, 415) ~/ 2));
+  });
+
+  testWithFlameGame('a shop window lights the wall from all of it', (
+    game,
+  ) async {
+    await _setUp(
+      game,
+      [
+        LightSource.of(
+          Light.area(size: Vector2(160, 80)),
+          position: Vector2(400, 300),
+        ),
+      ],
+      // Light on the wall as the lighting gives it (its multiply on white);
+      // the light in the air is soft and no measure of where light falls.
+    );
+    final at = await _render(game);
+    // In front of its corner as bright as in front of its middle: the
+    // whole window glows, not a point at its centre.
+    expect((at(470, 360) - at(400, 360)).abs(), lessThan(12));
+    expect(at(400, 360), greaterThan(40));
+  });
+
+  testWithFlameGame('the moon lights everything alike', (game) async {
+    await _setUp(game, [_Moon(0.5)]);
+    final at = await _render(game);
+    expect(at(100, 100), inInclusiveRange(110, 145));
+    expect(at(700, 500), inInclusiveRange(110, 145));
+  });
+
+  testWithFlameGame('a wet wall glints where the lamp falls on it', (
+    game,
+  ) async {
+    await _setUp(game, [
+      LightSource(position: Vector2(400, 300)),
+      _WetWall(1),
+    ], wall: const Color(0xFF808080));
+    final at = await _render(game);
+    expect(at(440, 340), greaterThan(at(360, 340) + 5), reason: 'glinting');
+    expect(at(100, 100), lessThan(10), reason: 'nothing where it is dark');
+  });
+
+  testWithFlameGame('two lamps light two places in one frame', (game) async {
+    await _setUp(
+      game,
+      [
+        LightSource(
+          position: Vector2(200, 300),
+          color: const Color(0xFFFF0000),
+        ),
+        LightSource(
+          position: Vector2(600, 300),
+          color: const Color(0xFF0000FF),
+        ),
+      ],
+      // Light on the wall as the lighting gives it (its multiply on white);
+      // the light in the air is soft and no measure of where light falls.
+    );
+    final at = await _renderRgb(game);
+    // Each draw keeps the uniforms it was given: the red lamp's light is
+    // red, the blue one's blue (off the bulbs, which are near white).
+    expect(at(200, 330).r, greaterThan(100));
+    expect(at(200, 330).b, lessThan(10));
+    expect(at(600, 330).b, greaterThan(100));
+    expect(at(600, 330).r, lessThan(10));
+  });
+
+  testWithFlameGame('the shader lights as much as the field says', (
+    game,
+  ) async {
+    final lamp = LightSource(
+      position: Vector2(400, 200),
+      radius: 300,
+      coneAngle: 1.6,
+      color: const Color(0xFFFFFFFF),
+    );
+    await _setUp(
+      game,
+      [lamp],
+      // Light on the wall as the lighting gives it (its multiply on white);
+      // the light in the air is soft and no measure of where light falls.
+    );
+    final at = await _render(game);
+    final field = lamp.stage!.frame.light;
+    // Along the axis, across the soft edge and out to the reach: the light
+    // drawn and the light rain and walls are given agree.
+    for (final (x, y) in const [
+      (400, 260),
+      (400, 400),
+      (470, 330),
+      (560, 330),
+      (600, 300),
+      (400, 480),
+    ]) {
+      // As the lighting shows it: filled up to white along its one curve.
+      final expected =
+          LightField.fill(
+            0,
+            field.reach(0, x.toDouble(), y.toDouble(), 0) * field.exposure,
+          ) *
+          255;
+      expect(at(x, y), closeTo(expected, 4), reason: 'at ($x, $y)');
+    }
+  });
+
+  testWithFlameGame('a lamp shining down lights its own head', (game) async {
+    final lamp = LightSource(
+      position: Vector2(400, 200),
+      radius: 300,
+      coneAngle: 1.2,
+      color: const Color(0xFFFFFFFF),
+      spill: 0.8,
+      spillRadius: 60,
+    );
+    await _setUp(
+      game,
+      [lamp],
+      // Light on the wall as the lighting gives it (its multiply on white);
+      // the light in the air is soft and no measure of where light falls.
+    );
+    final at = await _render(game);
+    final field = lamp.stage!.frame.light;
+    for (final (x, y) in const [
+      (400, 170),
+      (430, 190),
+      (400, 150),
+      (400, 300),
+    ]) {
+      // As the lighting shows it: filled up to white along its one curve.
+      final expected =
+          LightField.fill(
+            0,
+            field.reach(0, x.toDouble(), y.toDouble(), 0) * field.exposure,
+          ) *
+          255;
+      expect(at(x, y), closeTo(expected, 4), reason: 'at ($x, $y)');
+    }
+    expect(at(400, 170), greaterThan(40), reason: 'above the bulb, lit');
+    expect(at(400, 130), lessThan(5), reason: 'past the spill, dark');
+  });
+
+  testWithFlameGame('a zoomed camera lights where the lamp is', (game) async {
+    await LightShader.load(directory: 'shaders');
+    game.onGameResize(Vector2(800, 600));
+    game.camera.viewfinder
+      ..anchor = Anchor.topLeft
+      ..zoom = 2
+      ..position = Vector2(300, 200);
+    game.world.addAll([
+      _Wall(const Color(0xFFFFFFFF)),
+      Lighting(skyLight: 0, glow: 0, haze: 0),
+      LightSource(position: Vector2(400, 300), radius: 60),
+    ]);
+    await game.ready();
+    final at = await _render(game);
+    // World (400, 300) is at ((400 - 300) * 2, (300 - 200) * 2) on screen.
+    expect(at(200, 200), greaterThan(200));
+    expect(at(400, 300), lessThan(10), reason: 'not at its world place');
+  });
+
+  testWithFlameGame('before the shader is loaded a light is a soft disc', (
+    game,
+  ) async {
+    LightShader.reset();
+    game.onGameResize(Vector2(800, 600));
+    game.camera.viewfinder.anchor = Anchor.topLeft;
+    game.world.addAll([
+      _Wall(const Color(0xFFFFFFFF)),
+      Lighting(skyLight: 0, glow: 0, haze: 0),
+      LightSource(position: Vector2(400, 300)),
+    ]);
+    await game.ready();
+    final at = await _render(game);
+    expect(at(400, 300), greaterThan(230));
+    expect(at(400, 380), lessThan(at(400, 320)));
+    expect(at(100, 100), lessThan(10));
+    await LightShader.load(directory: 'shaders');
+  });
+
+  testWithFlameGame('a wet wall in a scaled layer glints where the lamp is', (
+    game,
+  ) async {
+    // The wall in a layer drawn at half size: its gloss area is still in
+    // world coordinates, and its sheen must land there, not at half of it.
+    final layer = PositionComponent(scale: Vector2.all(0.5))..add(_WetWall(1));
+    await _setUp(game, [
+      LightSource(position: Vector2(400, 300)),
+      layer,
+    ], wall: const Color(0xFF808080));
+    final at = await _render(game);
+    expect(at(440, 340), greaterThan(at(360, 340) + 5), reason: 'glinting');
+  });
+
+  testWithFlameGame('under a warm dusk sky a white wall takes its colour', (
+    game,
+  ) async {
+    await _setUp(game, [], skyLight: 3);
+    game.world.children.whereType<Lighting>().single.sky = const Color(
+      0xFFFF9A4D,
+    );
+    final at = await _renderRgb(game);
+    final wall = at(400, 300);
+    expect(wall.r, greaterThan(wall.g));
+    expect(wall.g, greaterThan(wall.b));
+    expect(wall.r, greaterThan(200), reason: 'the eye adapts: not dark');
+  });
+
+  testWithFlameGame('a lamp carries the night and vanishes in the day', (
+    game,
+  ) async {
+    await _setUp(game, [LightSource(position: Vector2(400, 300), radius: 200)]);
+    final lighting = game.world.children.whereType<Lighting>().single;
+    var at = await _render(game);
+    final night = at(400, 380) - at(100, 100);
+    lighting.skyLight = 40;
+    at = await _render(game);
+    final day = at(400, 380) - at(100, 100);
+    expect(night, greaterThan(60));
+    expect(day, lessThan(8), reason: 'a speck against the sky');
+  });
+
+  testWithFlameGame(
+    "the sun lays a post's shadow along the road, away from it",
+    (
+      game,
+    ) async {
+      await _setUp(
+        game,
+        [
+          _Ground(),
+          // From the upper left, down onto the road and a little into it.
+          _Sun(Vector3(1, 1, 0.2)),
+          _Post(470, 330, 415, depth: 0.1),
+        ],
+      );
+      final at = await _render(game);
+      // The road at the post's row: lit to its left, shaded to its right.
+      expect(at(420, 415), greaterThan(100), reason: 'lit');
+      expect(
+        at(520, 415),
+        lessThan(at(420, 415) ~/ 3),
+        reason: 'in its shadow',
+      );
+    },
+  );
+}
+
+/// The rendered game's colour at a pixel.
+Future<({int r, int g, int b}) Function(int x, int y)> _renderRgb(
+  FlameGame game,
+) async {
+  game.update(1 / 60);
+  final recorder = PictureRecorder();
+  game.render(Canvas(recorder));
+  final image = await recorder.endRecording().toImage(800, 600);
+  final bytes = (await image.toByteData())!;
+  return (int x, int y) {
+    final i = (y * 800 + x) * 4;
+    return (
+      r: bytes.getUint8(i),
+      g: bytes.getUint8(i + 1),
+      b: bytes.getUint8(i + 2),
+    );
+  };
+}
