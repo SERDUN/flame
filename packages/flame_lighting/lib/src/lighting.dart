@@ -1024,8 +1024,22 @@ class LitLayer extends Component {
 /// lighting. A lamp on the pavement does not light a tree twenty metres back
 /// as it lights the wall behind it, nor lay a walker's shadow on it.
 class LitCut extends Component with OnStage, AtDepth {
-  LitCut({required this.ahead, super.priority})
-    : placedByDepth = priority == null;
+  LitCut({required double Function() this._ahead, super.priority})
+    : _depth = null,
+      placedByDepth = priority == null;
+
+  /// A cut at the very [depth] what it lights stands at (a parallax layer's,
+  /// `StreetProjection.depthOfScale`): drawn after it, as [depthOrder] says,
+  /// every frame. A depth worked back from [ahead] comes out a rounding off
+  /// it, now before it, now after - and what it lights blinks between lit
+  /// where it stands and lit on the street line.
+  LitCut.at(double Function() depth)
+    : _depth = depth,
+      _ahead = null,
+      placedByDepth = true;
+
+  final double Function()? _ahead;
+  final double Function()? _depth;
 
   /// Placed at its depth unless given a priority outright.
   @override
@@ -1033,7 +1047,13 @@ class LitCut extends Component with OnStage, AtDepth {
 
   /// How far in front of the street line what is below it stands, in the
   /// world's units (behind it, negative).
-  final double Function() ahead;
+  double ahead() {
+    final ahead = _ahead;
+    if (ahead != null) {
+      return ahead();
+    }
+    return stage?.projection?.ahead(_depth!()) ?? 0;
+  }
 
   Image? _image;
   bool _owned = false;
@@ -1045,8 +1065,13 @@ class LitCut extends Component with OnStage, AtDepth {
 
   /// It lights what is at its depth and behind it: drawn after all of that.
   @override
-  double depthIn(StreetProjection? projection) =>
-      projection?.depthAhead(ahead()) ?? 0;
+  double depthIn(StreetProjection? projection) {
+    final depth = _depth;
+    if (depth != null) {
+      return depth();
+    }
+    return projection?.depthAhead(ahead()) ?? 0;
+  }
 
   @override
   DepthOrder get depthOrder => DepthOrder.light;
