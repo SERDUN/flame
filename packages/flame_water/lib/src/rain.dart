@@ -930,10 +930,23 @@ class Rain extends Component with OnStage, Reflectable, Weather {
 class RainSlice extends Component with Reflectable, OnStage, AtDepth {
   RainSlice(
     this.rain, {
-    this.from = double.negativeInfinity,
-    this.to = double.infinity,
+    double from = double.negativeInfinity,
+    double to = double.infinity,
     super.priority,
-  }) : placedByDepth = priority == null;
+  }) : _from = (() => from),
+       _to = (() => to),
+       placedByDepth = priority == null;
+
+  /// A slice between depths read as they are each time they are asked -
+  /// where what stands there is under the projection of the moment. Set
+  /// once a step instead, its edges lag what the stage orders and draws
+  /// by a step, and a veil at the very depth of a layer falls now behind
+  /// the layer, now before it.
+  RainSlice.between(
+    this.rain, {
+    required this._from,
+    required this._to,
+  }) : placedByDepth = true;
 
   /// Placed at its depth unless given a priority outright.
   @override
@@ -941,10 +954,15 @@ class RainSlice extends Component with Reflectable, OnStage, AtDepth {
 
   final Rain rain;
 
+  double Function() _from;
+  double Function() _to;
+
   /// The depths it draws, from [from] up to (not including) [to]: set them
   /// as what stands at those depths moves.
-  double from;
-  double to;
+  double get from => _from();
+  set from(double value) => _from = () => value;
+  double get to => _to();
+  set to(double value) => _to = () => value;
 
   /// It holds the drops up to its nearer edge: it is drawn at that depth,
   /// behind what stands there - or nearest of all, with no edge.
