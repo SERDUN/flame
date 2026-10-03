@@ -514,7 +514,18 @@ class LightField {
           ambience.glow ??
           airGlow(weather, projection, metre: ambience.metre, viewX: viewX),
     );
+    airDepth = projection?.farDistance ?? 0;
+    airVisibility = weather != null && weather.present
+        ? weather.visibilityM * ambience.metre
+        : double.infinity;
   }
+
+  /// How deep the air the lamps light lies between the eye and the street
+  /// line, world units; 0: no street, no air.
+  double airDepth = 0;
+
+  /// How far one sees through that air, world units (Koschmieder).
+  double airVisibility = double.infinity;
 
   /// How much of the light in the air the air between the eye and the
   /// street scatters toward it (see [Ambience.glow]): none without a street
@@ -662,9 +673,7 @@ class LightField {
       ..[o + _extentY] = light.extent.y
       ..[o + _source] = light.sourceRadius
       ..[o + _stands] =
-          light.standsAt ??
-          projection?.groundYAt(x, light.depth) ??
-          double.nan
+          light.standsAt ?? projection?.groundYAt(x, light.depth) ?? double.nan
       ..[o + _falloff] = light.falloff.index.toDouble()
       ..[o + _half] = half
       ..[o + _edge] = edge
@@ -719,13 +728,14 @@ class LightField {
         for (var l = 0; l < count; l++) {
           final amount = reach(l, x, y, inFront);
           if (amount > 0) {
-            final o = l * stride;
-            level +=
-                amount *
-                (0.2126 * data[o + _r] +
-                    0.7152 * data[o + _g] +
-                    0.0722 * data[o + _b]);
+            level += amount * _luminanceOf(l);
           }
+        }
+        // And the lamps' light in the air before it, as the lighting lays
+        // it over the view: in a downpour at night the brightest of what
+        // the eye sees, and what it adapts to.
+        if (glow > 0) {
+          level += glow * airLightAt(x, y);
         }
         levels[n++] = level;
       }
@@ -735,6 +745,98 @@ class LightField {
   }
 
   final Float64List _levels = Float64List(48);
+
+  double _luminanceOf(int i) {
+    final o = i * stride;
+    return 0.2126 * data[o + _r] +
+        0.7152 * data[o + _g] +
+        0.0722 * data[o + _b];
+  }
+
+  /// The lamps' light in the air over world [x], [y], before [glow]: each
+  /// light's share of the air between the eye and the street line, lit as
+  /// at the light ([airDepth], [airVisibility]), times its strength and
+  /// luminance - what the lighting's air pass lays there (`light.frag`,
+  /// `light_buffer.frag`: glowLength, airShare), without the shadows,
+  /// which next to nothing casts in the air.
+  double airLightAt(double x, double y) {
+    if (airDepth <= 0) {
+      return 0;
+    }
+    var total = 0.0;
+    for (var i = 0; i < count; i++) {
+      final o = i * stride;
+      final shape = data[o + _shape].round();
+      if (shape == LightShape.directional.index) {
+        continue;
+      }
+      var lx = data[o + _x];
+      var ly = data[o + _y];
+      if (shape == LightShape.area.index) {
+        final hw = data[o + _extentX] / 2;
+        final hh = data[o + _extentY] / 2;
+        lx = x.clamp(lx - hw, lx + hw);
+        ly = y.clamp(ly - hh, ly + hh);
+      } else if (shape == LightShape.line.index) {
+        final ux = data[o + _dirX];
+        final uy = data[o + _dirY];
+        final half = data[o + _extentX] / 2;
+        final along = ((x - lx) * ux + (y - ly) * uy).clamp(-half, half);
+        lx += ux * along;
+        ly += uy * along;
+      }
+      final dx = x - lx;
+      final dy = y - ly;
+      final dz = data[o + _ahead];
+      final d = math.sqrt(dx * dx + dy * dy + dz * dz);
+      final radius = data[o + _radius];
+      final cone = shape == LightShape.cone.index ? _coneAt(o, dx, dy) : 1.0;
+      var lit =
+          cone * glowLength(d, radius, physical: data[o + _falloff] > 0.5);
+      final spill = data[o + _spill];
+      if (spill > 0) {
+        lit = math.max(lit, spill * glowLength(d, data[o + _spillRadius]));
+      }
+      if (lit <= 0) {
+        continue;
+      }
+      total += data[o + _strength] * _luminanceOf(i) * airShare(lit);
+    }
+    return total;
+  }
+
+  /// How long a stretch of air, lit as at the light itself, the eye's way
+  /// passing [b] from a light of [radius] gathers: its falloff summed along
+  /// the way - smooth, (1 - r/R)^2, or [physical], 1/(1 + 16 r^2/R^2). As
+  /// the shaders' glowLength.
+  static double glowLength(double b, double radius, {bool physical = false}) {
+    if (b >= radius) {
+      return 0;
+    }
+    final s = math.sqrt(radius * radius - b * b);
+    if (physical) {
+      final k = 16 / (radius * radius);
+      final q = math.sqrt(1 + k * b * b);
+      return 2 / (math.sqrt(k) * q) * math.atan(math.sqrt(k) * s / q);
+    }
+    final near = math.max(b, 1e-4 * radius);
+    return (2 * b * b * s + 2 / 3 * s * s * s) / (radius * radius) -
+        2 * b * b / radius * math.log((s + radius) / near);
+  }
+
+  /// How much of the glow a stretch [lit] long of air lit as at a light
+  /// makes against what the whole air between the eye and the street line
+  /// would: in clear air as much as its length, in a fog no more than the
+  /// air one sees through. As the shaders' airShare.
+  double airShare(double lit) {
+    final v = math.max(airVisibility, 1e-3);
+    final l = math.min(lit, airDepth);
+    final whole = 1 - math.exp(-3.912 * airDepth / v);
+    if (whole < 1e-6) {
+      return l / airDepth;
+    }
+    return (1 - math.exp(-3.912 * l / v)) / whole;
+  }
 
   /// How far off a sun's light is taken to come from, world units: far
   /// enough that its rays are parallel over a scene.

@@ -266,6 +266,56 @@ void main() {
     expect(under(20).exposure, greaterThan(dark.exposure * 0.8));
   });
 
+  test("in thick air at night the eye adapts to the lamps' glow in it", () {
+    const view = Rect.fromLTWH(0, 0, 400, 300);
+    LightField under({required double glow}) {
+      final field = LightField()
+        ..beginUnder(
+          sky: const Color(0xFFFFFFFF),
+          skyLight: 0.05,
+          adaptation: 0.01,
+          glow: glow,
+        )
+        ..airDepth = 20
+        ..airVisibility = 60;
+      for (var x = 50.0; x < 400; x += 100) {
+        field.add(Light.point(radius: 60, intensity: 2), x, 150, 0, 0, null);
+      }
+      return field..finish(0, view);
+    }
+
+    final clear = under(glow: 0);
+    final downpour = under(glow: 0.9);
+    // The air before the street holds the lamps' light: the eye takes it
+    // in, and sees the scene darker for it.
+    expect(downpour.exposure, lessThan(clear.exposure * 0.8));
+  });
+
+  test("the glow along the eye's way sums the falloff past a lamp", () {
+    // (1 - r/R)^2 along a line passing b from the light, summed by hand.
+    double summed(double b, double radius) {
+      const n = 20000;
+      final half = math.sqrt(radius * radius - b * b);
+      var total = 0.0;
+      for (var i = 0; i < n; i++) {
+        final t = -half + (i + 0.5) * 2 * half / n;
+        final r = math.sqrt(b * b + t * t);
+        final f = 1 - r / radius;
+        total += f * f * 2 * half / n;
+      }
+      return total;
+    }
+
+    for (final b in [0.5, 2.0, 5.0, 9.0]) {
+      expect(
+        LightField.glowLength(b, 10),
+        closeTo(summed(b, 10), 1e-3),
+        reason: 'b $b',
+      );
+    }
+    expect(LightField.glowLength(10, 10), 0);
+  });
+
   test('the capsules nearest the middle of the view come first', () {
     final shadows = ShadowSet()
       ..capsule(900, 0, 900, 10, radius: 1)
