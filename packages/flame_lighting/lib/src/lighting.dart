@@ -123,7 +123,8 @@ class Lighting extends Component with OnStage, Ambience, FrameStep {
     if (identical(_softOf, image)) {
       return _soft;
     }
-    // The light in the air is made at an eighth of the buffer each way.
+    // The light in the air is made at an eighth of a metre a pixel: twice
+    // halved, half a metre.
     final current = _halved(image, air != null ? 2 : 5);
     _soft?.dispose();
     _soft = current;
@@ -237,14 +238,18 @@ class Lighting extends Component with OnStage, Ambience, FrameStep {
     final buffer = _buffer;
     // The light in the air: it fills the air between the eye and the
     // street line, where a thing's shadow is as deep as the thing is thick
-    // against that air - next to none of a post or a walker. An eighth of
-    // the buffer each way: it is blurred to half a metre anyway.
+    // against that air - next to none of a post or a walker. An eighth of a
+    // metre a pixel, whatever the screen: it is blurred to half a metre
+    // ([lightImageSoft]), and a pixel of a screen's fraction was as wide as
+    // a lamp on a small one - its glow a square peaking wherever the pixel
+    // fell, not at the lamp.
     final air = frame.projection?.farDistance ?? 0;
     // How far one sees through it, in the world's units: how much a lamp's
     // glow near it counts against the whole air's.
     final visibility = frame.weather.visibilityM * metre;
-    final airW = math.max(1, w ~/ 8);
-    final airH = math.max(1, h ~/ 8);
+    final airPixels = _airPixelsPerMetre / math.max(metre, 1e-9);
+    final airW = math.max(1, (view.width * airPixels).ceil());
+    final airH = math.max(1, (view.height * airPixels).ceil());
     if (buffer != null && useBuffer) {
       _lightImage = buffer.render(frame, view, w, h);
       if (air > 0) {
@@ -351,9 +356,12 @@ class Lighting extends Component with OnStage, Ambience, FrameStep {
   /// The canvas path's lights alone ([_castImages]).
   Image? _castLights;
 
-  /// The light filling the air between the eye and the street line, at an
-  /// eighth of the buffer each way: what [lightImageSoft] is made from.
+  /// The light filling the air between the eye and the street line, at
+  /// [_airPixelsPerMetre]: what [lightImageSoft] is made from.
   Image? _airLights;
+
+  /// How fine [_airLights] is: eight pixels a metre.
+  static const double _airPixelsPerMetre = 8;
 
   /// The buffer slot the light in the air is rendered into: none of the
   /// cuts' (1 up).
