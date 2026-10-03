@@ -65,19 +65,18 @@ class MirrorPass implements Mirror {
   /// drawn; `null` when the surface is in none (no stage, out of view, not
   /// mirroring through the shader).
   ///
-  /// The first water to ask a second time starts a new frame: the passes
-  /// are regrouped and drawn again - the waters may have moved, dried or
-  /// come into view.
+  /// The first water to ask in a drawing of the world ([Stage.drawing])
+  /// has the passes regrouped and drawn again - the waters may have moved,
+  /// dried or come into view; the rest of that drawing reads them.
   static MirrorPass? of(WaterSurface surface) {
     final stage = surface.stage;
     if (stage == null) {
       return null;
     }
     final passes = _passes[stage] ??= _Passes();
-    if (!passes.fresh(surface)) {
+    if (passes.drawing != stage.drawing) {
       passes.rebuild(stage);
     }
-    passes.served.add(surface);
     return passes.find(surface);
   }
 
@@ -154,6 +153,7 @@ class MirrorPass implements Mirror {
       component is! WaterSurface &&
       component is! LiesFlat &&
       component is! OffStage &&
+      component is! Stage &&
       component is! LightSource &&
       !LitPicture.isPass(component) &&
       !(component is HasVisibility && !component.isVisible);
@@ -272,16 +272,8 @@ class MirrorPass implements Mirror {
 class _Passes {
   final List<MirrorPass> _list = [];
 
-  /// The waters the passes were grouped from.
-  final Set<WaterSurface> _grouped = {};
-
-  /// The waters that have asked since.
-  final Set<WaterSurface> served = {};
-
-  /// Whether the passes are this frame's for [surface]: it was grouped and
-  /// has not asked yet.
-  bool fresh(WaterSurface surface) =>
-      _grouped.contains(surface) && !served.contains(surface);
+  /// The drawing of the world they were drawn for ([Stage.drawing]).
+  int drawing = -1;
 
   MirrorPass? find(WaterSurface surface) {
     for (final pass in _list) {
@@ -299,11 +291,9 @@ class _Passes {
       pass.image?.dispose();
     }
     _list.clear();
-    _grouped.clear();
-    served.clear();
+    drawing = stage.drawing;
     final view = stage.frame.index > 0 ? stage.frame.view : null;
     for (final water in stage.members<WaterSurface>()) {
-      _grouped.add(water);
       if (!water.mirrorsThroughShader) {
         continue;
       }

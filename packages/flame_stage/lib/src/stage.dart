@@ -306,12 +306,20 @@ class Stage extends Component {
   /// The frame its steps last ran for.
   int _preparedAt = -1;
 
+  /// Which drawing of the world is under way: one more each time the world
+  /// is drawn - the stage draws first in it (a mirror's picture of the
+  /// world leaves the stage out). A frame is drawn more than once - a
+  /// screen faster than the steps, a slowed clock - so what must happen
+  /// once a drawing (what is drawn yet, a mirror's picture) asks this, not
+  /// the frame's index.
+  int get drawing => _drawing;
+  int _drawing = 0;
+
   @override
   void render(Canvas canvas) {
-    // Once a frame: the world drawn again apart from it (a mirror's
-    // picture) draws the stage again, and its steps would make the frame's
-    // resources - every lamp's light added up - all over again, for the
-    // same frame.
+    _drawing++;
+    // The steps once a frame: drawn again, the frame needs its resources -
+    // every lamp's light added up - no more than once.
     if (_preparedAt == frame.index) {
       return;
     }

@@ -2,6 +2,7 @@ import 'dart:ui';
 
 import 'package:flame/components.dart';
 import 'package:flame/game.dart';
+import 'package:flame_stage/flame_stage.dart';
 import 'package:flame_test/flame_test.dart';
 import 'package:flame_water/flame_water.dart';
 import 'package:flame_water/src/mirror_pass.dart';
@@ -55,6 +56,29 @@ void main() {
     expect(MirrorPass.recordings - before, 1);
     // Once in the street, once in the mirror all three read.
     expect(post.drawn, 2);
+  });
+
+  testWithFlameGame('each drawing of the world draws its mirror once, '
+      'a frame drawn twice too', (game) async {
+    await WaterShader.load(asset: 'shaders/water.frag');
+    game.camera.viewfinder.anchor = Anchor.topLeft;
+    final post = _Post();
+    game.world.addAll([
+      post,
+      _water(300, 420, 200, 40),
+      _water(500, 470, 120, 40),
+    ]);
+    await game.ready();
+    await _frame(game);
+    final before = MirrorPass.recordings;
+    // The same frame drawn again, as a screen faster than the steps does.
+    final recorder = PictureRecorder();
+    game.render(Canvas(recorder));
+    recorder.endRecording().dispose();
+    expect(MirrorPass.recordings - before, 1);
+    // The stage itself is no thing water shows.
+    final stage = game.world.children.whereType<Stage>().single;
+    expect(MirrorPass.mirrors(stage), isFalse);
   });
 
   testWithFlameGame('water out of view draws nothing and mirrors nothing', (

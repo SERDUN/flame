@@ -433,23 +433,8 @@ class Lighting extends Component with OnStage, Ambience, FrameStep {
   final Paint _add = Paint()..blendMode = BlendMode.plus;
   final Paint _emit = Paint()..blendMode = BlendMode.plus;
 
-  /// The drawing of the world now under way: one more each time the
-  /// lighting, last of the world's lit things, has drawn. A frame of the
-  /// stage is drawn more than once - a screen faster than the steps, a
-  /// slowed clock - and what was drawn in the drawing before is not drawn
-  /// in this one.
-  int _pass = 0;
-
   @override
   void render(Canvas canvas) {
-    try {
-      _render(canvas);
-    } finally {
-      _pass++;
-    }
-  }
-
-  void _render(Canvas canvas) {
     final frame = stage?.frame;
     if (frame == null || !frame.light.isLit) {
       _litLayer?._close(canvas);
@@ -562,7 +547,7 @@ class Lighting extends Component with OnStage, Ambience, FrameStep {
   LitCut? _cutAhead() {
     LitCut? ahead;
     for (final cut in stage?.members<LitCut>() ?? const <LitCut>[]) {
-      if (cut._turnedAt == _pass) {
+      if (cut._turnedAt == stage?.drawing) {
         continue;
       }
       if (ahead == null || cut.priority < ahead.priority) {
@@ -1089,7 +1074,7 @@ class LitCut extends Component with OnStage, AtDepth {
   double _gain = 1;
   bool _alphaIsWhite = true;
 
-  /// The drawing of the world it last drew in ([Lighting._pass]).
+  /// The drawing of the world it last drew in ([Stage.drawing]).
   int _turnedAt = -1;
 
   /// It lights what is at its depth and behind it: drawn after all of that.
@@ -1131,9 +1116,7 @@ class LitCut extends Component with OnStage, AtDepth {
     final lighting = Lighting.of(this);
     final layer = lighting?._litLayer;
     final frame = stage?.frame;
-    if (lighting != null) {
-      _turnedAt = lighting._pass;
-    }
+    _turnedAt = stage?.drawing ?? -1;
     if (lighting == null || layer == null || _image == null || frame == null) {
       return;
     }
