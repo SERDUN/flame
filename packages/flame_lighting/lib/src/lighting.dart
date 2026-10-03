@@ -227,6 +227,8 @@ class Lighting extends Component with OnStage, Ambience, FrameStep {
       return;
     }
     if (!frame.light.isLit || frame.light.count == 0) {
+      // No light to add up (the day): the cuts' slots hold nothing needed.
+      _buffer?.releaseSlotsFrom(1);
       return;
     }
     final view = frame.view.inflate(frame.view.width * 0.01);
@@ -288,6 +290,10 @@ class Lighting extends Component with OnStage, Ambience, FrameStep {
     // Each cut's plane: what stands behind the street line lit where it
     // stands.
     if (lightsBackdrop || _lightImage == null) {
+      // No cut drawn: their slots hold nothing needed.
+      if (buffer != null) {
+        buffer.releaseSlotsFrom(1);
+      }
       return;
     }
     final cuts = stage?.members<LitCut>() ?? const <LitCut>[];
@@ -428,8 +434,14 @@ class Lighting extends Component with OnStage, Ambience, FrameStep {
   static Lighting? of(Component component) =>
       Stage.maybeOf(component)?.members<Lighting>().firstOrNull;
 
-  final Paint _illumination = Paint()..blendMode = BlendMode.modulate;
-  final Paint _sky = Paint();
+  // Not smoothed at their edges: drawn side by side (a mirror's picture
+  // lit part from the light's image, part light by light), smoothed edges
+  // would each darken a shared pixel by only their share of it, and a seam
+  // show.
+  final Paint _illumination = Paint()
+    ..blendMode = BlendMode.modulate
+    ..isAntiAlias = false;
+  final Paint _sky = Paint()..isAntiAlias = false;
   final Paint _add = Paint()..blendMode = BlendMode.plus;
   final Paint _emit = Paint()..blendMode = BlendMode.plus;
 
@@ -617,7 +629,10 @@ class Lighting extends Component with OnStage, Ambience, FrameStep {
 
   /// [_castOver] on the part of [area] outside [covered]: a mirror's
   /// picture reaches past the view, which the frame's light images cover -
-  /// stretched there, their edge lit what stood beyond it.
+  /// stretched there, their edge lit what stood beyond it. Up to four
+  /// rectangles round what is covered, each lit by the lights that reach
+  /// it alone, with no clip: edges the image's draw meets exactly, so no
+  /// pixel is lit twice.
   void _castBeyond(
     Canvas canvas,
     StageFrame frame,
@@ -625,20 +640,21 @@ class Lighting extends Component with OnStage, Ambience, FrameStep {
     Rect covered, {
     double wallAhead = 0,
   }) {
-    if (covered.contains(area.topLeft) && covered.contains(area.bottomRight)) {
+    final inside = area.intersect(covered);
+    if (inside.isEmpty) {
+      _castOver(canvas, frame, area, wallAhead: wallAhead);
       return;
     }
-    canvas
-      ..save()
-      ..clipPath(
-        Path.combine(
-          PathOperation.difference,
-          Path()..addRect(area),
-          Path()..addRect(covered),
-        ),
-      );
-    _castOver(canvas, frame, area, wallAhead: wallAhead);
-    canvas.restore();
+    for (final strip in [
+      Rect.fromLTRB(area.left, area.top, area.right, inside.top),
+      Rect.fromLTRB(area.left, inside.bottom, area.right, area.bottom),
+      Rect.fromLTRB(area.left, inside.top, inside.left, inside.bottom),
+      Rect.fromLTRB(inside.right, inside.top, area.right, inside.bottom),
+    ]) {
+      if (strip.width > 0 && strip.height > 0) {
+        _castOver(canvas, frame, strip, wallAhead: wallAhead);
+      }
+    }
   }
 
   /// Without shaders: the illumination built in a layer - the sky's light,
