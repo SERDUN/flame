@@ -234,6 +234,12 @@ class Rain extends Component with OnStage, Reflectable, Weather {
   static Rain? of(Component component) =>
       Stage.maybeOf(component)?.members<Rain>().firstOrNull;
 
+  /// Each droplet's speed across the view now, world units a second.
+  @visibleForTesting
+  Iterable<double> get dropletSpeedsAcross => [
+    for (var i = 0; i < _droplets.length; i++) _droplets.vx(i),
+  ];
+
   /// Drops in the air now, and droplets of bursts.
   @visibleForTesting
   int get dropsInAir => _drops.length;
@@ -669,7 +675,10 @@ class Rain extends Component with OnStage, Reflectable, Weather {
 
   /// Drop [i] bursting at ([x], [y]) on [on], if it hits hard enough to
   /// splash there: a few droplets thrown up and out, more the harder it hits,
-  /// higher for a near, heavy drop. A fine drop only wets.
+  /// higher for a near, heavy drop, and carried on along the surface as fast
+  /// as the drop came across it - a slanting drop's splash keeps its sideways
+  /// way (Bird, Tsai & Stone 2009): the rain's splashes fly where the wind
+  /// drives it. A fine drop only wets.
   void _burst(int i, double x, double y, Substance on) {
     final depth = _drops.depth(i);
     final speed = _velocity.length / (metre * _drops.perspective(i));
@@ -683,12 +692,14 @@ class Rain extends Component with OnStage, Reflectable, Weather {
       1,
       7,
     );
+    // Across the surface, in the drop's own scale of the street.
+    final across = _velocity.x;
     for (var n = 0; n < count; n++) {
       final side = _random.nextBool() ? 1 : -1;
       _droplets.add(
         x: x,
         y: y,
-        vx: side * (0.4 + 1.4 * _random.nextDouble()) * metre * size,
+        vx: across + side * (0.4 + 1.4 * _random.nextDouble()) * metre * size,
         vy: -(1.8 + 2.4 * _random.nextDouble()) * metre * size,
         floor: y + 0.02 * metre,
         life: 0.35,

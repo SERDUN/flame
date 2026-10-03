@@ -414,6 +414,25 @@ void main() {
     expect(rain.dropVelocities.where((v) => v.x > 50), isNotEmpty);
   });
 
+  for (final blowing in [6.0, -6.0]) {
+    testWithFlameGame(
+      'splashes fly on the way the wind drives the rain ($blowing m/s)',
+      (game) async {
+        game.camera.viewfinder.anchor = Anchor.topLeft;
+        final rain = Rain(intensity: 2, wind: Vector2(blowing, 0));
+        game.world.addAll([_Ground(), rain]);
+        await game.ready();
+        await _rainFor(game, 2);
+        final across = rain.dropletSpeedsAcross.toList();
+        expect(across, isNotEmpty);
+        final downwind = across.where((v) => v * blowing > 0).length;
+        // Most of a burst goes on the drop's way; a still splash would
+        // throw as many each way.
+        expect(downwind, greaterThan(across.length * 0.8));
+      },
+    );
+  }
+
   testWithFlameGame('a slice draws only the rain at its depths', (game) async {
     game.camera.viewfinder.anchor = Anchor.topLeft;
     final rain = Rain(intensity: 2)..drawsItself = false;
