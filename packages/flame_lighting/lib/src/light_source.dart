@@ -130,7 +130,7 @@ class LightSource extends PositionComponent with OnStage, LightCarrier {
     }
     if (haze > 0) {
       // Wet air scatters the light into a wide soft halo round the source.
-      final halo = r * (6 + 24 * haze);
+      final halo = LightField.haloRadius(r, haze);
       _glow.shader = LightSource.halo(
         at,
         halo,

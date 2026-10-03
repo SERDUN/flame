@@ -23,6 +23,8 @@
 precision highp float;
 
 #include <flutter/runtime_effect.glsl>
+// The lighting's own formulas (lightFall), one copy for every shader.
+#include "../../flame_lighting/shaders/light_math.glsl"
 
 const int kMaxRings = 32;
 const int kMaxLights = 8;
@@ -179,9 +181,12 @@ float fresnel(float s) {
 
 // What of the bottom's light comes back up through the water at p, seen at
 // an angle whose sine above it is s: down and up along the way refraction
-// bends it to (Snell, n = 1.333), through the medium (Beer-Lambert).
+// bends it to (Snell, the medium's own index, which its f0 is made from:
+// f0 = ((n - 1) / (n + 1))^2), through the medium (Beer-Lambert).
 vec3 through(float s) {
-    float across = (1.0 - s * s) / (1.333 * 1.333);
+    float r0 = sqrt(uDeep.w > 0.0 ? uDeep.w : 0.02);
+    float n = (1.0 + r0) / (1.0 - r0);
+    float across = (1.0 - s * s) / (n * n);
     float cosT = sqrt(max(1.0 - across, 1e-4));
     return exp(-uAtten.rgb * (2.0 * uAtten.w / cosT));
 }
@@ -228,16 +233,6 @@ float pool(vec2 p) {
     return clamp((1.0 - r) / uSoft, 0.0, 1.0);
 }
 
-// How far light reaches at dist from its source, by its falloff (as the
-// lighting's light.frag has it).
-float falloff(float dist, float radius, float physical) {
-    float t = 1.0 - dist / radius;
-    if (physical < 0.5) {
-        return t * t;
-    }
-    return 1.0 / (1.0 + 16.0 * dist * dist / (radius * radius)) *
-        min(1.0, t * 4.0);
-}
 
 // The lights mirrored at p (local units), seen at an angle whose sine is
 // s. Each light is six vectors:
@@ -297,7 +292,7 @@ vec3 lights(vec2 p, float s) {
         vec3 color = mix(c.rgb, vec3(1.0), 0.6 * exp(-q));
         // The halo: the source's glow in the wet air, as wide as the haze
         // makes it, and smeared the same.
-        float hs = a.w * (6.0 + 24.0 * uHaze) / 2.5;
+        float hs = haloRadius(a.w, uHaze) / 2.5;
         float hx2 = hs * hs + across * across;
         float hy2 = hs * hs * uSquash * uSquash + down * down;
         float halo = uHaze * 0.6 *
@@ -326,17 +321,12 @@ vec3 lights(vec2 p, float s) {
             float dist = length(vec3(v, k.z));
             float reach = 0.0;
             if (dist < g.y) {
-                float cone = 1.0;
-                float across = length(v);
-                if (a.z > 0.5 && a.z < 1.5 && across > 1e-6) {
-                    // Its cone on the screen's plane, as light.frag has it.
-                    float off = acos(clamp(dot(v, g.zw) / across, -1.0, 1.0));
-                    float full = acos(clamp(h.x, -1.0, 1.0));
-                    float edge = acos(clamp(h.y, -1.0, 1.0));
-                    cone = 1.0 - smoothstep(full, max(edge, full + 1e-4), off);
-                }
+                // Its cone on the screen's plane (coneAt).
+                float cone = a.z > 0.5 && a.z < 1.5
+                    ? coneAt(v, g.zw, h.x, h.y)
+                    : 1.0;
                 float incidence = clamp(v.y / max(dist, 1e-6), 0.0, 1.0);
-                reach = falloff(dist, g.y, h.z) * cone * incidence;
+                reach = lightFall(dist, g.y, h.z) * cone * incidence;
             }
             if (dist < k.y) {
                 float ts = 1.0 - dist / k.y;

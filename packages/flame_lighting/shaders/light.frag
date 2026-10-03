@@ -19,6 +19,7 @@
 precision highp float;
 
 #include <flutter/runtime_effect.glsl>
+#include "light_math.glsl"
 
 const int kShadows = 24;
 const int kCapsules = 8;
@@ -112,43 +113,6 @@ float ahead(float d) {
     return P_FAR - 1.0 / inverse;
 }
 
-// The nearest the segment p1-p2 comes to the segment q1-q2: where along
-// the first, 0..1, and how far apart there (ShadowSet._segments).
-vec2 segments(vec2 p1, vec2 p2, vec2 q1, vec2 q2) {
-    vec2 d1 = p2 - p1;
-    vec2 d2 = q2 - q1;
-    vec2 r = p1 - q1;
-    float a = dot(d1, d1);
-    float e = dot(d2, d2);
-    float f = dot(d2, r);
-    float s = 0.0;
-    float t = 0.0;
-    if (a <= 1e-12 && e <= 1e-12) {
-        s = 0.0;
-        t = 0.0;
-    } else if (a <= 1e-12) {
-        t = clamp(f / e, 0.0, 1.0);
-    } else {
-        float c = dot(d1, r);
-        if (e <= 1e-12) {
-            s = clamp(-c / a, 0.0, 1.0);
-        } else {
-            float b = dot(d1, d2);
-            float denom = a * e - b * b;
-            s = denom > 1e-12 ? clamp((b * f - c * e) / denom, 0.0, 1.0) : 0.0;
-            t = (b * s + f) / e;
-            if (t < 0.0) {
-                t = 0.0;
-                s = clamp(-c / a, 0.0, 1.0);
-            } else if (t > 1.0) {
-                t = 1.0;
-                s = clamp((b - c) / a, 0.0, 1.0);
-            }
-        }
-    }
-    return vec2(s, length(p1 + d1 * s - (q1 + d2 * t)));
-}
-
 // How much light gets from the source at l to the point at p past every
 // capsule (ShadowSet.through, on the GPU).
 float through(vec3 l, vec3 p, float source) {
@@ -201,41 +165,9 @@ float through(vec3 l, vec3 p, float source) {
     return light;
 }
 
-// How long a stretch of air, lit as at the light itself, the eye's way
-// passing b from a light of radius R gathers: its falloff summed along the
-// way. Smooth, (1 - r/R)^2, in closed form; physical, 1/(1 + 16 r^2/R^2),
-// as an arctangent. Largest at the light and falling away from it - the
-// glow of the air round a lamp is brightest at the lamp.
-float glowLength(float b, float radius, float physical) {
-    if (b >= radius) {
-        return 0.0;
-    }
-    float s = sqrt(radius * radius - b * b);
-    if (physical > 0.5) {
-        float k = 16.0 / (radius * radius);
-        float q = sqrt(1.0 + k * b * b);
-        return 2.0 / (sqrt(k) * q) * atan(sqrt(k) * s / q);
-    }
-    float near = max(b, 1e-4 * radius);
-    return (2.0 * b * b * s + 2.0 / 3.0 * s * s * s) / (radius * radius) -
-        2.0 * b * b / radius * log((s + radius) / near);
-}
-
-// How much of the glow the air holds a stretch [lit] long of it, lit as at
-// a light, makes against what the whole air between the eye and the street
-// would (what the lighting scales the glow by): in clear air as much as
-// its length, in a fog no more than the air one sees through.
+// The air's share of the glow [lit] makes (airShareOf), in this pass's air.
 float airShare(float lit) {
-    if (S_AIR <= 0.0) {
-        return 1.0;
-    }
-    float v = max(S_VIS, 1e-3);
-    lit = min(lit, S_AIR);
-    float whole = 1.0 - exp(-3.912 * S_AIR / v);
-    if (whole < 1e-6) {
-        return lit / S_AIR;
-    }
-    return (1.0 - exp(-3.912 * lit / v)) / whole;
+    return S_AIR <= 0.0 ? 1.0 : airShareOf(lit, S_AIR, S_VIS);
 }
 
 void main() {
@@ -285,22 +217,10 @@ void main() {
         fragColor = vec4(0.0);
         return;
     }
-    float t = max(1.0 - dist / L_RADIUS, 0.0);
-    float fall = FALLOFF < 0.5
-        ? t * t
-        : 1.0 / (1.0 + 16.0 * dist * dist / (L_RADIUS * L_RADIUS)) *
-              min(1.0, t * 4.0);
-    float cone = 1.0;
-    if (abs(L_SHAPE - kCone) < 0.5) {
-        float across = length(v.xy);
-        if (across > 1e-6) {
-            float c = dot(v.xy, L_DIR) / across;
-            float full = acos(clamp(L_COS_FULL, -1.0, 1.0));
-            float edge = acos(clamp(L_COS_EDGE, -1.0, 1.0));
-            float off = acos(clamp(c, -1.0, 1.0));
-            cone = 1.0 - smoothstep(full, max(edge, full + 1e-4), off);
-        }
-    }
+    float fall = lightFall(dist, L_RADIUS, FALLOFF);
+    float cone = abs(L_SHAPE - kCone) < 0.5
+        ? coneAt(v.xy, L_DIR, L_COS_FULL, L_COS_EDGE)
+        : 1.0;
     float incidence = 1.0;
     if (MODE > 0.5) {
         // On the ground light comes in at an angle: as much as it falls.

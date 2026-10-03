@@ -214,8 +214,8 @@ class WaterSurface extends PositionComponent
   /// How much of it is clear water, `0..1`: 1 still water, less a film
   /// broken by the asphalt poking through. How much clear water mirrors is
   /// water's own - most of the light seen low across it, little seen from
-  /// above ([fresnel]) - and follows from the stage's projection, the angle
-  /// each row of it is seen at.
+  /// above ([WaterMedium.fresnel]) - and follows from the stage's
+  /// projection, the angle each row of it is seen at.
   double reflectivity;
 
   /// How tall a reflection is against what it reflects: 1 is a true mirror;
@@ -376,16 +376,6 @@ class WaterSurface extends PositionComponent
   void onDrop(Vector2 at, double strength) => splash(at, strength: strength);
 
   double _time = 0;
-
-  /// Water's reflectance seen at an angle whose sine above the surface is
-  /// [sinElevation] (Fresnel, Schlick's approximation for water): most of
-  /// the light far off, where the eye looks along it, little near, where
-  /// it looks down. The shader works it out the same way.
-  static double fresnel(double sinElevation) {
-    const f0 = 0.02;
-    final c = 1 - sinElevation.clamp(0.0, 1.0);
-    return f0 + (1 - f0) * c * c * c * c * c;
-  }
 
   /// How the eye sees this water, from the stage's projection: the sine of
   /// the angle it looks down at its top and bottom rows. `null` without a

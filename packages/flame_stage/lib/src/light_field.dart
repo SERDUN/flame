@@ -929,7 +929,12 @@ class LightField {
   static const int lightFloats = 20;
 
   /// Radius of the halo the haze makes round light [i]'s source.
-  double haloRadiusOf(int i) => sourceRadiusOf(i) * (6 + 24 * haze);
+  double haloRadiusOf(int i) => haloRadius(sourceRadiusOf(i), haze);
+
+  /// Radius of the halo [haze] makes round a source of [sourceRadius]: the
+  /// one owner of it (`haloRadius` in the shaders' light_math.glsl).
+  static double haloRadius(double sourceRadius, double haze) =>
+      sourceRadius * (6 + 24 * haze);
 
   /// How much of light [i] reaches world [x], [y] at [inFront] world units in
   /// front of the street line (light and point at different depths are that
