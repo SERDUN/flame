@@ -320,6 +320,18 @@ void main() {
       Rect? during;
       ReflectionPass.run(surface, () => during = ReflectionPass.area);
       expect(during, area);
+      // A mirror shown in another: the inner one while it draws, the outer
+      // one again after - drawn, not skipped.
+      final inner = _surface();
+      Object? inside;
+      Object? after;
+      ReflectionPass.run(surface, () {
+        ReflectionPass.run(inner, () => inside = ReflectionPass.current);
+        after = ReflectionPass.current;
+      });
+      expect(inside, same(inner));
+      expect(after, same(surface));
+      expect(ReflectionPass.current, isNull);
     },
   );
 

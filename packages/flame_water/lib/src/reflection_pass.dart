@@ -61,17 +61,17 @@ abstract final class ReflectionPass {
   /// only those across this; `null` outside a reflection.
   static Rect? get area => _current?.area;
 
-  /// Runs [draw] as the reflection in [mirror]; passes do not nest (water
-  /// is not reflected in water).
+  /// Runs [draw] as the reflection in [mirror]. A mirror shown in another
+  /// (a shop window in a puddle) is drawn as the inner one while it draws,
+  /// the outer one again after; water is not reflected in water, which
+  /// leaves it out of what it mirrors.
   static void run(Mirror mirror, void Function() draw) {
-    if (_current != null) {
-      return;
-    }
+    final outer = _current;
     _current = mirror;
     try {
       draw();
     } finally {
-      _current = null;
+      _current = outer;
     }
   }
 }
