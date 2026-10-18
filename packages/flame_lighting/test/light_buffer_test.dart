@@ -68,4 +68,14 @@ void main() {
     );
     expect(LightField.lightFloats, 5 * 4);
   });
+
+  test('the buffer shader has no integer % for GLSL ES 1.00', () {
+    // impellerc writes the shader as GLSL ES 1.00 for Impeller's OpenGL ES
+    // backend, where an integer % is reserved: Adreno refuses to compile
+    // it, and the light buffer never draws there.
+    final code = File(
+      'gpu_shaders/light_buffer.frag',
+    ).readAsLinesSync().map((line) => line.split('//').first).join('\n');
+    expect(code, isNot(contains('%')));
+  });
 }

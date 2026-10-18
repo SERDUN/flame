@@ -44,6 +44,16 @@ uniform Params {
   vec4 liftSpan;      // the band's left and right, samples in use (0: level)
 } params;
 
+// Sample [i] of the ground's height. impellerc writes this shader as GLSL
+// ES 1.00 for OpenGL ES, where an integer % does not compile (Adreno: "'%' :
+// supported in pack/unpack shaders only") and a vec4 is safest read by a
+// constant component: the remainder by hand, the component by name.
+float liftSample(int i) {
+  vec4 q = params.lift[i / 4];
+  int c = i - (i / 4) * 4;
+  return c == 0 ? q.x : (c == 1 ? q.y : (c == 2 ? q.z : q.w));
+}
+
 // How high the ground stands at world x: its hill there.
 float liftAt(float x) {
   float n = params.liftSpan.z;
@@ -55,9 +65,7 @@ float liftAt(float x) {
                   0.0, 1.0) * (n - 1.0);
   int i = int(min(floor(u), n - 2.0));
   float t = u - float(i);
-  float a = params.lift[i / 4][i % 4];
-  float b = params.lift[(i + 1) / 4][(i + 1) % 4];
-  return mix(a, b, t);
+  return mix(liftSample(i), liftSample(i + 1), t);
 }
 
 in vec2 v_uv;
