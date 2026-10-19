@@ -33,8 +33,9 @@ const _horizon = Color(0xFF00FF00);
 
 Future<({int r, int g}) Function(int x, int y)> _render(
   FlameGame game,
-  List<AirBank> banks,
-) async {
+  List<AirBank> banks, {
+  double Function()? resolution,
+}) async {
   await LightShader.load(directory: 'shaders');
   game.onGameResize(Vector2(800, 600));
   game.camera.viewfinder.anchor = Anchor.topLeft;
@@ -45,7 +46,7 @@ Future<({int r, int g}) Function(int x, int y)> _render(
     ),
     _Ground(),
     _Air(banks),
-    AirVeil(depth: () => -0.5),
+    AirVeil(depth: () => -0.5, resolution: resolution),
     // Fifty units a metre: the eye 2.6 m up, the street line 24 m off, the
     // veil's depth some 480 m. Under the noon sky nothing is lit.
     Lighting(metre: 50),
@@ -58,6 +59,12 @@ Future<({int r, int g}) Function(int x, int y)> _render(
     top: _horizon,
     horizon: _horizon,
   );
+  return _picture(game);
+}
+
+Future<({int r, int g}) Function(int x, int y)> _picture(
+  FlameGame game,
+) async {
   final recorder = PictureRecorder();
   game.render(Canvas(recorder));
   final image = await recorder.endRecording().toImage(800, 600);
@@ -93,6 +100,34 @@ void main() {
       // 0.4 m up at the veil's distance, inside the fog; 2 m up above it.
       expect(at(100, 399).r, lessThan(at(100, 30).r - 100));
       expect(at(100, 395).r, greaterThan(200));
+    },
+  );
+
+  testWithFlameGame(
+    'worked out on a grid half as fine, the air is the same air',
+    (game) async {
+      var share = 1.0;
+      final banks = [
+        AirBank(extinction: AirField.ofVisibility(50), topM: 1, topWidthM: 0.4),
+      ];
+      final fine = await _render(game, banks, resolution: () => share);
+      share = 0.5;
+      game.update(1 / 60);
+      final coarse = await _picture(game);
+      // Up the veil, clear above the fog and in it; the last rows over its
+      // line, where the grid's last cells are. (The fog's top, here sharp
+      // within two pixels, is a cell softer: 396-397 differ.)
+      for (final y in [30, 200, 380, 395, 398, 399]) {
+        for (final x in [3, 100, 401, 797]) {
+          expect(
+            (coarse(x, y).r - fine(x, y).r).abs(),
+            lessThanOrEqualTo(8),
+            reason: 'at $x, $y',
+          );
+        }
+      }
+      // Under its line the veil lays nothing, coarse or fine.
+      expect(coarse(100, 450).r, 255);
     },
   );
 }
