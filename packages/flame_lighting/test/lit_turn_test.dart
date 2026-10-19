@@ -28,6 +28,18 @@ class _Unlit extends Component {
   }
 }
 
+/// Draws a rect of [color] as an ordinary part of the world: into the lit
+/// layer.
+class _Board extends Component {
+  _Board(this.rect, this.color);
+
+  final Rect rect;
+  final Color color;
+
+  @override
+  void render(Canvas canvas) => canvas.drawRect(rect, Paint()..color = color);
+}
+
 /// Draws nothing at all - but nothing says so, and the lighting may not
 /// take a layer it may have drawn into for empty.
 class _Nothing extends Component {
@@ -45,7 +57,11 @@ Future<Uint8List> _draw(FlameGame game) async {
   return (await image.toByteData())!.buffer.asUint8List();
 }
 
-Future<Uint8List> _scene(FlameGame game, {required bool between}) async {
+Future<Uint8List> _scene(
+  FlameGame game, {
+  required bool between,
+  bool child = false,
+}) async {
   await LightShader.load(directory: 'shaders');
   game.onGameResize(Vector2(800, 600));
   game.camera.viewfinder.anchor = Anchor.topLeft;
@@ -64,7 +80,12 @@ Future<Uint8List> _scene(FlameGame game, {required bool between}) async {
       const Rect.fromLTWH(600, 0, 100, 100),
       const Color(0x80FFFFFF),
       priority: -9,
-    ),
+    )..addAll([
+      // A child of the draw before the next: it draws into the layer
+      // the draw opened, out of the lamp's reach.
+      if (child)
+        _Board(const Rect.fromLTWH(20, 480, 100, 100), const Color(0xFFFFFFFF)),
+    ]),
     if (between) _Nothing(priority: -8),
     _Unlit(
       const Rect.fromLTWH(650, 50, 100, 100),
@@ -107,17 +128,29 @@ void main() {
 
   // The same scene with something between them that draws nothing: each
   // turn is made, and the picture is the same, pixel for pixel.
-  late Uint8List skipped;
-  testWithFlameGame('(the scene with the empty turns left out)', (game) async {
-    skipped = await _scene(game, between: false);
-  });
   testWithFlameGame(
     'leaving the empty turns out changes no pixel of the picture',
     (game) async {
-      final every = await _scene(game, between: true);
-      expect(LitLayer.turns, 3);
-      expect(LitLayer.emptyTurns, 0);
+      final skipped = await _scene(game, between: false);
+      final every = await _scene(
+        await initializeFlameGame(),
+        between: true,
+      );
+      expect(LitLayer.turns, 1 + 3);
+      expect(LitLayer.emptyTurns, 2);
       expect(every, orderedEquals(skipped));
+    },
+  );
+
+  testWithFlameGame(
+    'a layer the draw before has drawn into through its children is lit',
+    (game) async {
+      final drawn = await _scene(game, between: false, child: true);
+      // The second unlit draw follows the first, but the first one's child
+      // drew into the layer since: that turn is made, and the cut's not.
+      expect(LitLayer.turns, 2);
+      expect(LitLayer.emptyTurns, 1);
+      expect(drawn[(530 * 800 + 70) * 4], lessThan(10), reason: 'unlit child');
     },
   );
 }
