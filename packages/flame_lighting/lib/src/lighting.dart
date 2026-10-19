@@ -1413,6 +1413,9 @@ class LitPicture {
     }
     canvas.restore();
     _open(canvas);
+    // Reopened in the middle of a thing's draw: the rest of it lands here,
+    // and is lit with the rest of the layer.
+    _holds = true;
     for (var i = canvas.getSaveCount(); i < depth; i++) {
       canvas.save();
     }
