@@ -80,19 +80,35 @@ class MirrorPass implements Mirror {
     return passes.find(surface);
   }
 
-  void _record(Stage stage, Rect? view) {
+  /// The part of the world [view] needs mirrored: where the waters are,
+  /// as much as is in it and as far round it as they bend what they show.
+  Rect _needed(Rect view) {
+    final (:area, :reach) = _reach();
+    return area.intersect(view.inflate(reach));
+  }
+
+  ({Rect area, double reach}) _reach() {
     var area = Rect.zero;
-    var left = double.infinity;
-    var right = double.negativeInfinity;
     var reach = 0.0;
-    var pixels = 0.0;
     for (final water in _members) {
       final rect = water.toAbsoluteRect();
       area = area.isEmpty ? rect : area.expandToInclude(rect);
+      reach = math.max(reach, rect.left - water.reflectedArea.left);
+    }
+    return (area: area, reach: reach);
+  }
+
+  /// Draws the picture of what [view] needs, and [margin] past it each way:
+  /// what a view moving on needs of a picture kept for the drawings after.
+  void _record(Stage stage, Rect? view, {double margin = 0}) {
+    final (:area, :reach) = _reach();
+    var left = double.infinity;
+    var right = double.negativeInfinity;
+    var pixels = 0.0;
+    for (final water in _members) {
       final shown = water.reflectedArea;
       left = math.min(left, shown.left);
       right = math.max(right, shown.right);
-      reach = math.max(reach, rect.left - shown.left);
       pixels = math.max(pixels, water.mirrorPixels);
     }
     _area = Rect.fromLTRB(
@@ -103,7 +119,8 @@ class MirrorPass implements Mirror {
     );
     // Only what is in view needs mirroring, and as far round it as the
     // waters bend what they show.
-    bounds = view == null ? area : area.intersect(view.inflate(reach));
+    final shown = view?.inflate(margin);
+    bounds = shown == null ? area : area.intersect(shown.inflate(reach));
     scale = pixels;
     final width = (bounds.width * scale).ceil();
     final height = (bounds.height * scale).ceil();
@@ -122,7 +139,7 @@ class MirrorPass implements Mirror {
     ReflectionPass.run(this, () {
       final lit = LitPicture.of(
         Lighting.of(drawer),
-        litArea(view ?? bounds),
+        litArea(shown ?? bounds),
       );
       LitPicture.apart(lit, () {
         drawWorld(
@@ -278,6 +295,13 @@ class _Passes {
   /// The drawing of the world their pictures were last drawn in.
   int _drawnIn = -1;
 
+  /// The view of the last drawing, and how far it moved from the one
+  /// before: a picture kept for the drawings after is drawn that much
+  /// wider for each of them, so a view following the walker does not run
+  /// past its edge.
+  Rect? _lastView;
+  double _drift = 0;
+
   /// Whether this drawing reads the pictures there are
   /// ([WaterSurface.mirrorEvery]): the pictures are younger than the least
   /// any water in view keeps one for, and the waters in view are the ones
@@ -307,7 +331,39 @@ class _Passes {
     for (final pass in _list) {
       had += pass._members.length;
     }
-    return members == had && stage.drawing - _drawnIn < every;
+    if (members != had || stage.drawing - _drawnIn >= every) {
+      return false;
+    }
+    // And they still hold all this view needs - else a strip at its
+    // leading edge would mirror nothing.
+    for (final pass in _list) {
+      if (!_holds(pass.bounds, pass._needed(view))) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /// Whether [outer] holds [inner], to a hair.
+  static bool _holds(Rect outer, Rect inner) {
+    const hair = 1e-6;
+    return inner.isEmpty ||
+        (inner.left >= outer.left - hair &&
+            inner.top >= outer.top - hair &&
+            inner.right <= outer.right + hair &&
+            inner.bottom <= outer.bottom + hair);
+  }
+
+  /// The least drawings any water in [view] keeps a picture for.
+  static int _every(Stage stage, Rect? view) {
+    var every = 1 << 30;
+    for (final water in stage.members<WaterSurface>()) {
+      if (water.mirrorsThroughShader &&
+          (view == null || view.overlaps(water.toAbsoluteRect()))) {
+        every = math.min(every, water.mirrorEvery);
+      }
+    }
+    return every == 1 << 30 ? 1 : every;
   }
 
   MirrorPass? find(WaterSurface surface) {
@@ -322,6 +378,12 @@ class _Passes {
   /// Groups the stage's waters that mirror through the shader and are in
   /// view by what they mirror alike, and draws each group's picture.
   void rebuild(Stage stage) {
+    if (stage.frame.index > 0) {
+      final view = stage.frame.view;
+      final last = _lastView;
+      _drift = last == null ? 0 : (view.center - last.center).distance;
+      _lastView = view;
+    }
     if (_keeps(stage)) {
       drawing = stage.drawing;
       return;
@@ -351,8 +413,12 @@ class _Passes {
       }
       pass._members.add(water);
     }
+    // As far as the view goes while the pictures are kept, at the pace it
+    // went the last drawing - and half again, for a view that speeds up.
+    final every = _every(stage, view);
+    final margin = every > 1 ? _drift * (every - 1) * 1.5 : 0.0;
     for (final pass in _list) {
-      pass._record(stage, view);
+      pass._record(stage, view, margin: margin);
     }
   }
 }
