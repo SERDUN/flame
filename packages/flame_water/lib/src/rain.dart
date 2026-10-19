@@ -5,6 +5,7 @@ import 'package:flame/components.dart';
 import 'package:flame/game.dart';
 import 'package:flame_lighting/flame_lighting.dart';
 import 'package:flame_stage/flame_stage.dart';
+import 'package:flame_water/src/frame_due.dart';
 import 'package:flame_water/src/rain_catcher.dart';
 import 'package:flame_water/src/rain_deflector.dart';
 import 'package:flame_water/src/rain_drops.dart';
@@ -539,8 +540,9 @@ class Rain extends Component with OnStage, Reflectable, Weather {
   /// s: a frame longer than this is moved in as many pieces.
   static const double moveSec = 1 / 8;
 
-  /// Time the drops have not been moved over yet, s.
-  double _unmoved = 0;
+  /// The time the steps added since the drops last moved, and whether
+  /// their look is stale.
+  final FrameDue _owed = FrameDue();
 
   @override
   void update(double dt) {
@@ -549,7 +551,7 @@ class Rain extends Component with OnStage, Reflectable, Weather {
       _move(dt);
       return;
     }
-    _unmoved += dt;
+    _owed.stepped(dt);
   }
 
   /// Moves the drops over the time the steps added since they last moved
@@ -558,11 +560,10 @@ class Rain extends Component with OnStage, Reflectable, Weather {
   void moveNow() => _moveIfDue();
 
   void _moveIfDue() {
-    if (_unmoved <= 0) {
+    if (_owed.time <= 0) {
       return;
     }
-    final total = _unmoved;
-    _unmoved = 0;
+    final total = _owed.takeTime();
     // How fast the view goes is read over the whole frame: in pieces, the
     // view would stand still for all but the first.
     _move(total, piece: math.min(total, moveSec));
@@ -586,7 +587,7 @@ class Rain extends Component with OnStage, Reflectable, Weather {
     }
     // Worked out where it is drawn: a slow frame steps several times, and
     // only the last step's look is ever seen.
-    _lookDue = true;
+    _owed.moved();
   }
 
   /// How many times the drops have been moved, for tests.
@@ -633,17 +634,12 @@ class Rain extends Component with OnStage, Reflectable, Weather {
     _droplets.step(dt, 18 * metre);
   }
 
-  /// Whether the drops moved since their look was last worked out.
-  bool _lookDue = false;
-
   /// Works the look out if the drops moved since: once a drawn frame,
   /// however many steps it took, and against the light of that frame.
   void _shadeIfDue() {
-    if (!_lookDue) {
-      return;
+    if (_owed.takeLook()) {
+      _shade();
     }
-    _lookDue = false;
-    _shade();
   }
 
   final Vector2 _from = Vector2.zero();
