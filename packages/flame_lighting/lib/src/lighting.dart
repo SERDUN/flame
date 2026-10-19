@@ -502,7 +502,12 @@ class Lighting extends Component with OnStage, Ambience, FrameStep {
   /// Only a world lit in a layer of its own ([lightsBackdrop] off) can
   /// leave something out of the multiply; otherwise, and in a frame with no
   /// light to multiply by, [draw] is drawn with the world.
-  void unlit(Canvas canvas, void Function() draw) {
+  ///
+  /// [by] is the component asking, if it draws [draw] as its own drawing:
+  /// when the layer was opened right before it - by the thing drawn just
+  /// before it, a veil of the same depth - the layer holds nothing yet, and
+  /// there is nothing to light.
+  void unlit(Canvas canvas, void Function() draw, {Component? by}) {
     // A picture of the world drawn apart from it (a mirror's) has layers of
     // its own: out of its multiply, not the world's.
     if (LitPicture._drawing) {
@@ -525,11 +530,16 @@ class Lighting extends Component with OnStage, Ambience, FrameStep {
       return;
     }
     final view = frame.view.inflate(frame.view.width * 0.01);
+    final drawing = stage?.drawing ?? -1;
+    final empty = by != null && layer._emptyBefore(by, drawing);
     _unlitDepth++;
     try {
       layer._turnWith(
         canvas,
         light: () {
+          if (empty) {
+            return;
+          }
           // What the layer holds stands where the cut that would light it
           // says: the next one still to come, or the street line.
           final cut = _cutAhead();
@@ -542,7 +552,11 @@ class Lighting extends Component with OnStage, Ambience, FrameStep {
           }
         },
         draw: draw,
+        lit: !empty,
       );
+      if (by != null) {
+        layer._openedAfter(by, drawing);
+      }
     } finally {
       _unlitDepth--;
     }
@@ -1002,8 +1016,52 @@ class LitLayer extends Component {
   int? _openAt;
   static final Paint _paint = Paint();
 
+  /// How many times a layer has been lit and laid down, and how many times
+  /// that was left out because the layer held nothing yet: for tests, and
+  /// for a probe of what a frame costs. Each is a pass over the whole view.
+  static int turns = 0;
+  static int emptyTurns = 0;
+
+  /// The thing the layer was last opened after, and in which drawing of the
+  /// world: while the thing drawn next is the one right after it, the layer
+  /// holds nothing.
+  Component? _after;
+  int _afterIn = -1;
+
+  void _openedAfter(Component thing, int drawing) {
+    _after = thing;
+    _afterIn = drawing;
+  }
+
+  /// Whether the layer holds nothing yet when [next] draws in [drawing]: it
+  /// was opened by the thing drawn just before [next] - a sibling with
+  /// nothing of its own under it - in this drawing. Anything else between
+  /// them may have drawn into it, and it is lit.
+  bool _emptyBefore(Component next, int drawing) {
+    final after = _after;
+    final parent = after?.parent;
+    if (after == null ||
+        _afterIn != drawing ||
+        parent == null ||
+        !identical(parent, next.parent) ||
+        after.children.isNotEmpty) {
+      return false;
+    }
+    Component? before;
+    for (final child in parent.children) {
+      if (identical(child, next)) {
+        return identical(before, after);
+      }
+      before = child;
+    }
+    return false;
+  }
+
   @override
-  void render(Canvas canvas) => _open(canvas);
+  void render(Canvas canvas) {
+    _open(canvas);
+    _openedAfter(this, lighting.stage?.drawing ?? -1);
+  }
 
   void _close(Canvas canvas) {
     final at = _openAt;
@@ -1026,11 +1084,17 @@ class LitLayer extends Component {
     Canvas canvas, {
     required void Function() light,
     required void Function() draw,
+    bool lit = true,
   }) {
     final at = _openAt;
     if (at == null) {
       draw();
       return;
+    }
+    if (lit) {
+      turns++;
+    } else {
+      emptyTurns++;
     }
     final depth = canvas.getSaveCount();
     final inner = Matrix4.fromList(canvas.getTransform());
@@ -1076,6 +1140,7 @@ class LitLayer extends Component {
     if (at == null) {
       return;
     }
+    turns++;
     canvas
       ..restoreToCount(at)
       ..saveLayer(null, _paint);
@@ -1174,12 +1239,20 @@ class LitCut extends Component with OnStage, AtDepth {
     final lighting = Lighting.of(this);
     final layer = lighting?._litLayer;
     final frame = stage?.frame;
-    _turnedAt = stage?.drawing ?? -1;
+    final drawing = stage?.drawing ?? -1;
+    _turnedAt = drawing;
     if (lighting == null || layer == null || _image == null || frame == null) {
       return;
     }
-    _light(canvas, frame.view.inflate(frame.view.width * 0.01));
-    layer._turn(canvas);
+    // Right after a veil at its depth, which lit what is below it by this
+    // cut's light as it laid its air: the layer holds nothing to light.
+    if (layer._emptyBefore(this, drawing)) {
+      LitLayer.emptyTurns++;
+    } else {
+      _light(canvas, frame.view.inflate(frame.view.width * 0.01));
+      layer._turn(canvas);
+    }
+    layer._openedAfter(this, drawing);
   }
 
   /// Multiplies what [canvas] holds over [view] by the light where what is
@@ -1263,6 +1336,10 @@ class LitPicture {
 
   static bool _drawing = false;
   static LitPicture? _current;
+
+  /// Whether a picture of the world is being drawn apart from it (a
+  /// mirror's) right now, rather than the world itself.
+  static bool get drawingApart => _drawing;
 
   /// Runs [draw], which draws a picture of the world apart from it, lit by
   /// [picture] (`null`: not lit). Inside it what draws out of the
