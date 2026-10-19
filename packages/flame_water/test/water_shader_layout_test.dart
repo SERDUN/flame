@@ -57,6 +57,7 @@ void main() {
       'uHaze': WaterShader.haze,
       'uWave': WaterShader.wave,
       'uGlint': WaterShader.glint,
+      'uPreSmeared': WaterShader.preSmeared,
       'uSquash': WaterShader.squash,
       'uAir': WaterShader.air,
       'uAirMap': WaterShader.airMap,

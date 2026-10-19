@@ -65,6 +65,8 @@ uniform vec4 u[kHoles + kMaxHoles];
 #define uHaze        u[7].w    // the air's haze, 0..1: halos round lights
 #define uWave        u[8]      // field on (1), a cell across and down, gain
 #define uGlint       u[9]      // what a crest catches, premultiplied
+#define uPreSmeared  u[10].x   // 1: uReflection is already smeared up and
+                               // down by uSpread: only across is left
 #define uSquash      u[10].y   // the mirror's height over the thing's
 #define uAir         u[10].z   // how much of the light cast on what stands
                                // on the street (walls, the air) is mirrored
@@ -416,9 +418,15 @@ void main() {
         color = mirrored(at);
     } else {
         int side = across * uPixels < 0.75 ? 0 : 2;
+        // The picture smeared down once for every pixel that reads it: the
+        // taps across are left.
+        int rows = uPreSmeared > 0.5 ? 0 : 7;
         vec4 sum = vec4(0.0);
         float total = 0.0;
         for (int j = -7; j <= 7; j++) {
+            if (j < -rows || j > rows) {
+                continue;
+            }
             float y = float(j) * (2.0 / 7.0);
             float wy = exp(-0.5 * y * y);
             for (int k = -2; k <= 2; k++) {

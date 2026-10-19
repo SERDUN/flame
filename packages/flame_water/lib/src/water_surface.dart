@@ -14,6 +14,7 @@ import 'package:flame_water/src/ripple_rings.dart';
 import 'package:flame_water/src/water_shader.dart';
 import 'package:flame_water/src/wave_field.dart';
 import 'package:flame_water/src/wettable.dart';
+import 'package:flutter/foundation.dart' show visibleForTesting;
 
 /// How a surface draws its reflection.
 enum WaterQuality {
@@ -1316,6 +1317,16 @@ class WaterSurface extends PositionComponent
     draw();
   }
 
+  /// The spread of the shader's own smear up and down, in its sigmas: its
+  /// fifteen taps run out to two sigmas either way, a Gaussian cut short
+  /// and so narrower - the root of its taps' variance.
+  static const double _tapsSigma = 0.907;
+
+  /// Whether a rough surface reads its mirror smeared once over the picture
+  /// rather than smearing it tap by tap itself; off only to compare the two.
+  @visibleForTesting
+  static bool preSmears = true;
+
   /// The world mirrored in [pass]'s picture, drawn over [rect] through the
   /// water shader: bent around the newest rings, smeared as rough as the
   /// surface is, mirrored as much as water does at the angle each row is
@@ -1338,7 +1349,14 @@ class WaterSurface extends PositionComponent
   }) {
     final sky = stage?.frame.sky;
     final skyShown = sky != null && sky.present;
-    final image = pass?.image ?? (_clear ??= _makeClear());
+    // The smear up and down, read from the picture smeared once
+    // ([MirrorPass.smeared]) where it is half a pixel or more - the shader's
+    // own threshold for any smear at all.
+    final smear = (streak / 3 * smearScale) * (pass?.scale ?? 0);
+    final smeared = pass != null && preSmears && mode == 2 && smear >= 0.5
+        ? pass.smeared(smear * _tapsSigma)
+        : null;
+    final image = smeared ?? pass?.image ?? (_clear ??= _makeClear());
     final origin = absoluteTopLeftPosition;
     final bounds = pass?.bounds ?? Rect.zero;
     final shader = WaterShader.shaderOf(program);
@@ -1359,7 +1377,8 @@ class WaterSurface extends PositionComponent
       ..[WaterShader.ambient] = light.r
       ..[WaterShader.ambient + 1] = light.g
       ..[WaterShader.ambient + 2] = light.b
-      ..[WaterShader.pass] = mode.toDouble();
+      ..[WaterShader.pass] = mode.toDouble()
+      ..[WaterShader.preSmeared] = smeared == null ? 0 : 1;
     if (skyShown) {
       f
         ..[WaterShader.skyY] = sky.topY - origin.y
