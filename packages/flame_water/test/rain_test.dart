@@ -611,6 +611,54 @@ Future<int> _brightness(FlameGame game) async {
 
 void _nightTests() {
   testWithFlameGame(
+    'rain that moves where it is drawn moves once a frame, as far as its steps',
+    (game) async {
+      game.camera.viewfinder.anchor = Anchor.topLeft;
+      final stepped = Rain(seed: 5, intensity: 2)..drawsItself = false;
+      final drawn = Rain(seed: 5, intensity: 2)
+        ..drawsItself = false
+        ..movesWhereDrawn = true;
+      final slices = [RainSlice(stepped), RainSlice(drawn)];
+      game.world.addAll([_Ground(), stepped, drawn, ...slices]);
+      await game.ready();
+      final canvas = Canvas(PictureRecorder());
+      for (var frame = 0; frame < 30; frame++) {
+        // A slow frame: four steps, then one drawing.
+        for (var i = 0; i < 4; i++) {
+          game.update(1 / 60);
+        }
+        for (final slice in slices) {
+          slice.render(canvas);
+        }
+      }
+      expect(stepped.moves, 120);
+      expect(drawn.moves, 30);
+      // The same rain, as much of it and as far down.
+      double meanY(Rain rain) {
+        final ys = rain.dropYs.toList();
+        return ys.reduce((a, b) => a + b) / ys.length;
+      }
+
+      expect(
+        drawn.dropsInAir,
+        closeTo(stepped.dropsInAir, 0.08 * stepped.dropsInAir),
+      );
+      expect(meanY(drawn), closeTo(meanY(stepped), 0.05 * 600));
+      final landed = stepped.landed[null]!;
+      expect(drawn.landed[null], closeTo(landed, 0.1 * landed));
+      // A long frame is moved in pieces, none longer than a move.
+      for (var i = 0; i < 30; i++) {
+        game.update(1 / 60);
+      }
+      slices.last.render(canvas);
+      expect(drawn.moves, 30 + 4);
+      // Nothing to move: a drawing with no step between moves nothing.
+      slices.last.render(canvas);
+      expect(drawn.moves, 34);
+    },
+  );
+
+  testWithFlameGame(
     'a drop far off across the view is given no look and drawn by no slice',
     (game) async {
       game.camera.viewfinder.anchor = Anchor.topLeft;
