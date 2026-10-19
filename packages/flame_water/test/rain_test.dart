@@ -513,6 +513,10 @@ void main() {
       for (var i = 0; i < before.length; i++) {
         final (a, b) = (before[i], after[i]);
         expect(b.depth, a.depth);
+        if (a.alpha == 0 && b.alpha == 0) {
+          // Far off across the view: given no look.
+          continue;
+        }
         expect(b.width, greaterThanOrEqualTo(a.width));
         if (a.alpha < 0.99) {
           // The streak's light is its brightness across its width.
@@ -606,6 +610,37 @@ Future<int> _brightness(FlameGame game) async {
 }
 
 void _nightTests() {
+  testWithFlameGame(
+    'a drop far off across the view is given no look and drawn by no slice',
+    (game) async {
+      game.camera.viewfinder.anchor = Anchor.topLeft;
+      // A strong wind: much of the rain is upwind, still on its way in.
+      final rain = Rain(intensity: 2, wind: Vector2(8, 0))
+        ..drawsItself = false;
+      final slice = RainSlice(rain);
+      game.world.addAll([_Ground(), rain, slice]);
+      await game.ready();
+      await _rainFor(game, 1);
+      final view = game.camera.visibleWorldRect;
+      final margin = 4 * rain.metre;
+      final looks = rain.dropLooks.toList();
+      final xs = rain.dropXs.toList();
+      var off = 0;
+      var near = 0;
+      for (var i = 0; i < xs.length; i++) {
+        if (xs[i] < view.left - margin || xs[i] > view.right + margin) {
+          off++;
+          expect(looks[i].alpha, 0);
+        } else if (xs[i] > view.left && xs[i] < view.right) {
+          near++;
+          expect(looks[i].alpha, greaterThan(0));
+        }
+      }
+      expect(off, greaterThan(0));
+      expect(near, greaterThan(0));
+    },
+  );
+
   testWithFlameGame(
     'the look is worked out once a drawn frame, however many steps it took',
     (game) async {

@@ -426,6 +426,11 @@ class Rain extends Component with OnStage, Reflectable, Weather {
     return _air.x;
   }
 
+  /// How far across past the view a drop is still given a look, world
+  /// units: as far as the rain keeps the drops it carries out of the view -
+  /// past a streak's length and a water's bend.
+  double get _seenMargin => 4 * _margin;
+
   /// How far past the view drops are born and kept, world units: a metre,
   /// so the wind carries them into the view rather than they pop in.
   double get _margin => metre;
@@ -757,7 +762,22 @@ class Rain extends Component with OnStage, Reflectable, Weather {
     final focus = scale(focusDepth);
     final water = _water;
     final drops = _drops;
+    // What is seen of the rain lies across the view, and a streak's length
+    // and a water's bend round it: a drop farther off across - most are
+    // upwind, still on their way in - is given no look and left unsorted.
+    final view = _lastView;
+    final seenFrom = view == null
+        ? double.negativeInfinity
+        : view.left - _seenMargin;
+    final seenTo = view == null
+        ? double.infinity
+        : view.right + _seenMargin;
     for (var i = 0; i < drops.length; i++) {
+      final x = drops.x(i);
+      if (x < seenFrom || x > seenTo) {
+        drops.color[i] = drops.colorUnder[i] = 0;
+        continue;
+      }
       // How much of a sharp streak's light is left per unit of its width
       // once it is blurred: the light of a blurred streak spreads over its
       // wider width.
@@ -886,9 +906,11 @@ class Rain extends Component with OnStage, Reflectable, Weather {
       slice._droplets.length = 0;
       final from = slice.from;
       final to = slice.to;
-      for (var i = 0; i < _drops.length; i++) {
-        final d = _drops.depth(i);
-        if (d >= from && d < to) {
+      final drops = _drops;
+      for (var i = 0; i < drops.length; i++) {
+        final d = drops.depth(i);
+        final looked = (drops.color[i] | drops.colorUnder[i]) != 0;
+        if (d >= from && d < to && looked) {
           slice._drops.add(i);
         }
       }
