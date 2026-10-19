@@ -1,0 +1,15 @@
+include: package:flame_lint/analysis_options_with_dcm.yaml
+
+analyzer:
+  errors:
+    # The GPU wave shaders' bundle is built by hook/build.dart with the app,
+    # so it is not there until the first build.
+    asset_does_not_exist: ignore
+  exclude:
+    - build/**
+    - android/**
+    - ios/**
+    - web/**
+    - windows/**
+    - macos/**
+    - linux/**

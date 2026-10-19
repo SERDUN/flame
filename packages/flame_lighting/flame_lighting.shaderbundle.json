@@ -1,0 +1,4 @@
+{
+  "LightVertex": { "type": "vertex", "file": "gpu_shaders/quad.vert" },
+  "LightFragment": { "type": "fragment", "file": "gpu_shaders/light_buffer.frag" }
+}
