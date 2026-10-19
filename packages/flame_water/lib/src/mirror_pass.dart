@@ -275,6 +275,41 @@ class _Passes {
   /// The drawing of the world they were drawn for ([Stage.drawing]).
   int drawing = -1;
 
+  /// The drawing of the world their pictures were last drawn in.
+  int _drawnIn = -1;
+
+  /// Whether this drawing reads the pictures there are
+  /// ([WaterSurface.mirrorEvery]): the pictures are younger than the least
+  /// any water in view keeps one for, and the waters in view are the ones
+  /// they were drawn for, mirroring alike.
+  bool _keeps(Stage stage) {
+    if (_list.isEmpty || stage.frame.index <= 0 || _drawnIn < 0) {
+      return false;
+    }
+    final view = stage.frame.view;
+    var every = 1 << 30;
+    var members = 0;
+    for (final water in stage.members<WaterSurface>()) {
+      if (!water.mirrorsThroughShader ||
+          !view.overlaps(water.toAbsoluteRect())) {
+        continue;
+      }
+      every = math.min(every, water.mirrorEvery);
+      final pass = find(water);
+      if (pass == null ||
+          pass.line != water.mirrorLine ||
+          pass.squash != water.squash) {
+        return false;
+      }
+      members++;
+    }
+    var had = 0;
+    for (final pass in _list) {
+      had += pass._members.length;
+    }
+    return members == had && stage.drawing - _drawnIn < every;
+  }
+
   MirrorPass? find(WaterSurface surface) {
     for (final pass in _list) {
       if (pass._members.contains(surface)) {
@@ -287,6 +322,11 @@ class _Passes {
   /// Groups the stage's waters that mirror through the shader and are in
   /// view by what they mirror alike, and draws each group's picture.
   void rebuild(Stage stage) {
+    if (_keeps(stage)) {
+      drawing = stage.drawing;
+      return;
+    }
+    _drawnIn = stage.drawing;
     for (final pass in _list) {
       pass.image?.dispose();
     }
