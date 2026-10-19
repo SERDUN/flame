@@ -212,6 +212,7 @@ class MirrorPass implements Mirror {
       if (!mirrors(child) || !_across(child, left, right)) {
         continue;
       }
+      lit?.drew();
       final base = child is Reflectable ? _baseOf(child, projection) : null;
       if (base != null) {
         canvas
