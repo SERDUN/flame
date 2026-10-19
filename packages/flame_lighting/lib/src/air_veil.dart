@@ -21,8 +21,8 @@ import 'package:flame_stage/flame_stage.dart';
 /// ([Lighting.unlit]) in the sky's light at the horizon as the eye sees it
 /// (`StageFrame.sky`) - what the air's light becomes through more and more
 /// of it. The lamps' light in it the lighting adds as their glow.
-class AirVeil extends Component with OnStage, AtDepth {
-  AirVeil({required this.depth, this.nearer});
+class AirVeil extends Component with OnStage, AtDepth, _LaysAir {
+  AirVeil({required this.depth, this.nearer, this.resolution});
 
   /// The depth it stands at.
   final double Function() depth;
@@ -31,14 +31,17 @@ class AirVeil extends Component with OnStage, AtDepth {
   final double? Function()? nearer;
 
   @override
+  final double Function()? resolution;
+
+  @override
   double depthIn(StreetProjection? projection) => depth();
 
   @override
   DepthOrder get depthOrder => DepthOrder.air;
 
   @override
-  void render(Canvas canvas) =>
-      _drawAir(this, canvas, depth: depth(), nearer: nearer?.call());
+  Rect? _setUp(FragmentShader shader) =>
+      _setUpAir(this, shader, depth: depth(), nearer: nearer?.call());
 }
 
 /// The air over the ground band: each row of it the air between the ground
@@ -46,12 +49,15 @@ class AirVeil extends Component with OnStage, AtDepth {
 /// the road farther off paler than near. It lies over the ground and what
 /// lies flat on it, under what stands on it ([DepthOrder.air] at the street
 /// line, after the flat things there), and water does not mirror it.
-class GroundAir extends Component with OnStage, AtDepth, LiesFlat {
-  GroundAir({required this.veils});
+class GroundAir extends Component with OnStage, AtDepth, LiesFlat, _LaysAir {
+  GroundAir({required this.veils, this.resolution});
 
   /// The depths of the veils in front of the street line, where each takes
   /// over the air nearer than it.
   final List<double> Function() veils;
+
+  @override
+  final double Function()? resolution;
 
   @override
   double depthIn(StreetProjection? projection) => 0;
@@ -60,7 +66,200 @@ class GroundAir extends Component with OnStage, AtDepth, LiesFlat {
   DepthOrder get depthOrder => DepthOrder.air;
 
   @override
-  void render(Canvas canvas) => _drawAir(this, canvas, veils: veils());
+  Rect? _setUp(FragmentShader shader) =>
+      _setUpAir(this, shader, veils: veils());
+}
+
+/// What lays air: where it lays it, and how fine.
+mixin _LaysAir on OnStage {
+  /// How finely the air is worked out against the pixels it lands on, each
+  /// way, `0..1`; `null` or 1: at every pixel. Below 1 it is worked out on a
+  /// grid that much coarser and stretched over its place (`_AirGrid`): the
+  /// air changes slowly across the view - a haze, a bank's soft edge - and
+  /// its shader, a sum along the eye's whole way for every pixel, is the
+  /// dearest thing it draws. At a half, a quarter of the pixels.
+  double Function()? get resolution;
+
+  /// Sets [shader] up for this frame's air and says where it lays it, world
+  /// coordinates; `null`: nowhere this frame.
+  Rect? _setUp(FragmentShader shader);
+
+  double get _share => (resolution?.call() ?? 1).clamp(0.05, 1).toDouble();
+
+  @override
+  void render(Canvas canvas) {
+    final shader = LightShader.air;
+    if (shader == null) {
+      return;
+    }
+    final share = _share;
+    if (share >= 1) {
+      final area = _setUp(shader);
+      if (area != null) {
+        _layAir(this, canvas, () {
+          canvas.drawRect(area, _paint..shader = shader);
+        });
+      }
+      return;
+    }
+    final stage = this.stage;
+    if (stage == null) {
+      return;
+    }
+    final grid = _AirGrid.of(stage, canvas);
+    final region = grid.regionOf(this);
+    final image = grid.image;
+    if (region == null || image == null) {
+      return;
+    }
+    _layAir(this, canvas, () {
+      canvas.drawImageRect(image, region.src, region.area, _stretch);
+    });
+  }
+}
+
+final Paint _paint = Paint();
+
+/// Bilinear: the grid's cells blend into each other as the air does.
+final Paint _stretch = Paint()..filterQuality = FilterQuality.low;
+
+/// Lays [draw] - the air - over what is drawn, out of the lighting's
+/// multiply.
+void _layAir(OnStage owner, Canvas canvas, void Function() draw) {
+  final lighting = Lighting.of(owner);
+  if (lighting == null) {
+    draw();
+  } else {
+    lighting.unlit(canvas, draw, by: owner);
+  }
+}
+
+/// The air of every veil of a stage that is worked out coarser than its
+/// pixels ([_LaysAir.resolution]), each on a grid of its own, all packed in
+/// one picture made once a drawing of the world ([Stage.drawing]): one pass
+/// off the screen for all of them rather than one each. The veils' places
+/// are in the world, so a mirror's picture of the world, drawn in the same
+/// drawing, reads the same grid.
+class _AirGrid {
+  _AirGrid._();
+
+  static final Expando<_AirGrid> _grids = Expando();
+
+  /// The stage's grid for this drawing, made if it is not yet: at the
+  /// pixels a world unit [canvas] draws the world at, unless that is a
+  /// picture of the world drawn apart (a mirror's, at its own pixels), when
+  /// the world's own last known.
+  factory _AirGrid.of(Stage stage, Canvas canvas) {
+    final grid = _grids[stage] ??= _AirGrid._();
+    if (grid._drawing != stage.drawing) {
+      if (!LitPicture.drawingApart || grid._pixels == null) {
+        final m = canvas.getTransform();
+        grid._pixels = (
+          math.sqrt(m[0] * m[0] + m[1] * m[1]),
+          math.sqrt(m[4] * m[4] + m[5] * m[5]),
+        );
+      }
+      grid._make(stage);
+    }
+    return grid;
+  }
+
+  int _drawing = -1;
+
+  /// Pixels a world unit across and down where the world is drawn.
+  (double, double)? _pixels;
+
+  /// The picture of every veil's grid; `null` when none lays any air.
+  Image? image;
+
+  final Map<_LaysAir, ({Rect src, Rect area})> _regions = {};
+
+  /// Where [air]'s grid is in [image], and the world rect it is laid over;
+  /// `null`: it lays none this drawing.
+  ({Rect src, Rect area})? regionOf(_LaysAir air) => _regions[air];
+
+  /// The tallest a column of grids grows before the next starts beside it:
+  /// what every GPU takes for an image's side.
+  static const int _maxSide = 4096;
+
+  void _make(Stage stage) {
+    _drawing = stage.drawing;
+    _regions.clear();
+    image?.dispose();
+    image = null;
+    final shader = LightShader.air;
+    final (px, py) = _pixels ?? (1.0, 1.0);
+    if (shader == null || px <= 0 || py <= 0) {
+      return;
+    }
+    final recorder = PictureRecorder();
+    final canvas = Canvas(recorder);
+    var x = 0;
+    var y = 0;
+    var column = 0;
+    var width = 0;
+    var height = 0;
+    for (final air in <_LaysAir>[
+      ...stage.members<AirVeil>(),
+      ...stage.members<GroundAir>(),
+    ]) {
+      final share = air._share;
+      if (share >= 1) {
+        continue;
+      }
+      final area = air._setUp(shader);
+      if (area == null) {
+        continue;
+      }
+      // Cells whose middles lie on the area's edges, the first and the last
+      // of a row or a column on them: the stretch reads the air there as it
+      // is, and nothing past it - a veil lays none under its line, and the
+      // air just over the line would blend with that.
+      final w = math.max(2, (area.width * px * share).ceil() + 1);
+      final h = math.max(2, (area.height * py * share).ceil() + 1);
+      if (y > 0 && y + h + 1 > _maxSide) {
+        x += column;
+        y = 0;
+        column = 0;
+      }
+      final cellX = area.width / (w - 1);
+      final cellY = area.height / (h - 1);
+      canvas
+        ..save()
+        ..translate(x + 0.5, y + 0.5)
+        ..scale(1 / cellX, 1 / cellY)
+        ..translate(-area.left, -area.top)
+        ..drawRect(
+          Rect.fromLTRB(
+            area.left - cellX / 2,
+            area.top - cellY / 2,
+            area.right + cellX / 2,
+            area.bottom + cellY / 2,
+          ),
+          _paint..shader = shader,
+        )
+        ..restore();
+      _regions[air] = (
+        src: Rect.fromLTWH(
+          x + 0.5,
+          y + 0.5,
+          w - 1.0,
+          h - 1.0,
+        ),
+        area: area,
+      );
+      // A pixel apart, so no stretch reads a neighbour's.
+      column = math.max(column, w + 1);
+      y += h + 1;
+      width = math.max(width, x + column);
+      height = math.max(height, y);
+    }
+    final picture = recorder.endRecording();
+    if (_regions.isNotEmpty) {
+      image = picture.toImageSync(width, height);
+    }
+    picture.dispose();
+  }
 }
 
 final Float32List _floats = Float32List((14 + _liftSamples ~/ 4 + 1) * 4);
@@ -70,27 +269,26 @@ final Float32List _floats = Float32List((14 + _liftSamples ~/ 4 + 1) * 4);
 const int _liftSamples = 32;
 const int _liftAt = 14 * 4;
 const int _liftSpanAt = _liftAt + _liftSamples;
-final Paint _paint = Paint();
 
-/// Lays the air over [canvas] as a veil at [depth] (up to the veil at
-/// [nearer]) or, with [veils], as the ground's air.
-void _drawAir(
+/// Sets [shader] up for the air of [owner] as a veil at [depth] (up to the
+/// veil at [nearer]) or, with [veils], as the ground's air, and says where
+/// it lays it; `null`: nowhere this frame.
+Rect? _setUpAir(
   OnStage owner,
-  Canvas canvas, {
+  FragmentShader shader, {
   double depth = 0,
   double? nearer,
   List<double>? veils,
 }) {
   final stage = owner.stage;
-  final shader = LightShader.air;
   final projection = stage?.projection;
-  if (stage == null || shader == null || projection == null) {
-    return;
+  if (stage == null || projection == null) {
+    return null;
   }
   final frame = stage.frame;
   final sky = frame.sky;
   if (!frame.weather.present || !sky.present) {
-    return;
+    return null;
   }
   final lighting = Lighting.of(owner);
   final metre = lighting?.metre ?? 1;
@@ -156,7 +354,7 @@ void _drawAir(
       ? Rect.fromLTRB(whole.left, whole.top, whole.right, line - low)
       : Rect.fromLTRB(whole.left, line - high, whole.right, whole.bottom);
   if (area.isEmpty) {
-    return;
+    return null;
   }
   // With no bank over the scene, as thick as its base over the whole way to
   // the street: nothing to lay if that is next to nothing.
@@ -166,13 +364,8 @@ void _drawAir(
         ? projection.distanceAt(depth)
         : projection.farDistance;
     if (air.base * farthest / m < 2e-3) {
-      return;
+      return null;
     }
   }
-  void draw() => canvas.drawRect(area, _paint..shader = shader);
-  if (lighting == null) {
-    draw();
-  } else {
-    lighting.unlit(canvas, draw);
-  }
+  return area;
 }
