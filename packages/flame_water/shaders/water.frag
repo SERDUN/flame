@@ -125,6 +125,10 @@ vec2 chop(vec2 p) {
 
 vec2 ripple(vec2 p) {
     vec2 shift = vec2(0.0);
+    float width = uWavelength * 0.75;
+    // Three widths off its crest a ring's wave is under e^-9 of it: a ring
+    // whose band does not reach p is passed over before any root, exp or sine.
+    float reach = 3.0 * width;
     for (int i = 0; i < kMaxRings; i++) {
         if (float(i) >= uCount) {
             break;
@@ -133,12 +137,17 @@ vec2 ripple(vec2 p) {
         // In ring space the ring is a circle: undo the flattening.
         vec2 d = p - ring.xy;
         d.y /= uFlatten;
-        float dist = length(d);
+        float d2 = dot(d, d);
+        float outer = ring.z + reach;
+        float inner = max(ring.z - reach, 0.0);
+        if (d2 > outer * outer || d2 < inner * inner) {
+            continue;
+        }
+        float dist = sqrt(d2);
         if (dist < 0.0001) {
             continue;
         }
         float x = dist - ring.z;
-        float width = uWavelength * 0.75;
         float envelope = exp(-(x * x) / (width * width));
         float wave = sin(x * 6.2831853 / uWavelength) * envelope * ring.w;
         vec2 dir = d / dist;
