@@ -281,6 +281,25 @@ class WaterSurface extends PositionComponent
   /// [WaterQuality.rippled]: lower is cheaper and softer.
   double resolution;
 
+  /// How finely its mirror's picture is drawn against what [resolution]
+  /// and the smear ask for ([mirrorPixels]), each way, `0..1`: at a half, a
+  /// quarter of the pixels. The picture is a second drawing of the world,
+  /// the dearest thing water asks for; bent by the rings and smeared, a
+  /// coarser one shows little of it.
+  double mirrorScale = 1;
+
+  /// How far its reflection is smeared against what [streak] says, `0..1`:
+  /// the shader's smear and the blur standing in for it. Each pixel of the
+  /// smear is samples of the mirror's picture: a shorter one is cheaper,
+  /// and the water mirrors a little clearer.
+  double smearScale = 1;
+
+  /// How many drawings of the world its mirror's picture is kept before
+  /// the world is drawn into it again ([MirrorPass]): at 2, every other
+  /// one. What it shows then lags the world by a drawing, lost in its rings
+  /// and smear; the waters in view are drawn anew the moment they change.
+  int mirrorEvery = 1;
+
   /// How far a ring shifts the reflection at its crest, local units.
   double waveAmplitude;
 
@@ -1110,7 +1129,7 @@ class WaterSurface extends PositionComponent
       }
       _smeared(
         canvas,
-        streak,
+        streak * smearScale,
         () => _mirror(
           canvas,
           line,
@@ -1270,7 +1289,9 @@ class WaterSurface extends PositionComponent
   /// pixels a sigma of it.
   double get mirrorPixels {
     final pixels = streak / 3 * resolution;
-    return resolution * (pixels < 0.5 ? 1 : (2.5 / pixels).clamp(0.25, 1));
+    return resolution *
+        mirrorScale.clamp(0.05, 1) *
+        (pixels < 0.5 ? 1 : (2.5 / pixels).clamp(0.25, 1));
   }
 
   @override
@@ -1390,7 +1411,7 @@ class WaterSurface extends PositionComponent
       ..[WaterShader.elevTop] = view?.top ?? 0
       ..[WaterShader.elevBottom] = view?.bottom ?? 0
       ..[WaterShader.fresnel] = view == null ? 0 : 1
-      ..[WaterShader.spread] = streak / 3
+      ..[WaterShader.spread] = streak / 3 * smearScale
       ..[WaterShader.line] = line
       ..[WaterShader.pool] = pool.center.dx
       ..[WaterShader.pool + 1] = pool.center.dy

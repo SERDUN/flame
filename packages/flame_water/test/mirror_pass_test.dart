@@ -81,6 +81,43 @@ void main() {
     expect(MirrorPass.mirrors(stage), isFalse);
   });
 
+  testWithFlameGame('kept for two drawings, the mirror is drawn every '
+      'other one; a water coming into view has it drawn at once', (
+    game,
+  ) async {
+    await WaterShader.load(asset: 'shaders/water.frag');
+    game.camera.viewfinder.anchor = Anchor.topLeft;
+    final puddles = [
+      _water(300, 420, 200, 40)..mirrorEvery = 2,
+      _water(500, 470, 120, 40)..mirrorEvery = 2,
+    ];
+    game.world.addAll([_Post(), ...puddles]);
+    await game.ready();
+    await _frame(game);
+    final before = MirrorPass.recordings;
+    for (var i = 0; i < 8; i++) {
+      await _frame(game);
+    }
+    expect(MirrorPass.recordings - before, 4);
+    // One that keeps no picture: drawn every drawing again.
+    final third = _water(100, 420, 100, 40);
+    game.world.add(third);
+    await game.ready();
+    await _frame(game);
+    final added = MirrorPass.recordings;
+    await _frame(game);
+    expect(MirrorPass.recordings - added, 1);
+  });
+
+  testWithFlameGame('a mirror drawn coarser asks for fewer pixels', (
+    game,
+  ) async {
+    final water = _water(300, 420, 200, 40)..resolution = 0.8;
+    final fine = water.mirrorPixels;
+    water.mirrorScale = 0.5;
+    expect(water.mirrorPixels, closeTo(fine / 2, 1e-9));
+  });
+
   testWithFlameGame('water out of view draws nothing and mirrors nothing', (
     game,
   ) async {
