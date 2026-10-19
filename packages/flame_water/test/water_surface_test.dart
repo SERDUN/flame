@@ -5,7 +5,6 @@ import 'package:flame_lighting/flame_lighting.dart';
 import 'package:flame_stage/flame_stage.dart';
 import 'package:flame_test/flame_test.dart';
 import 'package:flame_water/flame_water.dart';
-import 'package:flame_water/src/mirror_pass.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 class _Block extends RectangleComponent with Reflectable {
