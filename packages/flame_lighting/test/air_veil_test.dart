@@ -35,6 +35,7 @@ Future<({int r, int g}) Function(int x, int y)> _render(
   FlameGame game,
   List<AirBank> banks, {
   double Function()? resolution,
+  double Function()? pixelRatio,
 }) async {
   await LightShader.load(directory: 'shaders');
   game.onGameResize(Vector2(800, 600));
@@ -46,7 +47,11 @@ Future<({int r, int g}) Function(int x, int y)> _render(
     ),
     _Ground(),
     _Air(banks),
-    AirVeil(depth: () => -0.5, resolution: resolution),
+    AirVeil(
+      depth: () => -0.5,
+      resolution: resolution,
+      pixelRatio: pixelRatio,
+    ),
     // Fifty units a metre: the eye 2.6 m up, the street line 24 m off, the
     // veil's depth some 480 m. Under the noon sky nothing is lit.
     Lighting(metre: 50),
@@ -76,6 +81,31 @@ Future<({int r, int g}) Function(int x, int y)> _picture(
 }
 
 void main() {
+  testWithFlameGame(
+    "the grid is a share of the screen's pixels, not of the canvas's units",
+    (game) async {
+      final banks = [AirBank(extinction: AirField.ofVisibility(50), topM: 1e6)];
+      var ratio = 1.0;
+      await _render(
+        game,
+        banks,
+        resolution: () => 0.5,
+        pixelRatio: () => ratio,
+      );
+      final veil = game.world.children.whereType<AirVeil>().single;
+      // A unit a pixel: half of the pixels its area covers (a little past
+      // the view), and the cell on the far edge.
+      final half = veil.gridCells!.width - 1;
+      expect(half, inInclusiveRange(400, 440));
+      // A game drawing in logical pixels on a screen of two to one: a unit
+      // is two pixels, and half of them is as many as the units.
+      ratio = 2;
+      game.update(1 / 60);
+      await _picture(game);
+      expect(veil.gridCells!.width - 1, closeTo(2 * half, 1));
+    },
+  );
+
   testWithFlameGame(
     'in a thick fog the far is lost in the air, the ground before it not',
     (game) async {

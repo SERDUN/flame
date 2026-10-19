@@ -6,6 +6,7 @@ import 'package:flame/components.dart';
 import 'package:flame_lighting/src/light_shader.dart';
 import 'package:flame_lighting/src/lighting.dart';
 import 'package:flame_stage/flame_stage.dart';
+import 'package:flutter/foundation.dart' show visibleForTesting;
 
 /// The air between the eye and what stands at a depth: over everything at
 /// that depth and behind it it lays as much of the air's own light as the
@@ -22,7 +23,12 @@ import 'package:flame_stage/flame_stage.dart';
 /// (`StageFrame.sky`) - what the air's light becomes through more and more
 /// of it. The lamps' light in it the lighting adds as their glow.
 class AirVeil extends Component with OnStage, AtDepth, _LaysAir {
-  AirVeil({required this.depth, this.nearer, this.resolution});
+  AirVeil({
+    required this.depth,
+    this.nearer,
+    this.resolution,
+    this.pixelRatio,
+  });
 
   /// The depth it stands at.
   final double Function() depth;
@@ -32,6 +38,9 @@ class AirVeil extends Component with OnStage, AtDepth, _LaysAir {
 
   @override
   final double Function()? resolution;
+
+  @override
+  final double Function()? pixelRatio;
 
   @override
   double depthIn(StreetProjection? projection) => depth();
@@ -50,7 +59,7 @@ class AirVeil extends Component with OnStage, AtDepth, _LaysAir {
 /// lies flat on it, under what stands on it ([DepthOrder.air] at the street
 /// line, after the flat things there), and water does not mirror it.
 class GroundAir extends Component with OnStage, AtDepth, LiesFlat, _LaysAir {
-  GroundAir({required this.veils, this.resolution});
+  GroundAir({required this.veils, this.resolution, this.pixelRatio});
 
   /// The depths of the veils in front of the street line, where each takes
   /// over the air nearer than it.
@@ -58,6 +67,9 @@ class GroundAir extends Component with OnStage, AtDepth, LiesFlat, _LaysAir {
 
   @override
   final double Function()? resolution;
+
+  @override
+  final double Function()? pixelRatio;
 
   @override
   double depthIn(StreetProjection? projection) => 0;
@@ -79,6 +91,27 @@ mixin _LaysAir on OnStage {
   /// its shader, a sum along the eye's whole way for every pixel, is the
   /// dearest thing it draws. At a half, a quarter of the pixels.
   double Function()? get resolution;
+
+  /// The pixels one unit of the canvas the game draws its world into holds
+  /// at the root, before the camera: a game drawing straight onto the
+  /// screen draws in logical pixels, and has the view's device pixel ratio
+  /// of them; one drawing its world into a picture of the pixels it wants
+  /// has 1. `null`: 1. [resolution] is a share of real pixels, so a grid
+  /// worked out against logical ones would be that ratio coarser again.
+  double Function()? get pixelRatio;
+
+  /// The cells across and down of this air's grid in the last drawing;
+  /// `null`: none ([resolution] 1, or it laid no air).
+  @visibleForTesting
+  Size? get gridCells {
+    final stage = this.stage;
+    final region = stage == null
+        ? null
+        : _AirGrid._grids[stage]?.regionOf(this);
+    return region == null
+        ? null
+        : Size(region.src.width + 1, region.src.height + 1);
+  }
 
   /// Sets [shader] up for this frame's air and says where it lays it, world
   /// coordinates; `null`: nowhere this frame.
@@ -154,14 +187,30 @@ class _AirGrid {
     if (grid._drawing != stage.drawing) {
       if (!LitPicture.drawingApart || grid._pixels == null) {
         final m = canvas.getTransform();
+        final ratio = _ratioOf(stage);
         grid._pixels = (
-          math.sqrt(m[0] * m[0] + m[1] * m[1]),
-          math.sqrt(m[4] * m[4] + m[5] * m[5]),
+          math.sqrt(m[0] * m[0] + m[1] * m[1]) * ratio,
+          math.sqrt(m[4] * m[4] + m[5] * m[5]) * ratio,
         );
       }
       grid._make(stage);
     }
     return grid;
+  }
+
+  /// The root's pixels a canvas unit ([_LaysAir.pixelRatio]): the first
+  /// veil's that says - a game gives all its veils the same.
+  static double _ratioOf(Stage stage) {
+    for (final air in <_LaysAir>[
+      ...stage.members<AirVeil>(),
+      ...stage.members<GroundAir>(),
+    ]) {
+      final ratio = air.pixelRatio?.call();
+      if (ratio != null && ratio > 0) {
+        return ratio;
+      }
+    }
+    return 1;
   }
 
   int _drawing = -1;
