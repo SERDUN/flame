@@ -258,14 +258,21 @@ class Rain extends Component with OnStage, Reflectable, Weather {
     for (var i = 0; i < _drops.length; i++) Vector2(_drops.vx(i), _drops.vy(i)),
   ];
   @visibleForTesting
-  Iterable<({double depth, double width, double alpha})> get dropLooks => [
-    for (var i = 0; i < _drops.length; i++)
-      (
-        depth: _drops.depth(i),
-        width: _drops.width(i),
-        alpha: (_drops.color[i] >>> 24) / 255,
-      ),
-  ];
+  Iterable<({double depth, double width, double alpha})> get dropLooks {
+    _shadeIfDue();
+    return [
+      for (var i = 0; i < _drops.length; i++)
+        (
+          depth: _drops.depth(i),
+          width: _drops.width(i),
+          alpha: (_drops.color[i] >>> 24) / 255,
+        ),
+    ];
+  }
+
+  /// How many times the drops' look has been worked out, for tests.
+  @visibleForTesting
+  int shades = 0;
 
   /// Drops landed so far, by what caught them (`null`: the bare ground).
   @visibleForTesting
@@ -531,6 +538,21 @@ class Rain extends Component with OnStage, Reflectable, Weather {
     }
     _fallAll(view, dt);
     _droplets.step(dt, 18 * metre);
+    // Worked out where it is drawn: a slow frame steps several times, and
+    // only the last step's look is ever seen.
+    _lookDue = true;
+  }
+
+  /// Whether the drops moved since their look was last worked out.
+  bool _lookDue = false;
+
+  /// Works the look out if the drops moved since: once a drawn frame,
+  /// however many steps it took, and against the light of that frame.
+  void _shadeIfDue() {
+    if (!_lookDue) {
+      return;
+    }
+    _lookDue = false;
     _shade();
   }
 
@@ -726,6 +748,7 @@ class Rain extends Component with OnStage, Reflectable, Weather {
   /// the light there is laid over it and it carries only the rest. Then
   /// sorts them into the slices that draw them.
   void _shade() {
+    shades++;
     final stage = this.stage;
     final projection = stage?.projection;
     final field = stage?.frame.light;
@@ -855,20 +878,23 @@ class Rain extends Component with OnStage, Reflectable, Weather {
   final List<RainSlice> _slices = [];
 
   /// Sorts the drops and droplets into the slices that draw them, once a
-  /// frame rather than in every draw.
+  /// frame rather than in every draw. A slice's edges are read once a sort:
+  /// asked of a slice between depths, each is worked out from the stage.
   void _sort() {
     for (final slice in _slices) {
       slice._drops.length = 0;
       slice._droplets.length = 0;
+      final from = slice.from;
+      final to = slice.to;
       for (var i = 0; i < _drops.length; i++) {
         final d = _drops.depth(i);
-        if (d >= slice.from && d < slice.to) {
+        if (d >= from && d < to) {
           slice._drops.add(i);
         }
       }
       for (var i = 0; i < _droplets.length; i++) {
         final d = _droplets.depth(i);
-        if (d >= slice.from && d < slice.to) {
+        if (d >= from && d < to) {
           slice._droplets.add(i);
         }
       }
@@ -915,6 +941,7 @@ class Rain extends Component with OnStage, Reflectable, Weather {
     bool underLighting,
     RainSlice? slice,
   ) {
+    _shadeIfDue();
     final mirror = ReflectionPass.current;
     // In water, the rain is as dark as the water it is mirrored in.
     final dark = mirror == null ? underLighting : _underLighting(mirror.drawer);

@@ -606,6 +606,48 @@ Future<int> _brightness(FlameGame game) async {
 }
 
 void _nightTests() {
+  testWithFlameGame(
+    'the look is worked out once a drawn frame, however many steps it took',
+    (game) async {
+      game.camera.viewfinder.anchor = Anchor.topLeft;
+      final rain = Rain(intensity: 2)..drawsItself = false;
+      var edgeReads = 0;
+      final slice = RainSlice.between(
+        rain,
+        from: () {
+          edgeReads++;
+          return 0;
+        },
+        to: () => double.infinity,
+      );
+      game.world.addAll([_Ground(), rain, slice]);
+      await game.ready();
+      await _rainFor(game, 0.5);
+      final canvas = Canvas(PictureRecorder());
+      slice.render(canvas);
+      final shades = rain.shades;
+      // A slow frame: four steps, then the frame is drawn - in the slice
+      // and again in a water's mirror.
+      for (var i = 0; i < 4; i++) {
+        game.update(1 / 60);
+      }
+      expect(rain.shades, shades, reason: 'nothing is worked out in a step');
+      edgeReads = 0;
+      slice.render(canvas);
+      slice.render(canvas);
+      expect(rain.shades, shades + 1);
+      // Once to sort the drops into it, once for each of the two draws.
+      expect(
+        edgeReads,
+        3,
+        reason: 'the edges are read once a sort, not once a drop',
+      );
+      // A frame with no step (paused) draws the look it has.
+      slice.render(canvas);
+      expect(rain.shades, shades + 1);
+    },
+  );
+
   testWithFlameGame('a slice on the stage draws what one off it would', (
     game,
   ) async {
