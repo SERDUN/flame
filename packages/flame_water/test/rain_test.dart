@@ -612,6 +612,40 @@ Future<int> _brightness(FlameGame game) async {
 
 void _nightTests() {
   testWithFlameGame(
+    "rain born on the steps is the same rain whatever a frame's steps",
+    (game) async {
+      game.camera.viewfinder.anchor = Anchor.topLeft;
+      // Splashes off: they come as drops land, a frame's at once.
+      final fast = Rain(seed: 9, intensity: 2)
+        ..drawsItself = false
+        ..movesWhereDrawn = true;
+      final slow = Rain(seed: 9, intensity: 2)
+        ..drawsItself = false
+        ..movesWhereDrawn = true;
+      game.world.addAll([_Ground(), fast, slow]);
+      await game.ready();
+      for (var frame = 0; frame < 30; frame++) {
+        // One step a frame against four.
+        for (var i = 0; i < 4; i++) {
+          fast
+            ..update(1 / 60)
+            ..moveNow();
+          slow.update(1 / 60);
+        }
+        slow.moveNow();
+      }
+      List<double> depths(Rain rain) =>
+          [for (final look in rain.dropLooks) look.depth]..sort();
+      expect(depths(slow), depths(fast), reason: 'born alike');
+      final ys = [...fast.dropYs]..sort();
+      final slowYs = [...slow.dropYs]..sort();
+      for (var i = 0; i < ys.length; i++) {
+        expect(slowYs[i], closeTo(ys[i], 2), reason: 'and as far down');
+      }
+    },
+  );
+
+  testWithFlameGame(
     "a frame's rain moved at once starts its rings as old as they are",
     (game) async {
       game.camera.viewfinder.anchor = Anchor.topLeft;

@@ -51,7 +51,7 @@ abstract class _Pool {
 
 /// The drops in the air.
 class DropPool extends _Pool {
-  DropPool() : super(15);
+  DropPool() : super(16);
 
   // Columns.
   static const int _source = 0;
@@ -69,6 +69,7 @@ class DropPool extends _Pool {
   static const int _width = 12;
   static const int _bounced = 13;
   static const int _sharp = 14;
+  static const int _born = 15;
 
   /// How it looks this frame, over the lighting and under it, ARGB.
   Int32List color = Int32List(256);
@@ -120,6 +121,11 @@ class DropPool extends _Pool {
 
   /// Its streak's width in focus.
   double sharpWidth(int i) => _get(i, _sharp);
+
+  /// When in the time owed to the drops it was born, s: a drop born on a
+  /// frame's third step moves from there, not from the frame's start.
+  double born(int i) => _get(i, _born);
+  void setBorn(int i, double v) => _set(i, _born, v);
 
   /// Whether it has bounced off a deflector already.
   bool bounced(int i) => _get(i, _bounced) > 0;

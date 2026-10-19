@@ -61,7 +61,11 @@ class Rain extends Component with OnStage, Reflectable, Weather {
     int seed = 7,
     super.priority = 1100,
   }) : wind = wind ?? Vector2(1.6, 0),
-       _random = math.Random(seed);
+       _random = math.Random(seed),
+       // Splashes draw from a stream of their own: they come as drops land,
+       // which a frame moved at once does in another order than its steps
+       // spawn - the drops' own draws stay one step after another.
+       _splashes = math.Random(seed ^ 0x5bd1e995);
 
   /// How hard it rains: 1 a steady rain, 2 a downpour, 0.3 a drizzle, 0 dry.
   double intensity;
@@ -304,6 +308,7 @@ class Rain extends Component with OnStage, Reflectable, Weather {
   final Map<Type?, int> _landed = {};
 
   final math.Random _random;
+  final math.Random _splashes;
   final DropPool _drops = DropPool();
   final DropletPool _droplets = DropletPool();
   double _due = 0;
@@ -523,18 +528,26 @@ class Rain extends Component with OnStage, Reflectable, Weather {
       ..setDiameter(i, diameter)
       ..setStrength(i, strength)
       ..setSharpWidth(i, _sharpWidth(depth, strength))
-      ..setWidth(i, _sharpWidth(depth, strength));
+      ..setWidth(i, _sharpWidth(depth, strength))
+      ..setBorn(i, 0);
     return i;
   }
 
-  /// Whether the drops move once a frame rather than in every step: the
-  /// steps of a frame add up, and [moveNow] - or the first drawing after
-  /// them - moves the drops over all of it at once, in moves of at most
-  /// [moveSec].
-  /// The rain is seen once a frame; a slow frame stepped several times moved
-  /// every drop several times for one look. What the rain wets
-  /// ([Weather]) still goes by the step.
+  /// Whether the drops move once a frame rather than in every step. They
+  /// are born on the steps, as many and where they would be, so the rain's
+  /// layout does not depend on how many steps a frame takes; their motion
+  /// adds up, and the frame's last step ([lastStepOfFrame]) - or [moveNow],
+  /// or the first drawing after it - moves each drop from its birth to the
+  /// frame's end, in moves of at most [moveSec]. The rain is seen once a
+  /// frame; a slow frame stepped several times moved every drop several
+  /// times for one look. What the rain wets ([Weather]) goes by the step.
   bool movesWhereDrawn = false;
+
+  /// Whether the step being taken is the frame's last, when the drops move
+  /// where it is drawn ([movesWhereDrawn]): they move in their own place
+  /// among the step's updates, as a step's rain always did. `null`: never -
+  /// whoever steps the world calls [moveNow].
+  bool Function()? lastStepOfFrame;
 
   /// The longest a drop is moved in one go when it moves where it is drawn,
   /// s: a frame longer than this is moved in as many pieces.
@@ -547,11 +560,21 @@ class Rain extends Component with OnStage, Reflectable, Weather {
   @override
   void update(double dt) {
     super.update(dt);
-    if (!movesWhereDrawn) {
-      _move(dt);
+    final frame = _frame();
+    if (frame == null) {
       return;
     }
+    final (:view, :land, :scale) = frame;
+    _heardFrom = stage?.frame.projection;
+    _veil.update(this, view, dt);
+    _trackView(view, dt);
+    // Born on the step, moving or not: the drops' own draws come one step
+    // after another whatever the frame rate.
+    _spawn(view, land, scale, dt, born: _owed.time);
     _owed.stepped(dt);
+    if (!movesWhereDrawn || (lastStepOfFrame?.call() ?? false)) {
+      _moveIfDue();
+    }
   }
 
   /// Moves the drops over the time the steps added since they last moved
@@ -563,27 +586,17 @@ class Rain extends Component with OnStage, Reflectable, Weather {
     if (_owed.time <= 0) {
       return;
     }
-    final total = _owed.takeTime();
-    // How fast the view goes is read over the whole frame: in pieces, the
-    // view would stand still for all but the first.
-    _move(total, piece: math.min(total, moveSec));
-  }
-
-  /// Moves the drops on by [dt], in pieces of [piece] (all at once: [dt]).
-  void _move(double dt, {double? piece}) {
     final frame = _frame();
     if (frame == null) {
       return;
     }
     final (:view, :land, :scale) = frame;
-    _heardFrom = stage?.frame.projection;
-    _trackView(view, dt);
-    final step = piece ?? dt;
-    var left = dt;
-    while (left > 1e-9) {
-      final part = math.min(step, left);
-      left -= part;
-      _moveBy(view, land, scale, part);
+    final total = _owed.takeTime();
+    var from = 0.0;
+    while (total - from > 1e-9) {
+      final part = math.min(moveSec, total - from);
+      _moveBy(view, from, part, total);
+      from += part;
     }
     // Worked out where it is drawn: a slow frame steps several times, and
     // only the last step's look is ever seen.
@@ -594,15 +607,14 @@ class Rain extends Component with OnStage, Reflectable, Weather {
   @visibleForTesting
   int moves = 0;
 
-  void _moveBy(
+  /// New drops for a step of [dt], born at [born] in the time owed.
+  void _spawn(
     Rect view,
     double Function(double) land,
     double Function(double) scale,
-    double dt,
-  ) {
-    moves++;
-    _heardSeconds += dt;
-    _veil.update(this, view, dt);
+    double dt, {
+    required double born,
+  }) {
     final top = cloudTop?.call() ?? view.top - _margin;
     final start = _start(view, top);
     if (!_started) {
@@ -628,9 +640,18 @@ class Rain extends Component with OnStage, Reflectable, Weather {
       final i = _newDrop(view, land, scale, dt);
       if (!_released(i)) {
         _drops.removeAt(i);
+      } else {
+        _drops.setBorn(i, born);
       }
     }
-    _fallAll(view, dt);
+  }
+
+  /// Moves the drops over [dt] of the time owed from [from] on, of
+  /// [total] in all: each from its birth.
+  void _moveBy(Rect view, double from, double dt, double total) {
+    moves++;
+    _heardSeconds += dt;
+    _fallAll(view, from, dt, total);
     _droplets.step(dt, 18 * metre);
   }
 
@@ -650,7 +671,10 @@ class Rain extends Component with OnStage, Reflectable, Weather {
   /// as its size lets it, may bounce off a deflector or land on a catcher,
   /// and goes once it has crossed the view with the wind - one still on its
   /// way into it (born upwind, far off in a strong wind) stays.
-  void _fallAll(Rect view, double dt) {
+  void _fallAll(Rect view, double from, double dt, double total) {
+    // The last piece of the time owed: the drops that come through it are
+    // all at the frame's end, born or not before.
+    final last = from + dt >= total - 1e-9;
     final stage = this.stage!;
     final catchers = stage.members<RainCatcher>();
     final deflectors = stage.members<RainDeflector>();
@@ -661,6 +685,13 @@ class Rain extends Component with OnStage, Reflectable, Weather {
     final pool = _drops;
     var i = 0;
     while (i < pool.length) {
+      // From its birth: a drop born late in the frame moves only as long.
+      final start = math.max(from, pool.born(i));
+      final step = from + dt - start;
+      if (step <= 0) {
+        i++;
+        continue;
+      }
       final x = pool.x(i);
       final y = pool.y(i);
       if (field == null) {
@@ -668,16 +699,18 @@ class Rain extends Component with OnStage, Reflectable, Weather {
       } else {
         field(_at..setValues(x, y), _air);
       }
-      final k = RainDrops.follow(dt, pool.response(i));
+      final k = RainDrops.follow(step, pool.response(i));
       final perspective = pool.perspective(i);
       var vx = pool.vx(i);
       var vy = pool.vy(i);
       vx += (_air.x * metre * perspective - vx) * k;
       vy += (pool.fall(i) + _air.y * metre - vy) * k;
       _from.setValues(x, y);
-      _to.setValues(x + vx * dt, y + vy * dt);
+      _to.setValues(x + vx * step, y + vy * step);
       _velocity.setValues(vx, vy);
-      final gone = !_deflect(i, deflectors) && _catch(i, _from.y, catchers, dt);
+      final gone =
+          !_deflect(i, deflectors) &&
+          _catch(i, _from.y, catchers, start, step, total);
       if (gone ||
           (_velocity.x >= 0
               ? _to.x > view.right + 4 * _margin
@@ -690,6 +723,9 @@ class Rain extends Component with OnStage, Reflectable, Weather {
         ..setY(i, _to.y)
         ..setVx(i, _velocity.x)
         ..setVy(i, _velocity.y);
+      if (last) {
+        pool.setBorn(i, 0);
+      }
       i++;
     }
   }
@@ -733,7 +769,9 @@ class Rain extends Component with OnStage, Reflectable, Weather {
     int i,
     double fromY,
     List<RainCatcher> catchers,
-    double dt,
+    double start,
+    double step,
+    double total,
   ) {
     final x = _to.x;
     final y = _to.y;
@@ -773,10 +811,14 @@ class Rain extends Component with OnStage, Reflectable, Weather {
     _heard(i, by.surface, x, at, _velocity.length);
     _burst(i, x, at, by.surface);
     // Where in the move it landed: a move over a whole frame lands it
-    // partway, and it is that long ago by the move's end.
+    // partway, and it is that long ago by the frame's end.
     final way = y - fromY;
     final landed = way > 0 ? ((at - fromY) / way).clamp(0.0, 1.0) : 1.0;
-    by.onDrop(Vector2(x, at), _drops.strength(i), ago: dt * (1 - landed));
+    by.onDrop(
+      Vector2(x, at),
+      _drops.strength(i),
+      ago: total - (start + step * landed),
+    );
     return true;
   }
 
@@ -812,12 +854,12 @@ class Rain extends Component with OnStage, Reflectable, Weather {
     // Across the surface, in the drop's own scale of the street.
     final across = _velocity.x;
     for (var n = 0; n < count; n++) {
-      final side = _random.nextBool() ? 1 : -1;
+      final side = _splashes.nextBool() ? 1 : -1;
       _droplets.add(
         x: x,
         y: y,
-        vx: across + side * (0.4 + 1.4 * _random.nextDouble()) * metre * size,
-        vy: -(1.8 + 2.4 * _random.nextDouble()) * metre * size,
+        vx: across + side * (0.4 + 1.4 * _splashes.nextDouble()) * metre * size,
+        vy: -(1.8 + 2.4 * _splashes.nextDouble()) * metre * size,
         floor: y + 0.02 * metre,
         life: 0.35,
         width: (0.02 + 0.03 * depth) * metre,
