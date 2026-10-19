@@ -681,7 +681,7 @@ class Rain extends Component with OnStage, Reflectable, Weather {
       _from.setValues(x, y);
       _to.setValues(x + vx * dt, y + vy * dt);
       _velocity.setValues(vx, vy);
-      final gone = !_deflect(i, deflectors) && _catch(i, _from.y, catchers);
+      final gone = !_deflect(i, deflectors) && _catch(i, _from.y, catchers, dt);
       if (gone ||
           (_velocity.x >= 0
               ? _to.x > view.right + 4 * _margin
@@ -733,7 +733,12 @@ class Rain extends Component with OnStage, Reflectable, Weather {
 
   /// Whether a catcher (or the ground) stopped drop [i], now at [_to], on
   /// its way down from [fromY]: the first on the way takes it.
-  bool _catch(int i, double fromY, List<RainCatcher> catchers) {
+  bool _catch(
+    int i,
+    double fromY,
+    List<RainCatcher> catchers,
+    double dt,
+  ) {
     final x = _to.x;
     final y = _to.y;
     final depth = _drops.depth(i);
@@ -771,7 +776,11 @@ class Rain extends Component with OnStage, Reflectable, Weather {
     _landed.update(by.runtimeType, (n) => n + 1, ifAbsent: () => 1);
     _heard(i, by.surface, x, at, _velocity.length);
     _burst(i, x, at, by.surface);
-    by.onDrop(Vector2(x, at), _drops.strength(i));
+    // Where in the move it landed: a move over a whole frame lands it
+    // partway, and it is that long ago by the move's end.
+    final way = y - fromY;
+    final landed = way > 0 ? ((at - fromY) / way).clamp(0.0, 1.0) : 1.0;
+    by.onDrop(Vector2(x, at), _drops.strength(i), ago: dt * (1 - landed));
     return true;
   }
 
@@ -854,9 +863,7 @@ class Rain extends Component with OnStage, Reflectable, Weather {
     final seenFrom = view == null
         ? double.negativeInfinity
         : view.left - _seenMargin;
-    final seenTo = view == null
-        ? double.infinity
-        : view.right + _seenMargin;
+    final seenTo = view == null ? double.infinity : view.right + _seenMargin;
     for (var i = 0; i < drops.length; i++) {
       final x = drops.x(i);
       if (x < seenFrom || x > seenTo) {

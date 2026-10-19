@@ -36,6 +36,8 @@ mixin RainCatcher on OnStage {
   Substance get surface => Substance.asphalt;
 
   /// A drop landed here at [at] (world), [strength] `0..1` (a heavy drop
-  /// against a fine one).
-  void onDrop(Vector2 at, double strength) {}
+  /// against a fine one), [ago] seconds before the end of the move that
+  /// brought it: rain moved over a whole frame at once lands partway through
+  /// it, and what the drop starts (a ring) is that much older by then.
+  void onDrop(Vector2 at, double strength, {double ago = 0}) {}
 }

@@ -26,7 +26,8 @@ class _Roof extends Component with OnStage, RainCatcher {
       : null;
 
   @override
-  void onDrop(Vector2 at, double strength) => depths.add(at.y);
+  void onDrop(Vector2 at, double strength, {double ago = 0}) =>
+      depths.add(at.y);
 }
 
 class _Wall extends Component with Wettable {
@@ -611,6 +612,37 @@ Future<int> _brightness(FlameGame game) async {
 
 void _nightTests() {
   testWithFlameGame(
+    "a frame's rain moved at once starts its rings as old as they are",
+    (game) async {
+      game.camera.viewfinder.anchor = Anchor.topLeft;
+      final road = WaterSurface(
+        position: Vector2(0, 400),
+        size: Vector2(800, 120),
+        shape: WaterShape.rect,
+        waterDepth: 0.1,
+        film: true,
+      );
+      final rain = Rain(intensity: 2)..movesWhereDrawn = true;
+      game.world.addAll([_Ground(), road, rain]);
+      await game.ready();
+      await _rainFor(game, 1);
+      rain.moveNow();
+      // A slow frame: seven steps, then the rain moves over all of them.
+      for (var i = 0; i < 7; i++) {
+        game.update(1 / 60);
+      }
+      rain.moveNow();
+      final radii = <double>[];
+      road.ripples.forEachNewest(32, (x, y, radius, opacity) {
+        radii.add(radius);
+      });
+      expect(radii, hasLength(32));
+      // Landed over the frame's 0.12 s, not all at its end: grown apart.
+      expect(radii.where((r) => r > 0).length, greaterThan(16));
+    },
+  );
+
+  testWithFlameGame(
     'rain that moves where it is drawn moves once a frame, as far as its steps',
     (game) async {
       game.camera.viewfinder.anchor = Anchor.topLeft;
@@ -663,8 +695,7 @@ void _nightTests() {
     (game) async {
       game.camera.viewfinder.anchor = Anchor.topLeft;
       // A strong wind: much of the rain is upwind, still on its way in.
-      final rain = Rain(intensity: 2, wind: Vector2(8, 0))
-        ..drawsItself = false;
+      final rain = Rain(intensity: 2, wind: Vector2(8, 0))..drawsItself = false;
       final slice = RainSlice(rain);
       game.world.addAll([_Ground(), rain, slice]);
       await game.ready();

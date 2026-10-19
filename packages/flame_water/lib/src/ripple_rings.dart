@@ -63,10 +63,10 @@ class RippleRings {
 
   /// Starts a ring at ([x], [y]); [strength] (`0..1`) scales how big and how
   /// bright it gets - a heavy drop against a fine one.
-  void add(double x, double y, {double strength = 1}) {
+  void add(double x, double y, {double strength = 1, double age = 0}) {
     _x[_next] = x;
     _y[_next] = y;
-    _age[_next] = 0;
+    _age[_next] = age;
     _strength[_next] = strength.clamp(0.0, 1.0);
     _next = (_next + 1) % capacity;
   }

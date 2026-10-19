@@ -393,7 +393,8 @@ class WaterSurface extends PositionComponent
   int get catchOrder => (waterDepth * 100).round();
 
   @override
-  void onDrop(Vector2 at, double strength) => splash(at, strength: strength);
+  void onDrop(Vector2 at, double strength, {double ago = 0}) =>
+      splash(at, strength: strength, ago: ago);
 
   double _time = 0;
 
@@ -825,13 +826,13 @@ class WaterSurface extends PositionComponent
   bool liesOnGround = false;
 
   /// Starts a ripple where a drop hit, [worldPoint] in world coordinates.
-  void splash(Vector2 worldPoint, {double strength = 1}) {
+  void splash(Vector2 worldPoint, {double strength = 1, double ago = 0}) {
     final origin = absoluteTopLeftPosition;
     final x = worldPoint.x - origin.x;
     final y = worldPoint.y - origin.y;
     final waves = _waves;
     if (waves == null) {
-      ripples.add(x, y, strength: strength);
+      ripples.add(x, y, strength: strength, age: ago);
     } else {
       // The field carries the drop's waves; rings would only be counted.
       _splashes++;
