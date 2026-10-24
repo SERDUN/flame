@@ -1,3 +1,4 @@
+import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flame_water/src/wave_field_none.dart'
@@ -68,4 +69,54 @@ void thinDrops(List<double> drops, int keep) {
       ..[i * 4 + 3] = drops[from + 3] * weight;
   }
   drops.removeRange(keep * 4, drops.length);
+}
+
+/// The drops waiting for a field's next steps (u, v, radius, depth each).
+/// A step's pass takes [perStep] of them, oldest first, and leaves the rest
+/// for the steps after: rain that lands all at once - a frame's, moved in one
+/// go - lands over the steps that follow rather than in one. Past [hold]
+/// waiting they are folded in ([thinDrops]): as much rain, in fewer places.
+class DropQueue {
+  DropQueue({required this.perStep, required this.hold});
+
+  /// How many drops a step's pass takes.
+  final int perStep;
+
+  /// How many drops wait at most.
+  final int hold;
+
+  final List<double> _drops = [];
+
+  /// How many drops wait.
+  int get length => _drops.length ~/ 4;
+
+  /// A drop landing at [u], [v].
+  void add(double u, double v, double radius, double depth) {
+    _drops.addAll([u, v, radius, depth]);
+    // Folded in a hold's worth at a time, not drop by drop.
+    if (length >= 2 * hold) {
+      thinDrops(_drops, hold);
+    }
+  }
+
+  /// Before [steps] steps: what waits past what they take or the hold,
+  /// whichever is more, is folded in.
+  void beforeSteps(int steps) {
+    final keep = steps * perStep;
+    thinDrops(_drops, keep > hold ? keep : hold);
+  }
+
+  /// Forgets every drop waiting.
+  void clear() => _drops.clear();
+
+  /// Takes the drops a step's pass lands into [into] from [at], at most
+  /// [perStep]; how many.
+  int takeInto(Float32List into, int at) {
+    final count = length < perStep ? length : perStep;
+    for (var i = 0; i < count * 4; i++) {
+      into[at + i] = _drops[i];
+    }
+    _drops.removeRange(0, count * 4);
+    return count;
+  }
 }

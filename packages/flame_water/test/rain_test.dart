@@ -26,7 +26,8 @@ class _Roof extends Component with OnStage, RainCatcher {
       : null;
 
   @override
-  void onDrop(Vector2 at, double strength) => depths.add(at.y);
+  void onDrop(Vector2 at, double strength, {double ago = 0}) =>
+      depths.add(at.y);
 }
 
 class _Wall extends Component with Wettable {
@@ -513,6 +514,10 @@ void main() {
       for (var i = 0; i < before.length; i++) {
         final (a, b) = (before[i], after[i]);
         expect(b.depth, a.depth);
+        if (a.alpha == 0 && b.alpha == 0) {
+          // Far off across the view: given no look.
+          continue;
+        }
         expect(b.width, greaterThanOrEqualTo(a.width));
         if (a.alpha < 0.99) {
           // The streak's light is its brightness across its width.
@@ -606,6 +611,226 @@ Future<int> _brightness(FlameGame game) async {
 }
 
 void _nightTests() {
+  testWithFlameGame(
+    'unseen rain falls and is counted, but draws and stirs nothing',
+    (game) async {
+      game.camera.viewfinder.anchor = Anchor.topLeft;
+      final road = WaterSurface(
+        position: Vector2(0, 400),
+        size: Vector2(800, 120),
+        shape: WaterShape.rect,
+        waterDepth: 0.1,
+        film: true,
+      );
+      final rain = Rain(intensity: 2)..shown = false;
+      game.world.addAll([_Ground(), road, rain]);
+      await game.ready();
+      await _rainFor(game, 2);
+      expect(rain.dropsIn(const Rect.fromLTWH(0, 0, 800, 600)), greaterThan(0));
+      expect(rain.landed[WaterSurface], greaterThan(0), reason: 'it lands');
+      expect(road.ripples.count, 0, reason: 'and leaves no ring');
+      expect(road.splashCount, 0);
+      expect(rain.droplets, 0, reason: 'nor a splash');
+      final recorder = PictureRecorder();
+      rain.render(Canvas(recorder));
+      final image = await recorder.endRecording().toImage(800, 600);
+      final bytes = (await image.toByteData())!;
+      var sum = 0;
+      for (var i = 3; i < bytes.lengthInBytes; i += 4) {
+        sum += bytes.getUint8(i);
+      }
+      expect(sum, 0, reason: 'nor anything drawn');
+      rain.shown = true;
+      await _rainFor(game, 1);
+      expect(road.splashCount, greaterThan(0));
+    },
+  );
+
+  testWithFlameGame(
+    "rain born on the steps is the same rain whatever a frame's steps",
+    (game) async {
+      game.camera.viewfinder.anchor = Anchor.topLeft;
+      // Splashes off: they come as drops land, a frame's at once.
+      final fast = Rain(seed: 9, intensity: 2)
+        ..drawsItself = false
+        ..movesWhereDrawn = true;
+      final slow = Rain(seed: 9, intensity: 2)
+        ..drawsItself = false
+        ..movesWhereDrawn = true;
+      game.world.addAll([_Ground(), fast, slow]);
+      await game.ready();
+      for (var frame = 0; frame < 30; frame++) {
+        // One step a frame against four.
+        for (var i = 0; i < 4; i++) {
+          fast
+            ..update(1 / 60)
+            ..moveNow();
+          slow.update(1 / 60);
+        }
+        slow.moveNow();
+      }
+      List<double> depths(Rain rain) =>
+          [for (final look in rain.dropLooks) look.depth]..sort();
+      expect(depths(slow), depths(fast), reason: 'born alike');
+      final ys = [...fast.dropYs]..sort();
+      final slowYs = [...slow.dropYs]..sort();
+      for (var i = 0; i < ys.length; i++) {
+        expect(slowYs[i], closeTo(ys[i], 2), reason: 'and as far down');
+      }
+    },
+  );
+
+  testWithFlameGame(
+    "a frame's rain moved at once starts its rings as old as they are",
+    (game) async {
+      game.camera.viewfinder.anchor = Anchor.topLeft;
+      final road = WaterSurface(
+        position: Vector2(0, 400),
+        size: Vector2(800, 120),
+        shape: WaterShape.rect,
+        waterDepth: 0.1,
+        film: true,
+      );
+      final rain = Rain(intensity: 2)..movesWhereDrawn = true;
+      game.world.addAll([_Ground(), road, rain]);
+      await game.ready();
+      await _rainFor(game, 1);
+      rain.moveNow();
+      // A slow frame: seven steps, then the rain moves over all of them.
+      for (var i = 0; i < 7; i++) {
+        game.update(1 / 60);
+      }
+      rain.moveNow();
+      final radii = <double>[];
+      road.ripples.forEachNewest(32, (x, y, radius, opacity) {
+        radii.add(radius);
+      });
+      expect(radii, hasLength(32));
+      // Landed over the frame's 0.12 s, not all at its end: grown apart.
+      expect(radii.where((r) => r > 0).length, greaterThan(16));
+    },
+  );
+
+  testWithFlameGame(
+    'rain that moves where it is drawn moves once a frame, as far as its steps',
+    (game) async {
+      game.camera.viewfinder.anchor = Anchor.topLeft;
+      final stepped = Rain(seed: 5, intensity: 2)..drawsItself = false;
+      final drawn = Rain(seed: 5, intensity: 2)
+        ..drawsItself = false
+        ..movesWhereDrawn = true;
+      final slices = [RainSlice(stepped), RainSlice(drawn)];
+      game.world.addAll([_Ground(), stepped, drawn, ...slices]);
+      await game.ready();
+      final canvas = Canvas(PictureRecorder());
+      for (var frame = 0; frame < 30; frame++) {
+        // A slow frame: four steps, then one drawing.
+        for (var i = 0; i < 4; i++) {
+          game.update(1 / 60);
+        }
+        for (final slice in slices) {
+          slice.render(canvas);
+        }
+      }
+      expect(stepped.moves, 120);
+      expect(drawn.moves, 30);
+      // The same rain, as much of it and as far down.
+      double meanY(Rain rain) {
+        final ys = rain.dropYs.toList();
+        return ys.reduce((a, b) => a + b) / ys.length;
+      }
+
+      expect(
+        drawn.dropsInAir,
+        closeTo(stepped.dropsInAir, 0.08 * stepped.dropsInAir),
+      );
+      expect(meanY(drawn), closeTo(meanY(stepped), 0.05 * 600));
+      final landed = stepped.landed[null]!;
+      expect(drawn.landed[null], closeTo(landed, 0.1 * landed));
+      // A long frame is moved in pieces, none longer than a move.
+      for (var i = 0; i < 30; i++) {
+        game.update(1 / 60);
+      }
+      slices.last.render(canvas);
+      expect(drawn.moves, 30 + 4);
+      // Nothing to move: a drawing with no step between moves nothing.
+      slices.last.render(canvas);
+      expect(drawn.moves, 34);
+    },
+  );
+
+  testWithFlameGame(
+    'a drop far off across the view is given no look and drawn by no slice',
+    (game) async {
+      game.camera.viewfinder.anchor = Anchor.topLeft;
+      // A strong wind: much of the rain is upwind, still on its way in.
+      final rain = Rain(intensity: 2, wind: Vector2(8, 0))..drawsItself = false;
+      final slice = RainSlice(rain);
+      game.world.addAll([_Ground(), rain, slice]);
+      await game.ready();
+      await _rainFor(game, 1);
+      final view = game.camera.visibleWorldRect;
+      final margin = 4 * rain.metre;
+      final looks = rain.dropLooks.toList();
+      final xs = rain.dropXs.toList();
+      var off = 0;
+      var near = 0;
+      for (var i = 0; i < xs.length; i++) {
+        if (xs[i] < view.left - margin || xs[i] > view.right + margin) {
+          off++;
+          expect(looks[i].alpha, 0);
+        } else if (xs[i] > view.left && xs[i] < view.right) {
+          near++;
+          expect(looks[i].alpha, greaterThan(0));
+        }
+      }
+      expect(off, greaterThan(0));
+      expect(near, greaterThan(0));
+    },
+  );
+
+  testWithFlameGame(
+    'the look is worked out once a drawn frame, however many steps it took',
+    (game) async {
+      game.camera.viewfinder.anchor = Anchor.topLeft;
+      final rain = Rain(intensity: 2)..drawsItself = false;
+      var edgeReads = 0;
+      final slice = RainSlice.between(
+        rain,
+        from: () {
+          edgeReads++;
+          return 0;
+        },
+        to: () => double.infinity,
+      );
+      game.world.addAll([_Ground(), rain, slice]);
+      await game.ready();
+      await _rainFor(game, 0.5);
+      final canvas = Canvas(PictureRecorder());
+      slice.render(canvas);
+      final shades = rain.shades;
+      // A slow frame: four steps, then the frame is drawn - in the slice
+      // and again in a water's mirror.
+      for (var i = 0; i < 4; i++) {
+        game.update(1 / 60);
+      }
+      expect(rain.shades, shades, reason: 'nothing is worked out in a step');
+      edgeReads = 0;
+      slice.render(canvas);
+      slice.render(canvas);
+      expect(rain.shades, shades + 1);
+      // Once to sort the drops into it, once for each of the two draws.
+      expect(
+        edgeReads,
+        3,
+        reason: 'the edges are read once a sort, not once a drop',
+      );
+      // A frame with no step (paused) draws the look it has.
+      slice.render(canvas);
+      expect(rain.shades, shades + 1);
+    },
+  );
+
   testWithFlameGame('a slice on the stage draws what one off it would', (
     game,
   ) async {

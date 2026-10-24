@@ -65,6 +65,8 @@ abstract final class WaterShader {
   static const int haze = 31;
   static const int wave = 32;
   static const int glint = 36;
+  /// 1: the picture read is already smeared up and down by the spread.
+  static const int preSmeared = 40;
   static const int squash = 41;
   static const int air = 42;
   static const int airMap = 43;

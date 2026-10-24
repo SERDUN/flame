@@ -1391,9 +1391,13 @@ class LitPicture {
         ahead = cut;
       }
     }
-    if (ahead != null) {
+    if (!_holds) {
+      emptyTurns++;
+    } else if (ahead != null) {
+      turns++;
       ahead._illuminateSurfaces(canvas, _area);
     } else {
+      turns++;
       _lighting._illuminateSurfaces(canvas, _area);
     }
     canvas
@@ -1409,6 +1413,9 @@ class LitPicture {
     }
     canvas.restore();
     _open(canvas);
+    // Reopened in the middle of a thing's draw: the rest of it lands here,
+    // and is lit with the rest of the layer.
+    _holds = true;
     for (var i = canvas.getSaveCount(); i < depth; i++) {
       canvas.save();
     }
@@ -1446,9 +1453,16 @@ class LitPicture {
       case LitCut():
         _passed.add(component);
         if (_openAt != null) {
-          component._illuminateSurfaces(canvas, _area);
-          _close(canvas);
-          _open(canvas);
+          if (_holds) {
+            turns++;
+            component._illuminateSurfaces(canvas, _area);
+            _close(canvas);
+            _open(canvas);
+          } else {
+            // Nothing drawn into the layer since it opened: lit, it would
+            // multiply nothing. It stays open for what comes next.
+            emptyTurns++;
+          }
         }
       case Lighting():
         finish(canvas);
@@ -1465,11 +1479,31 @@ class LitPicture {
     if (_openAt == null) {
       return;
     }
-    _lighting._illuminateSurfaces(canvas, _area);
+    if (_holds) {
+      turns++;
+      _lighting._illuminateSurfaces(canvas, _area);
+    } else {
+      emptyTurns++;
+    }
     _close(canvas);
   }
 
+  /// How many times a picture's layer has been lit and laid down, and how
+  /// many times that was left out because nothing had been drawn into it
+  /// since it opened: for tests, and for a probe of what a frame costs.
+  static int turns = 0;
+  static int emptyTurns = 0;
+
+  /// Whether anything has been drawn into the open layer since it opened.
+  bool _holds = false;
+
+  /// Says something of the world was drawn into the picture: whoever draws
+  /// the world into it (a mirror's pass) says so for each thing it
+  /// draws, and the layer is lit at the next step.
+  void drew() => _holds = true;
+
   void _open(Canvas canvas) {
+    _holds = false;
     _openAt = canvas.getSaveCount();
     _openTransform = canvas.getTransform();
     canvas.saveLayer(null, _paint);

@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui';
 
@@ -83,7 +84,63 @@ class _Wall extends RectangleComponent with Reflectable {
       );
 }
 
+/// A road of water [streak] rough under a white wall over black, its top
+/// edge sharp: what it mirrors down the column at x 400, drawing by drawing.
+Future<List<int>> _smearedColumn(
+  FlameGame game, {
+  required double streak,
+}) async {
+  await WaterShader.load(asset: 'shaders/water.frag');
+  game.onGameResize(Vector2(800, 600));
+  game.camera.viewfinder.anchor = Anchor.topLeft;
+  game.world.addAll([
+    RectangleComponent(
+      size: Vector2(800, 400),
+      paint: Paint()..color = const Color(0xFF000000),
+    ),
+    _Wall(),
+    _water(-2000, 400, 8000, 200)
+      ..shape = WaterShape.rect
+      ..streak = streak,
+  ]);
+  await game.ready();
+  final bytes = await _pixels(game);
+  return [for (var y = 402; y < 600; y += 2) _red(bytes, 400, y)];
+}
+
 void main() {
+  testWithFlameGame(
+    'a rough water reads its mirror smeared once as it smeared it tap by tap',
+    (game) async {
+      final once = await _smearedColumn(game, streak: 60);
+      WaterSurface.preSmears = false;
+      final taps = await _smearedColumn(
+        await initializeFlameGame(),
+        streak: 60,
+      );
+      WaterSurface.preSmears = true;
+      final sharp = await _smearedColumn(
+        await initializeFlameGame(),
+        streak: 0,
+      );
+      var worst = 0;
+      var sum = 0;
+      var smear = 0;
+      for (var i = 0; i < once.length; i++) {
+        final d = (once[i] - taps[i]).abs();
+        worst = math.max(worst, d);
+        sum += d;
+        smear = math.max(smear, (taps[i] - sharp[i]).abs());
+      }
+      expect(smear, greaterThan(40), reason: 'the surface does smear it');
+      expect(sum / once.length, lessThan(2), reason: 'and smeared alike');
+      // Fifteen taps over a picture coarser than the screen land in steps
+      // (141, 140, 167, 165, 164, 187 ...): the smear done once is the
+      // smooth curve through them.
+      expect(worst, lessThanOrEqualTo(12));
+    },
+  );
+
   testWithFlameGame(
     'a mirror kept for the next drawing still mirrors the edge a moving '
     'view comes to',

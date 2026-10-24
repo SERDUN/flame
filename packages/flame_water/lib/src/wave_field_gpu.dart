@@ -94,7 +94,9 @@ class _GpuWaveField implements WaveField {
   /// a frame).
   final gpu.HostBuffer _host = gpu.gpuContext.createHostBuffer();
   final List<gpu.Texture> _textures;
-  final List<double> _drops = [];
+  // A slow frame's rain lands in one go: eight steps' worth wait for the
+  // steps after, sixteen a step.
+  final DropQueue _drops = DropQueue(perStep: maxDrops, hold: maxDrops * 8);
   final Float32List _params = Float32List(8 + maxDrops * 4);
   int _turn = 0;
   ui.Image? _heights;
@@ -114,18 +116,10 @@ class _GpuWaveField implements WaveField {
     if (u < 0 || u > 1 || v < 0 || v > 1) {
       return;
     }
-    _drops.addAll([u, v, radius, depth]);
     // A field that steps seldom (a big surface, coarse cells) would hoard
-    // drops without end: past a few steps' worth they are thinned.
-    if (_drops.length >= _hoard * 4) {
-      _thin(_hoard ~/ 2);
-    }
+    // drops without end: past the queue's hold they are folded in.
+    _drops.add(u, v, radius, depth);
   }
-
-  /// Drops held between steps at most.
-  static const int _hoard = maxDrops * 4;
-
-  void _thin(int keep) => thinDrops(_drops, keep);
 
   @override
   void step(int steps, {required double damping, required double courant}) {
@@ -133,8 +127,9 @@ class _GpuWaveField implements WaveField {
       return;
     }
     _host.reset();
-    // As many drops as these steps take, the rest folded into them.
-    _thin(steps * maxDrops);
+    // As many drops as these steps take, or the queue holds; the rest
+    // folded into them.
+    _drops.beforeSteps(steps);
     final pipeline = _shared.pipeline;
     final shader = pipeline.fragmentShader;
     for (var s = 0; s < steps; s++) {
@@ -144,17 +139,13 @@ class _GpuWaveField implements WaveField {
       final current = _textures[(_turn + 1) % 3];
       final next = _textures[(_turn + 2) % 3];
       // Drops land on the first step they can, sixteen a step.
-      final count = (_drops.length ~/ 4).clamp(0, maxDrops);
+      final count = _drops.takeInto(_params, 8);
       _params
         ..[0] = 1 / columns
         ..[1] = 1 / rows
         ..[2] = damping
         ..[3] = count.toDouble()
         ..[4] = courant * courant;
-      for (var i = 0; i < count * 4; i++) {
-        _params[8 + i] = _drops[i];
-      }
-      _drops.removeRange(0, count * 4);
       final pass = commands.createRenderPass(
         gpu.RenderTarget.singleColor(gpu.ColorAttachment(texture: next)),
       );

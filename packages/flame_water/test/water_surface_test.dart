@@ -1,6 +1,7 @@
 import 'dart:ui';
 
 import 'package:flame/components.dart';
+import 'package:flame/game.dart';
 import 'package:flame_lighting/flame_lighting.dart';
 import 'package:flame_stage/flame_stage.dart';
 import 'package:flame_test/flame_test.dart';
@@ -21,6 +22,18 @@ class _Block extends RectangleComponent with Reflectable {
 
   @override
   final double? groundDepth;
+}
+
+/// A thing that draws a glow out of the light's multiply, then its body in
+/// it, as one draw - the body is lit like any other.
+class _GlowThenBody extends RectangleComponent with Reflectable {
+  _GlowThenBody({super.position, super.size, super.paint});
+
+  @override
+  void render(Canvas canvas) {
+    Lighting.of(this)?.unlit(canvas, () {});
+    super.render(canvas);
+  }
 }
 
 class _Flat extends RectangleComponent with LiesFlat {
@@ -172,6 +185,71 @@ void main() {
       final far = pixel(50, 139);
       expect(near.r, greaterThan(0.9), reason: 'just below: the horizon');
       expect(far.b, greaterThan(0.9), reason: '39 below: the sky 39 above');
+    },
+  );
+
+  // A cut the mirror comes to with nothing drawn since its picture's layer
+  // opened, or with something between that draws nothing: the picture is
+  // the same, the empty layer is only not lit.
+  Future<List<Color>> litMirror(FlameGame game, {required bool between}) async {
+    final surface = _surface();
+    game.world.addAll([
+      if (between)
+        _Block(position: Vector2.zero(), size: Vector2.zero())..priority = -10,
+      LitCut(ahead: () => -1000, priority: -5),
+      _Block(
+        position: Vector2(40, 80),
+        size: Vector2(20, 20),
+        paint: Paint()..color = _red,
+      ),
+      LightSource(position: Vector2(50, 70), radius: 60),
+      Lighting(skyLight: 0, glow: 0, lightsBackdrop: false),
+      surface,
+    ]);
+    await game.ready();
+    game.update(1 / 60);
+    final pixel = await _draw(surface);
+    return [for (var y = 100; y < 140; y += 3) pixel(50, y)];
+  }
+
+  testWithFlameGame(
+    'a mirror lights no layer it drew nothing into, and shows the same',
+    (game) async {
+      LitPicture.turns = 0;
+      LitPicture.emptyTurns = 0;
+      final skipped = await litMirror(game, between: false);
+      expect(LitPicture.emptyTurns, greaterThan(0));
+      final turns = LitPicture.turns;
+      LitPicture.emptyTurns = 0;
+      final made = await litMirror(await initializeFlameGame(), between: true);
+      expect(LitPicture.emptyTurns, 0, reason: 'something came before the cut');
+      expect(LitPicture.turns, greaterThan(turns));
+      expect(made, skipped);
+      expect(skipped.any((c) => c.r > 0.2), isTrue, reason: 'the block, lit');
+    },
+  );
+
+  testWithFlameGame(
+    'what is drawn after an unlit draw is lit in the mirror too',
+    (game) async {
+      final surface = _surface();
+      game.world.addAll([
+        _GlowThenBody(
+          position: Vector2(40, 80),
+          size: Vector2(20, 20),
+          paint: Paint()..color = _red,
+        ),
+        Lighting(skyLight: 0, glow: 0, lightsBackdrop: false),
+        surface,
+      ]);
+      await game.ready();
+      game.update(1 / 60);
+      final pixel = await _draw(surface);
+      expect(
+        pixel(50, 110).r,
+        lessThan(0.1),
+        reason: 'a red body in a night with no lamp is no red in the water',
+      );
     },
   );
 

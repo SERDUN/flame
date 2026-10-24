@@ -65,6 +65,8 @@ uniform vec4 u[kHoles + kMaxHoles];
 #define uHaze        u[7].w    // the air's haze, 0..1: halos round lights
 #define uWave        u[8]      // field on (1), a cell across and down, gain
 #define uGlint       u[9]      // what a crest catches, premultiplied
+#define uPreSmeared  u[10].x   // 1: uReflection is already smeared up and
+                               // down by uSpread: only across is left
 #define uSquash      u[10].y   // the mirror's height over the thing's
 #define uAir         u[10].z   // how much of the light cast on what stands
                                // on the street (walls, the air) is mirrored
@@ -123,6 +125,10 @@ vec2 chop(vec2 p) {
 
 vec2 ripple(vec2 p) {
     vec2 shift = vec2(0.0);
+    float width = uWavelength * 0.75;
+    // Three widths off its crest a ring's wave is under e^-9 of it: a ring
+    // whose band does not reach p is passed over before any root, exp or sine.
+    float reach = 3.0 * width;
     for (int i = 0; i < kMaxRings; i++) {
         if (float(i) >= uCount) {
             break;
@@ -131,12 +137,17 @@ vec2 ripple(vec2 p) {
         // In ring space the ring is a circle: undo the flattening.
         vec2 d = p - ring.xy;
         d.y /= uFlatten;
-        float dist = length(d);
+        float d2 = dot(d, d);
+        float outer = ring.z + reach;
+        float inner = max(ring.z - reach, 0.0);
+        if (d2 > outer * outer || d2 < inner * inner) {
+            continue;
+        }
+        float dist = sqrt(d2);
         if (dist < 0.0001) {
             continue;
         }
         float x = dist - ring.z;
-        float width = uWavelength * 0.75;
         float envelope = exp(-(x * x) / (width * width));
         float wave = sin(x * 6.2831853 / uWavelength) * envelope * ring.w;
         vec2 dir = d / dist;
@@ -363,21 +374,6 @@ void main() {
         fragColor = pass > 0.5 && pass < 1.5 ? vec4(1.0) : vec4(0.0);
         return;
     }
-    bool waves = uWave.x > 0.5;
-    vec2 tilt = waves ? slope(p) : vec2(0.0);
-    vec2 bend = ripple(p);
-    if (waves) {
-        // Many drops' waves add up under heavy rain; past a point the mirror
-        // would be read from outside its image. uWave.w is a drop's ring at
-        // about waveAmplitude, so no more than one and a half of those.
-        bend = vec2(tilt.x, tilt.y * uFlatten) * uWave.w;
-        float most = uWave.w * 0.15 * 1.5;
-        float l = length(bend);
-        if (l > most) {
-            bend *= most / l;
-        }
-    }
-    vec2 at = p + bend + chop(p);
     float s = mix(uElevTop, uElevBottom, clamp(p.y / uSize.y, 0.0, 1.0));
     float reflectance = uFresnel > 0.5 ? fresnel(s) : 1.0;
     float below = clamp((p.y - uLine) / max(uSize.y - uLine, 1.0), 0.0, 1.0);
@@ -393,6 +389,27 @@ void main() {
         fragColor = vec4(mix(vec3(1.0), k, water), 1.0);
         return;
     }
+    // How the surface bends what it mirrors: by the field's waves where it
+    // has them, else round its newest rings - what is under the water (the
+    // pass above) is not bent at all.
+    bool waves = uWave.x > 0.5;
+    vec2 tilt = vec2(0.0);
+    vec2 bend;
+    if (waves) {
+        tilt = slope(p);
+        // Many drops' waves add up under heavy rain; past a point the mirror
+        // would be read from outside its image. uWave.w is a drop's ring at
+        // about waveAmplitude, so no more than one and a half of those.
+        bend = vec2(tilt.x, tilt.y * uFlatten) * uWave.w;
+        float most = uWave.w * 0.15 * 1.5;
+        float l = length(bend);
+        if (l > most) {
+            bend *= most / l;
+        }
+    } else {
+        bend = ripple(p);
+    }
+    vec2 at = p + bend + chop(p);
     if (uLightMode > 0.5) {
         vec3 light = lights(at, s);
         if (uAirMap > 0.5) {
@@ -416,9 +433,15 @@ void main() {
         color = mirrored(at);
     } else {
         int side = across * uPixels < 0.75 ? 0 : 2;
+        // The picture smeared down once for every pixel that reads it: the
+        // taps across are left.
+        int rows = uPreSmeared > 0.5 ? 0 : 7;
         vec4 sum = vec4(0.0);
         float total = 0.0;
         for (int j = -7; j <= 7; j++) {
+            if (j < -rows || j > rows) {
+                continue;
+            }
             float y = float(j) * (2.0 / 7.0);
             float wy = exp(-0.5 * y * y);
             for (int k = -2; k <= 2; k++) {

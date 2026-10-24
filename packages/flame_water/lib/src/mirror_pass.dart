@@ -45,6 +45,47 @@ class MirrorPass implements Mirror {
   /// The picture; `null` when none of it is in view.
   Image? image;
 
+  // The picture smeared up and down, by the smear's sigma in pixels.
+  final Map<double, Image> _smeared = {};
+
+  /// The picture smeared up and down by a Gaussian of [sigma] pixels, made
+  /// once for every water that reads it so: what a rough surface's smear
+  /// does to it, done once over the picture rather than in fifteen taps for
+  /// every pixel of the water. `null` with no picture.
+  Image? smeared(double sigma) {
+    final image = this.image;
+    if (image == null) {
+      return null;
+    }
+    final made = _smeared[sigma];
+    if (made != null) {
+      return made;
+    }
+    final recorder = PictureRecorder();
+    Canvas(recorder).drawImage(
+      image,
+      Offset.zero,
+      Paint()
+        ..imageFilter = ImageFilter.blur(
+          sigmaY: sigma,
+          tileMode: TileMode.decal,
+        ),
+    );
+    final picture = recorder.endRecording();
+    final smeared = picture.toImageSync(image.width, image.height);
+    picture.dispose();
+    return _smeared[sigma] = smeared;
+  }
+
+  void _dispose() {
+    image?.dispose();
+    image = null;
+    for (final smeared in _smeared.values) {
+      smeared.dispose();
+    }
+    _smeared.clear();
+  }
+
   Rect _area = Rect.zero;
 
   @override
@@ -212,6 +253,7 @@ class MirrorPass implements Mirror {
       if (!mirrors(child) || !_across(child, left, right)) {
         continue;
       }
+      lit?.drew();
       final base = child is Reflectable ? _baseOf(child, projection) : null;
       if (base != null) {
         canvas
@@ -390,7 +432,7 @@ class _Passes {
     }
     _drawnIn = stage.drawing;
     for (final pass in _list) {
-      pass.image?.dispose();
+      pass._dispose();
     }
     _list.clear();
     drawing = stage.drawing;
