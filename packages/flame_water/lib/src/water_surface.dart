@@ -827,6 +827,7 @@ class WaterSurface extends PositionComponent
 
   /// Starts a ripple where a drop hit, [worldPoint] in world coordinates.
   void splash(Vector2 worldPoint, {double strength = 1, double ago = 0}) {
+    splashCount++;
     final origin = absoluteTopLeftPosition;
     final x = worldPoint.x - origin.x;
     final y = worldPoint.y - origin.y;
@@ -844,6 +845,10 @@ class WaterSurface extends PositionComponent
       );
     }
   }
+
+  /// How many drops have landed in it so far: what a probe counts the rings
+  /// the rain starts by.
+  int splashCount = 0;
 
   /// Splashes since the last update, and how many land a second, smoothed.
   int _splashes = 0;

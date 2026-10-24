@@ -612,6 +612,41 @@ Future<int> _brightness(FlameGame game) async {
 
 void _nightTests() {
   testWithFlameGame(
+    'unseen rain falls and is counted, but draws and stirs nothing',
+    (game) async {
+      game.camera.viewfinder.anchor = Anchor.topLeft;
+      final road = WaterSurface(
+        position: Vector2(0, 400),
+        size: Vector2(800, 120),
+        shape: WaterShape.rect,
+        waterDepth: 0.1,
+        film: true,
+      );
+      final rain = Rain(intensity: 2)..shown = false;
+      game.world.addAll([_Ground(), road, rain]);
+      await game.ready();
+      await _rainFor(game, 2);
+      expect(rain.dropsIn(const Rect.fromLTWH(0, 0, 800, 600)), greaterThan(0));
+      expect(rain.landed[WaterSurface], greaterThan(0), reason: 'it lands');
+      expect(road.ripples.count, 0, reason: 'and leaves no ring');
+      expect(road.splashCount, 0);
+      expect(rain.droplets, 0, reason: 'nor a splash');
+      final recorder = PictureRecorder();
+      rain.render(Canvas(recorder));
+      final image = await recorder.endRecording().toImage(800, 600);
+      final bytes = (await image.toByteData())!;
+      var sum = 0;
+      for (var i = 3; i < bytes.lengthInBytes; i += 4) {
+        sum += bytes.getUint8(i);
+      }
+      expect(sum, 0, reason: 'nor anything drawn');
+      rain.shown = true;
+      await _rainFor(game, 1);
+      expect(road.splashCount, greaterThan(0));
+    },
+  );
+
+  testWithFlameGame(
     "rain born on the steps is the same rain whatever a frame's steps",
     (game) async {
       game.camera.viewfinder.anchor = Anchor.topLeft;

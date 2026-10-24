@@ -603,6 +603,23 @@ class Rain extends Component with OnStage, Reflectable, Weather {
     _owed.moved();
   }
 
+  /// Whether the rain is seen: drawn, and leaving its rings and splashes
+  /// where it lands. Unseen it still falls, wets and is heard - the scene as
+  /// it would be with the rain taken out of the picture alone, to weigh the
+  /// rest of it against another drawing of the same moment.
+  bool shown = true;
+
+  /// How many drops are in [area] now (world), whether seen or not.
+  int dropsIn(Rect area) {
+    var n = 0;
+    for (var i = 0; i < _drops.length; i++) {
+      if (area.contains(Offset(_drops.x(i), _drops.y(i)))) {
+        n++;
+      }
+    }
+    return n;
+  }
+
   /// How many times the drops have been moved, for tests.
   @visibleForTesting
   int moves = 0;
@@ -802,13 +819,16 @@ class Rain extends Component with OnStage, Reflectable, Weather {
       _landed.update(null, (n) => n + 1, ifAbsent: () => 1);
       _heard(i, ground, x, land, _velocity.length);
       // The bare ground; behind the street line, nothing to see.
-      if (depth >= 0) {
+      if (depth >= 0 && shown) {
         _burst(i, x, land, ground);
       }
       return true;
     }
     _landed.update(by.runtimeType, (n) => n + 1, ifAbsent: () => 1);
     _heard(i, by.surface, x, at, _velocity.length);
+    if (!shown) {
+      return true;
+    }
     _burst(i, x, at, by.surface);
     // Where in the move it landed: a move over a whole frame lands it
     // partway, and it is that long ago by the frame's end.
@@ -1094,6 +1114,9 @@ class Rain extends Component with OnStage, Reflectable, Weather {
     RainSlice? slice,
   ) {
     _moveIfDue();
+    if (!shown) {
+      return;
+    }
     _shadeIfDue();
     final mirror = ReflectionPass.current;
     // In water, the rain is as dark as the water it is mirrored in.
