@@ -531,8 +531,28 @@ class Rain extends Component with OnStage, Reflectable, Weather {
     }
     _fallAll(view, dt);
     _droplets.step(dt, 18 * metre);
-    _shade();
+    // PROBE T482: the drops' looks worked out once a drawn frame instead of once a step.
+    if (probeShadeOnDraw) {
+      _shadeDirty = true;
+    } else {
+      _shade();
+    }
   }
+
+  // PROBE T482: switches and counters for the visibility audit. Off unless the build asks.
+  static bool probeShadeOnDraw = false;
+  static bool probeCount = false;
+  static int probeShades = 0;
+  static int probeDrops = 0;
+  static int probeFaint = 0;
+  static int probeOutside = 0;
+  static int probeDroplets = 0;
+  static int probeAbove = 0;
+  static int probeBelow = 0;
+  static int probeLeft = 0;
+  static int probeRight = 0;
+  static Rect? probeView;
+  bool _shadeDirty = false;
 
   final Vector2 _from = Vector2.zero();
   final Vector2 _to = Vector2.zero();
@@ -726,6 +746,7 @@ class Rain extends Component with OnStage, Reflectable, Weather {
   /// the light there is laid over it and it carries only the rest. Then
   /// sorts them into the slices that draw them.
   void _shade() {
+    probeShades++;
     final stage = this.stage;
     final projection = stage?.projection;
     final field = stage?.frame.light;
@@ -770,6 +791,34 @@ class Rain extends Component with OnStage, Reflectable, Weather {
       drops
         ..color[i] = over
         ..colorUnder[i] = _underLight(over);
+    }
+    if (probeCount) {
+      final v = _lastView;
+      var faint = 0;
+      var outside = 0;
+      probeAbove = probeBelow = probeLeft = probeRight = 0;
+      probeView = v;
+      for (var i = 0; i < drops.length; i++) {
+        if (((drops.color[i] >>> 24) & 0xFF) < 2) faint++;
+        if (v != null && !v.contains(Offset(drops.x(i), drops.y(i)))) {
+          outside++;
+          final x = drops.x(i);
+          final y = drops.y(i);
+          if (y < v.top) {
+            probeAbove++;
+          } else if (y > v.bottom) {
+            probeBelow++;
+          } else if (x < v.left) {
+            probeLeft++;
+          } else {
+            probeRight++;
+          }
+        }
+      }
+      probeDrops = drops.length;
+      probeFaint = faint;
+      probeOutside = outside;
+      probeDroplets = _droplets.length;
     }
     final droplets = _droplets;
     for (var i = 0; i < droplets.length; i++) {
@@ -915,6 +964,11 @@ class Rain extends Component with OnStage, Reflectable, Weather {
     bool underLighting,
     RainSlice? slice,
   ) {
+    // PROBE T482: the looks worked out once a drawn frame instead of once a step.
+    if (_shadeDirty) {
+      _shadeDirty = false;
+      _shade();
+    }
     final mirror = ReflectionPass.current;
     // In water, the rain is as dark as the water it is mirrored in.
     final dark = mirror == null ? underLighting : _underLighting(mirror.drawer);
