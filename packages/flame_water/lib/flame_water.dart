@@ -12,7 +12,6 @@
 /// `build/shaderbundles/flame_water.shaderbundle`.
 library;
 
-export 'src/depth_glow.dart' show DepthGlow;
 export 'src/mirror_pass.dart' show MirrorPass;
 export 'src/rain.dart' show Rain, RainSlice, RainStrikes;
 export 'src/rain_catcher.dart' show RainCatcher;

@@ -3,12 +3,9 @@ import 'dart:io';
 import 'package:flame_water/flame_water.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-/// The float offset each `#define name u[i].c` of [source] names; `i` a
-/// number, or one of the shader's constants plus a number (`u[kBody + 1]`).
+/// The float offset each `#define name u[i].c` of [source] names.
 Map<String, int> _defines(String source) {
-  final define = RegExp(
-    r'#define\s+(\w+)\s+u\[(\w+)(?:\s*\+\s*(\d+))?\](?:\.(\w))?',
-  );
+  final define = RegExp(r'#define\s+(\w+)\s+u\[(\d+)\](?:\.(\w))?');
   const components = {
     'x': 0,
     'y': 1,
@@ -21,34 +18,13 @@ Map<String, int> _defines(String source) {
   };
   return {
     for (final m in define.allMatches(source))
-      m[1]!:
-          (_value(source, m[2]!) + int.parse(m[3] ?? '0')) * 4 +
-          (components[m[4]] ?? 0),
+      m[1]!: int.parse(m[2]!) * 4 + (components[m[3]] ?? 0),
   };
 }
 
-/// A number, or the value of the shader's `const int` [term] names - sums
-/// of products of numbers and other constants.
-int _value(String source, String term) {
-  final number = int.tryParse(term);
-  if (number != null) {
-    return number;
-  }
-  final expression = RegExp(
-    'const int $term = ([^;]+);',
-  ).firstMatch(source)![1]!;
-  return expression
-      .split('+')
-      .map(
-        (sum) => sum
-            .split('*')
-            .map((factor) => _value(source, factor.trim()))
-            .reduce((a, b) => a * b),
-      )
-      .reduce((a, b) => a + b);
-}
-
-int _constant(String source, String name) => _value(source, name);
+int _constant(String source, String name) => int.parse(
+  RegExp('const int $name = (\\d+);').firstMatch(source)![1]!,
+);
 
 void main() {
   final source = File('shaders/water.frag').readAsStringSync();
@@ -93,8 +69,6 @@ void main() {
       'uDeep': WaterShader.deep,
       'uAmbient': WaterShader.ambient,
       'uHoleInfo': WaterShader.holeCount,
-      'uLampArea': WaterShader.lampArea,
-      'uLampInfo': WaterShader.lampInfo,
     };
     expect(defines, dart);
   });
@@ -105,19 +79,15 @@ void main() {
     expect(_constant(source, 'kMaxLights'), WaterShader.maxLights);
     // Six vectors a light.
     expect(WaterShader.lightFloats, 6 * 4);
-    // Two vectors after the holes: the light the depth glows by.
     expect(
       WaterShader.floats,
       (WaterShader.header +
               WaterShader.maxRings +
               WaterShader.maxLights * 6 +
-              WaterShader.maxHoles +
-              2) *
+              WaterShader.maxHoles) *
           4,
     );
     expect(_constant(source, 'kMaxHoles'), WaterShader.maxHoles);
-    expect(_constant(source, 'kHoles') * 4, WaterShader.holes);
-    expect(_constant(source, 'kBody') * 4, WaterShader.body);
-    expect(source, contains('uniform vec4 u[kBody + 2];'));
+    expect(source, contains('uniform vec4 u[kHoles + kMaxHoles];'));
   });
 }

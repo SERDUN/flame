@@ -393,12 +393,6 @@ class Lighting extends Component with OnStage, Ambience, FrameStep {
   /// buffer, [canvasGain] for the canvas path's image).
   double get lightGain => _lightGain;
 
-  /// Whether [lightImage]'s alpha is white light to add to its colour (the
-  /// GPU buffer's), or only its coverage, the white already in the colour
-  /// (the canvas path's image). Whatever reads the buffer adds it up as
-  /// the compose shader does, so both paths show the same light.
-  bool get lightAlphaIsWhite => _alphaIsWhite;
-
   /// Lays the light buffer over [area] with [paint]: the illumination as
   /// seen under [field]'s sky (mode 0, to multiply), or the light in the
   /// air at [amount] (mode 1, to add).
