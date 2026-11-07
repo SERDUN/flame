@@ -1,0 +1,4 @@
+{
+  "WaveVertex": { "type": "vertex", "file": "gpu_shaders/quad.vert" },
+  "WaveFragment": { "type": "fragment", "file": "gpu_shaders/wave.frag" }
+}
