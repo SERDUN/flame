@@ -6,6 +6,7 @@ import 'package:flame/components.dart';
 import 'package:flame/extensions.dart';
 import 'package:flame_lighting/flame_lighting.dart';
 import 'package:flame_stage/flame_stage.dart';
+import 'package:flame_water/src/depth_glow.dart';
 import 'package:flame_water/src/mirror_pass.dart';
 import 'package:flame_water/src/rain.dart';
 import 'package:flame_water/src/rain_catcher.dart';
@@ -147,6 +148,15 @@ class WaterSurface extends PositionComponent
 
   @override
   DepthOrder get depthOrder => DepthOrder.flat;
+
+  /// How much of the lamps' light falling on it the glow of its depth
+  /// takes, `0..1` ([DepthGlow]): 0 the sky's alone, one figure for the
+  /// whole surface, the lighting's buffer not read (as by day); 1 the light
+  /// at each point as the buffer has it, the sky's and the lamps' together,
+  /// so the water under a lamp glows lighter in its own colour. Its owner
+  /// says when: the hour is the scene's, not the water's. Through the shader
+  /// only; water drawn plainly glows by the sky.
+  double lampsInDepth = 0;
 
   /// How deep it is, m: the water it holds ([waterMm]).
   double get depthM => waterMm / 1000;
@@ -649,7 +659,8 @@ class WaterSurface extends PositionComponent
     final blank = _blank ??= _makeBlank();
     shader
       ..setImageSampler(0, buffer ?? blank, filterQuality: FilterQuality.low)
-      ..setImageSampler(1, _waves?.heights ?? blank);
+      ..setImageSampler(1, _waves?.heights ?? blank)
+      ..setImageSampler(2, blank);
     canvas.drawRect(rect, _glowPaint..shader = shader);
   }
 
@@ -1396,6 +1407,26 @@ class WaterSurface extends PositionComponent
       ..[WaterShader.ambient + 2] = light.b
       ..[WaterShader.pass] = mode.toDouble()
       ..[WaterShader.preSmeared] = smeared == null ? 0 : 1;
+    // The light the depth glows by, in the pass that adds its light.
+    final lighting = Lighting.of(this);
+    final field = stage?.frame.light;
+    final lamps = mode == 2
+        ? DepthGlow.bufferOf(lighting, field, lampsInDepth)
+        : null;
+    if (lamps != null) {
+      final area = lighting!.lightArea;
+      f
+        ..[WaterShader.lampArea] = area.left - origin.x
+        ..[WaterShader.lampArea + 1] = area.top - origin.y
+        ..[WaterShader.lampArea + 2] = area.width
+        ..[WaterShader.lampArea + 3] = area.height
+        ..[WaterShader.lampInfo] = lampsInDepth.clamp(0.0, 1.0)
+        ..[WaterShader.lampInfo + 1] = DepthGlow.texelScale(
+          field!.exposure,
+          lighting.lightGain,
+        )
+        ..[WaterShader.lampInfo + 2] = lighting.lightAlphaIsWhite ? 0 : 1;
+    }
     if (skyShown) {
       f
         ..[WaterShader.skyY] = sky.topY - origin.y
@@ -1421,7 +1452,9 @@ class WaterSurface extends PositionComponent
       // Unfiltered (the default): not every GPU filters a float texture.
       // With no field the slot still needs an image; the shader does not
       // read it.
-      ..setImageSampler(1, _waves?.heights ?? image);
+      ..setImageSampler(1, _waves?.heights ?? image)
+      // Read only where the depth takes the lamps' light.
+      ..setImageSampler(2, lamps ?? image, filterQuality: FilterQuality.low);
     canvas.drawRect(rect, paint..shader = shader);
   }
 
