@@ -21,7 +21,7 @@ abstract final class RainDrops {
 
   /// How long a frame "exposes" a drop, s: a streak is the path the drop covers
   /// meanwhile, as in a photograph at 1/30 s.
-  static const double exposureSec = 1 / 20;
+  static const double exposureSec = String.fromEnvironment('STREAK_VARIANT') == 'B' ? 1 / 1000 : 1 / 20;
 
   static const double _g = 9.81;
 

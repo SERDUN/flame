@@ -131,7 +131,12 @@ class RainVeil {
     final pixels = math.sqrt(
       transform[0] * transform[0] + transform[1] * transform[1],
     );
-    final alpha = color.a * 0.4 * math.sqrt(scale);
+    // PROBE: the variants read the 2 mm drop's fill at their alpha exposure, kept at the shipped
+    // veil's 0.4 of a streak's 0.7.
+    final probeT = Rain.probeAlphaExposure;
+    final alpha = (probeT == null ? color.a : Rain.probeFill(2, RainDrops.terminalSpeed(2), probeT) / 0.7) *
+        0.4 *
+        math.sqrt(scale);
     final f = _uniforms
       ..[0] = view.left
       ..[1] = view.top
@@ -139,7 +144,7 @@ class RainVeil {
       ..[3] = view.height
       ..[4] = _time
       ..[5] = RainDrops.terminalSpeed(2) * metre * scale
-      ..[6] = 0.34 * scale * metre
+      ..[6] = (Rain.probeVariant == 'B' ? RainDrops.streakLength(RainDrops.terminalSpeed(2)) : 0.34) * scale * metre
       ..[7] = 0.018 * scale * metre
       ..[8] = _slope
       // A veil slides by in the view as anything at its depth does: as

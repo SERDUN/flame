@@ -294,6 +294,37 @@ class Rain extends Component with OnStage, Reflectable, Weather {
     ];
   }
 
+  // ===== PROBE t1228 options (throwaway, never pushed) =====
+  @visibleForTesting
+  Iterable<({double depth, double width, double alpha})> get dropLooksFixed {
+    _moveIfDue();
+    _shadeIfDue();
+    return [
+      for (var i = 0; i < _drops.length; i++)
+        (depth: _drops.depth(i), width: _drops.width(i), alpha: ((_drops.color[i] >> 24) & 0xFF) / 255),
+    ];
+  }
+
+  @visibleForTesting
+  final List<Map<String, double>> probeChain = [];
+
+  /// shipped | A (one named alpha exposure, look kept) | B (one shutter for length and alpha) |
+  /// C (A + a pupil's aperture) | P (the length's 1/20 s in the alpha too)
+  static const String probeVariant = String.fromEnvironment('STREAK_VARIANT', defaultValue: 'shipped');
+
+  /// The shutter the streak's alpha is lit for, s; `null` for the shipped pair 0.6 x 0.7.
+  static double? get probeAlphaExposure => switch (probeVariant) {
+    'A' || 'C' => 0.002 / RainDrops.terminalSpeed(2) / 0.42,
+    'B' => RainDrops.exposureSec,
+    'P' => RainDrops.exposureSec,
+    _ => null,
+  };
+
+  /// Garg & Nayar's fill: the share of the exposure a drop covers a point of its streak.
+  static double probeFill(double diameterMm, double speed, double exposureSec) =>
+      diameterMm / 1000 / speed / exposureSec;
+  // ===== end PROBE =====
+
   /// How many times the drops' look has been worked out, for tests.
   @visibleForTesting
   int shades = 0;
@@ -914,6 +945,7 @@ class Rain extends Component with OnStage, Reflectable, Weather {
     final focus = scale(focusDepth);
     final water = _water;
     final drops = _drops;
+    probeChain.clear();
     // What is seen of the rain lies across the view, and a streak's length
     // and a water's bend round it: a drop farther off across - most are
     // upwind, still on their way in - is given no look and left unsorted.
@@ -946,7 +978,25 @@ class Rain extends Component with OnStage, Reflectable, Weather {
       // heavy fast one come out alike; a fast small one is a faint line.
       final trueSpeed = math.max(speed / (metre * drops.perspective(i)), 0.5);
       final exposure = drops.diameter(i) / trueSpeed / _referenceExposure;
-      final share = visibility * exposure * focusShare;
+      final probeT = probeAlphaExposure;
+      // PROBE: the variants take the colour's own alpha out (the game's 0.6) and draw the fill.
+      final share = probeVariant == 'N'
+          ? 0.0
+          : probeT == null
+          ? visibility * exposure * focusShare
+          : probeFill(drops.diameter(i), trueSpeed, probeT) * focusShare / water.a;
+      probeChain.add({
+        'depth': drops.depth(i),
+        'perspective': drops.perspective(i),
+        'diameter': drops.diameter(i) / 1000,
+        'trueSpeed': trueSpeed,
+        'sharp': sharp,
+        'blurred': blurred,
+        'focusShare': focusShare,
+        'exposure': exposure,
+        'visibility': visibility,
+        'share': share * water.a,
+      });
       if (!lit) {
         drops.color[i] = drops.colorUnder[i] = _argb(water, share);
         continue;
@@ -960,6 +1010,10 @@ class Rain extends Component with OnStage, Reflectable, Weather {
       );
       final tint = _sample.added * 0.8;
       final over = _tinted(water, tint, share * _sample.scattered);
+      probeChain[probeChain.length - 1].addAll({
+        'scattered': _sample.scattered,
+        'finalAlpha': ((over >> 24) & 0xFF) / 255,
+      });
       drops
         ..color[i] = over
         ..colorUnder[i] = _underLight(over);
