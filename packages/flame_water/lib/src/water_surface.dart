@@ -1496,6 +1496,7 @@ class WaterSurface extends PositionComponent
     // The medium: how its depth takes the bottom's light and gives its own.
     final atten = medium.attenuation;
     final deep = medium.deepReflectance;
+    final silt = medium.siltReflectance;
     f
       ..[WaterShader.attenuation] = atten.r
       ..[WaterShader.attenuation + 1] = atten.g
@@ -1505,7 +1506,12 @@ class WaterSurface extends PositionComponent
       ..[WaterShader.deep + 1] = deep.g
       ..[WaterShader.deep + 2] = deep.b
       ..[WaterShader.f0] = medium.f0
-      ..[WaterShader.darken] = _darken;
+      ..[WaterShader.darken] = _darken
+      // The layer on the water: what it sends back of the light a beam of
+      // light puts into it.
+      ..[WaterShader.silt] = silt.r
+      ..[WaterShader.silt + 1] = silt.g
+      ..[WaterShader.silt + 2] = silt.b;
     final holes = _holes();
     for (final (i, hole) in holes.indexed) {
       final o = WaterShader.holes + i * 4;

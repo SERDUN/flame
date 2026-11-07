@@ -37,11 +37,12 @@ abstract final class WaterShader {
   static const int holes = lights + maxLights * lightFloats;
 
   /// Where the light the depth glows by starts, in floats: the buffer's
-  /// rect ([lampArea]) and how it is read ([lampInfo]).
+  /// rect ([lampArea]), how it is read ([lampInfo]) and the medium's top
+  /// layer ([surface]).
   static const int body = holes + maxHoles * 4;
 
   /// Floats in the array.
-  static const int floats = body + 2 * 4;
+  static const int floats = body + 3 * 4;
 
   // Header offsets, in floats: the shader's names.
   static const int size = 0;
@@ -92,6 +93,10 @@ abstract final class WaterShader {
   // After the holes: the light the depth glows by.
   static const int lampArea = body;
   static const int lampInfo = body + 4;
+
+  /// The medium's top layer: what it sends back of the light a beam of
+  /// light puts into it (rgb).
+  static const int silt = body + 8;
 
   /// The loaded program; `null` before [load] finishes.
   static FragmentProgram? get program => _program;

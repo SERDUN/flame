@@ -170,6 +170,70 @@ void main() {
     );
   });
 
+  group('the layer on the water', () {
+    test('the sky alone: the layer sends nothing back', () {
+      expect(DepthGlow.lampShare(0.02, 0, 1), 0);
+      expect(DepthGlow.lampShare(0.02, 2, 0), 0);
+      expect(DepthGlow.siltGlow(silt: 0.5, light: 0, reflectance: 0.2), 0);
+    });
+
+    test("a lamp's light is what the layer sends back", () {
+      // The lamps' part of the light falling: the filled light over the
+      // sky's.
+      final share = DepthGlow.lampShare(0.02, 2, 1);
+      expect(share, closeTo(DepthGlow.light(0.02, 2, 1) - 0.02, 1e-12));
+      expect(share, greaterThan(0));
+      // Half taken: half of it.
+      expect(
+        DepthGlow.lampShare(0.02, 2, 0.5),
+        closeTo(DepthGlow.lampShare(0.02, 2, 1) * 0.5, 1e-12),
+      );
+      // The layer's glow: its share of the beam that went into it.
+      expect(
+        DepthGlow.siltGlow(silt: 0.5, light: 0.4, reflectance: 0.2),
+        closeTo(0.5 * 0.4 * 0.8, 1e-12),
+      );
+    });
+
+    test('the pond has silt on it; clear water has none', () {
+      expect(WaterMedium.pond.siltReflectance.g, greaterThan(0));
+      expect(WaterMedium.clear.siltReflectance.r, 0);
+      expect(WaterMedium.clear.siltReflectance.g, 0);
+      expect(WaterMedium.clear.siltReflectance.b, 0);
+      // The silt is the pond's own colour: green over red over blue.
+      final silt = WaterMedium.pond.siltReflectance;
+      expect(silt.g, greaterThan(silt.r));
+      expect(silt.r, greaterThan(silt.b));
+    });
+
+    test('the glow of a lamp is the layer\'s and the column\'s together', () {
+      const medium = WaterMedium.pond;
+      const s = 0.342;
+      final through = medium.transmission(1, s);
+      final reflectance = medium.fresnel(s);
+      final deep = medium.deepReflectance;
+      final silt = medium.siltReflectance;
+      final base = 0.02;
+      const lamps = 2.0;
+      // The sky's light comes back by the column, the lamps' by the layer.
+      final skyGlow = DepthGlow.glow(
+        deep: deep.g,
+        through: through.g,
+        light: base,
+        reflectance: reflectance,
+      );
+      final lampGlow = DepthGlow.siltGlow(
+        silt: silt.g,
+        light: DepthGlow.lampShare(base, lamps, 1),
+        reflectance: reflectance,
+      );
+      // The lamp's light is the bigger part of what the water sends back.
+      expect(lampGlow, greaterThan(skyGlow));
+      // And it is a share of the light that fell there, never all of it.
+      expect(lampGlow, lessThan(DepthGlow.lampShare(base, lamps, 1)));
+    });
+  });
+
   group('the light the depth reads', () {
     testWithFlameGame('taken at night: the lighting buffer of the frame', (
       game,
@@ -272,9 +336,16 @@ void main() {
     testWithFlameGame(
       "the GPU buffer's encoding and the canvas path's give the same water",
       (game) async {
-        // The same light both ways: 0.4 of colour and 1 of white. The GPU
-        // buffer holds it as it is, the white in its alpha; the canvas path's
-        // image holds a quarter of it, the white in its colour.
+        // The same light both ways, and *far from the curve's saturation*:
+        // the fill curve is 1 - room * exp(-lamps / room), so a light of
+        // 0.4 fills most of what the sky leaves and a wrong encoding shows
+        // up as rounding - the test would pass with the switch broken. At
+        // 0.05 the curve is still climbing, so the two encodings have to
+        // agree to the level.
+        //
+        // The GPU buffer holds the light as it is, the white in its alpha;
+        // the canvas path's image holds a quarter of it, the white already
+        // in its colour.
         Future<(int, int, int)> glowWith(Lighting lighting) async {
           game.world.removeAll(game.world.children.toList());
           await game.ready();
@@ -282,7 +353,7 @@ void main() {
           return (await _render(game))(400, 590);
         }
 
-        const level = 0.4;
+        const level = 0.05;
         final gpu = await glowWith(
           _HeldBuffer(
             _filled(
@@ -310,12 +381,17 @@ void main() {
         final none = await glowWith(_night());
         expect(
           gpu.$2,
-          greaterThan(none.$2 + 2),
+          greaterThan(none.$2),
           reason: 'it glows: $none $gpu',
         );
+        // The two encodings give the same picture, to the level.
         expect((gpu.$1 - canvas.$1).abs(), lessThanOrEqualTo(1));
         expect((gpu.$2 - canvas.$2).abs(), lessThanOrEqualTo(1));
         expect((gpu.$3 - canvas.$3).abs(), lessThanOrEqualTo(1));
+        // And the glow is not a rounding away: the level it adds is what a
+        // broken encoding would change. The lamp's light on the water, of
+        // the pond's silt, is this much of it.
+        expect(gpu.$2 - none.$2, greaterThanOrEqualTo(2));
       },
     );
   });

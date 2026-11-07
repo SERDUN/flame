@@ -51,7 +51,9 @@ class Rgb {
 /// - deep, it sends back a share of the light falling on it
 ///   ([deepReflectance]): pi Rrs, Rrs = 0.0949 u + 0.0794 u^2 with
 ///   u = bb / (a + bb), bb the share [backscatterShare] of the scattering
-///   that goes back (Gordon et al. 1988).
+///   that goes back (Gordon et al. 1988);
+/// - its top layer sends back a share of the light a beam of light puts
+///   into it ([siltReflectance]).
 @immutable
 class WaterMedium {
   const WaterMedium({
@@ -59,11 +61,13 @@ class WaterMedium {
     required this.scattering,
     this.backscatterShare = 0.5,
     this.refractiveIndex = 1.333,
+    this.siltReflectance = const Rgb.all(0),
   });
 
   /// Rain and clear water: pure water's own absorption (Pope and Fry 1997)
   /// and scattering, half of it back (molecules scatter as much back as
-  /// forward). A metre of it is near clear; deep, it is dark blue.
+  /// forward). A metre of it is near clear; deep, it is dark blue. Nothing
+  /// lies on it: it has no layer of silt to scatter a beam of light back.
   static const clear = WaterMedium(
     absorption: Rgb(0.34, 0.057, 0.015),
     scattering: Rgb(0.0009, 0.0019, 0.0047),
@@ -74,10 +78,16 @@ class WaterMedium {
   /// as exp(-0.015 per nm) towards the red) and algae and silt in it (some
   /// 2 per metre of scattering, a fiftieth of it back). Its bed is gone
   /// under half a metre; it shows dark green-brown.
+  ///
+  /// On it lies the layer the leaves' tannin and the algae make: the silt
+  /// and the green of the pond, in the top of the water, where a beam of
+  /// light lands and comes back out of without going down into the column
+  /// and up again.
   static const pond = WaterMedium(
     absorption: Rgb(0.34 + 0.05 + 0.1, 0.057 + 0.19, 0.015 + 0.86),
     scattering: Rgb(2, 2, 2),
     backscatterShare: 0.015,
+    siltReflectance: Rgb(0.35, 0.55, 0.18),
   );
 
   /// Per metre, what it takes of each colour's light.
@@ -91,6 +101,20 @@ class WaterMedium {
 
   /// Its refractive index.
   final double refractiveIndex;
+
+  /// The share of the light that falls on the water that the layer on it
+  /// sends back out of it: the silt and the algae of a pond's surface.
+  ///
+  /// The deep reflectance above is the *column's*: the sky's light falls on
+  /// the whole surface, at every angle, and what comes back has gone down
+  /// into the column and up again. A lamp's light is a beam: it lands on a
+  /// small patch, near straight down, and what comes back out of that
+  /// patch has come out of the layer the beam reached first - the one that
+  /// lies on the water, and scatters far more than the column's average.
+  ///
+  /// It is the water the light is *in*, not a mirror: the light goes into
+  /// the layer and comes out of it, in the water's own colour.
+  final Rgb siltReflectance;
 
   /// How much its surface mirrors looked at straight down.
   double get f0 {

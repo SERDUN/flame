@@ -95,6 +95,7 @@ void main() {
       'uHoleInfo': WaterShader.holeCount,
       'uLampArea': WaterShader.lampArea,
       'uLampInfo': WaterShader.lampInfo,
+      'uSilt': WaterShader.silt,
     };
     expect(defines, dart);
   });
@@ -105,19 +106,20 @@ void main() {
     expect(_constant(source, 'kMaxLights'), WaterShader.maxLights);
     // Six vectors a light.
     expect(WaterShader.lightFloats, 6 * 4);
-    // Two vectors after the holes: the light the depth glows by.
+    // Three vectors after the holes: the light the depth glows by and the
+    // layer on the water.
     expect(
       WaterShader.floats,
       (WaterShader.header +
               WaterShader.maxRings +
               WaterShader.maxLights * 6 +
               WaterShader.maxHoles +
-              2) *
+              3) *
           4,
     );
     expect(_constant(source, 'kMaxHoles'), WaterShader.maxHoles);
     expect(_constant(source, 'kHoles') * 4, WaterShader.holes);
     expect(_constant(source, 'kBody') * 4, WaterShader.body);
-    expect(source, contains('uniform vec4 u[kBody + 2];'));
+    expect(source, contains('uniform vec4 u[kBody + 3];'));
   });
 }

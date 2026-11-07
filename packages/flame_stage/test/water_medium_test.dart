@@ -38,4 +38,19 @@ void main() {
     expect(WaterMedium.clear.cosRefracted(0), greaterThan(0.65));
     expect(WaterMedium.clear.cosRefracted(1), closeTo(1, 1e-9));
   });
+
+  test('a pond has silt on it; clear water has none', () {
+    final silt = WaterMedium.pond.siltReflectance;
+    // The pond's own colour: the green of the algae over the brown of the
+    // leaves' tannin, the blue of the water under both.
+    expect(silt.g, greaterThan(silt.r));
+    expect(silt.r, greaterThan(silt.b));
+    // It sends back a good part of what a beam puts into it: the layer is
+    // silt, not the column.
+    expect(silt.g, greaterThan(WaterMedium.pond.deepReflectance.g));
+    // Clean water has nothing on it.
+    expect(WaterMedium.clear.siltReflectance.r, 0);
+    expect(WaterMedium.clear.siltReflectance.g, 0);
+    expect(WaterMedium.clear.siltReflectance.b, 0);
+  });
 }
