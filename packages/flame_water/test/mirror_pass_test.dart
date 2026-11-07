@@ -262,6 +262,38 @@ void main() {
     expect(post.drawn, 1, reason: 'only in the street');
   });
 
+  testWithFlameGame('water that mirrors no world draws the world once, '
+      'through the shader or not, and again once it mirrors it', (game) async {
+    await WaterShader.load(asset: 'shaders/water.frag');
+    game.camera.viewfinder.anchor = Anchor.topLeft;
+    final post = _Post();
+    final pond = _water(0, 400, 800, 200)
+      ..shape = WaterShape.rect
+      ..mirrorsWorld = false;
+    final puddle = _water(300, 420, 200, 40)
+      ..quality = WaterQuality.mirror
+      ..mirrorsWorld = false;
+    game.world.addAll([post, pond, puddle]);
+    await game.ready();
+    await _frame(game);
+    final before = MirrorPass.recordings;
+    post.drawn = 0;
+    await _frame(game);
+    expect(MirrorPass.recordings - before, 0);
+    expect(post.drawn, 1, reason: 'only in the street');
+    expect(pond.mirrorsThroughShader, isFalse);
+    // Mirroring again, each draws the world: one picture, one through the
+    // canvas.
+    pond.mirrorsWorld = true;
+    puddle.mirrorsWorld = true;
+    await _frame(game);
+    final again = MirrorPass.recordings;
+    post.drawn = 0;
+    await _frame(game);
+    expect(MirrorPass.recordings - again, 1);
+    expect(post.drawn, 3);
+  });
+
   testWithFlameGame('what is hidden is not mirrored either', (game) async {
     await WaterShader.load(asset: 'shaders/water.frag');
     game.camera.viewfinder.anchor = Anchor.topLeft;

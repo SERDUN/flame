@@ -301,6 +301,14 @@ class WaterSurface extends PositionComponent
   /// and smear; the waters in view are drawn anew the moment they change.
   int mirrorEvery = 1;
 
+  /// Whether its mirror shows the world: off, the world is not drawn again
+  /// for it at all - no [MirrorPass] picture, no second drawing through the
+  /// canvas - and the water mirrors only the sky over it, the lights
+  /// ([LightReflector]) and its own rings: flat water. The picture is a
+  /// second drawing of the world, which no [mirrorScale] makes cheap; this
+  /// is what leaves it out.
+  bool mirrorsWorld = true;
+
   /// How far a ring shifts the reflection at its crest, local units.
   double waveAmplitude;
 
@@ -1016,7 +1024,7 @@ class WaterSurface extends PositionComponent
       // multiplied by as much of it as comes back through the water and
       // its surface; then the light the water adds, its mirror and the
       // glow of its depth.
-      final pass = _shown > 0 ? MirrorPass.of(this) : null;
+      final pass = _shown > 0 && mirrorsWorld ? MirrorPass.of(this) : null;
       _throughShader(
         canvas,
         _underUniforms,
@@ -1134,34 +1142,36 @@ class WaterSurface extends PositionComponent
         );
         canvas.drawRect(rect, _skyPaint);
       }
-      _smeared(
-        canvas,
-        streak * smearScale,
-        () => _mirror(
+      if (mirrorsWorld) {
+        _smeared(
           canvas,
-          line,
-          origin,
-          () => ReflectionPass.run(this, () {
-            final view = stage?.frame.view;
-            final lit = LitPicture.of(
-              Lighting.of(this),
-              MirrorPass.litArea(view ?? toAbsoluteRect()),
-            );
-            LitPicture.apart(lit, () {
-              MirrorPass.drawWorld(
-                canvas,
-                Stage.worldOf(this),
-                left: area.left,
-                right: area.right,
-                projection: _projection,
-                shift: mirrorShift,
-                lit: lit,
+          streak * smearScale,
+          () => _mirror(
+            canvas,
+            line,
+            origin,
+            () => ReflectionPass.run(this, () {
+              final view = stage?.frame.view;
+              final lit = LitPicture.of(
+                Lighting.of(this),
+                MirrorPass.litArea(view ?? toAbsoluteRect()),
               );
-              lit?.finish(canvas);
-            });
-          }),
-        ),
-      );
+              LitPicture.apart(lit, () {
+                MirrorPass.drawWorld(
+                  canvas,
+                  Stage.worldOf(this),
+                  left: area.left,
+                  right: area.right,
+                  projection: _projection,
+                  shift: mirrorShift,
+                  lit: lit,
+                );
+                lit?.finish(canvas);
+              });
+            }),
+          ),
+        );
+      }
       if (fade > 0) {
         _fadePaint.shader = Gradient.linear(
           Offset(0, line),
@@ -1288,6 +1298,7 @@ class WaterSurface extends PositionComponent
   bool get mirrorsThroughShader =>
       quality == WaterQuality.rippled &&
       WaterShader.program != null &&
+      mirrorsWorld &&
       _shown > 0 &&
       !_dry;
 
