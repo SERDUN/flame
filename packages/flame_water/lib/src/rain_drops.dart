@@ -23,6 +23,24 @@ abstract final class RainDrops {
   /// meanwhile, as in a photograph at 1/30 s.
   static const double exposureSec = 1 / 20;
 
+  /// How long a drop's contrast is integrated over, s: the shutter the streak's
+  /// **transparency** is measured at, which is not the shutter its length is
+  /// measured at ([exposureSec]).
+  ///
+  /// Garg & Nayar (2006) give the share of the light a raindrop hides from a
+  /// point of its streak as `a = 2 r0 / (v T)` - the drop's diameter over its
+  /// speed and the shutter, in metres, metres a second and seconds. This is
+  /// that `T`.
+  ///
+  /// The value is **calibrated, not derived**: 1/1375 s is the shutter that
+  /// reproduces the look the rain had when the transparency was a hand-set
+  /// constant (0.6 in the game times 0.7 here, over a 2 mm drop). It gives
+  /// the number a name and units; it does not explain it. Garg & Nayar's
+  /// measured 1/sqrt(T) law of rain's visibility (ICCV 2005) is why the two
+  /// shutters differ at all: a 1/20 s shutter would hide the rain altogether
+  /// (the fill of a 0.7 mm drop falls to 0.005, 69 times less).
+  static const double alphaExposureSec = 1 / 1375;
+
   static const double _g = 9.81;
 
   /// Rain rate for a game intensity (1 = the tuned rain, 2 a downpour, 0.3 a
@@ -59,4 +77,16 @@ abstract final class RainDrops {
 
   /// Length of the streak of a drop moving at [speed] m/s, m.
   static double streakLength(double speed) => speed * exposureSec;
+
+  /// The share of the light behind a streak's point that the drop itself
+  /// hides: Garg & Nayar's `a = 2 r0 / (v T)`, with the drop's diameter
+  /// [diameterMm] in mm, its speed [speed] in m/s and the shutter
+  /// [alphaExposureSec] in s.
+  ///
+  /// A small slow drop and a heavy fast one come out alike; a fast small one
+  /// is a faint line. Out of focus the streak is blurred over a wider strip
+  /// and the light of the drop spreads with it, which is the focus share the
+  /// caller applies on top.
+  static double streakFill(double diameterMm, double speed) =>
+      diameterMm / 1000 / speed / alphaExposureSec;
 }

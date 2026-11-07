@@ -34,6 +34,12 @@ class RainVeil {
   /// tuned to, when each was a line drawn on the CPU.
   static const double maxStreaks = 1600;
 
+  /// How much of the rain's own colour the mist the heavy rain kicks up along
+  /// the ground carries: a matter of taste, and the share the spray has
+  /// always been drawn at. It is not a streak's transparency - a streak's is
+  /// the model in [RainDrops.streakFill] - so it keeps a number of its own.
+  static const double sprayOpacity = 0.6;
+
   /// Streaks a column of the shader holds.
   static const int _perColumn = 3;
 
@@ -103,7 +109,10 @@ class RainVeil {
           final line = projection.lineAt(x + step / 2);
           final top = line - 0.7 * metre;
           _spray.shader = Gradient.linear(Offset(0, line), Offset(0, top), [
-            color.withValues(alpha: color.a * spray),
+            // The mist the rain kicks up is not a streak and has no model
+            // of its own: it is drawn at [sprayOpacity] of the rain's
+            // colour, the share it has always been drawn at.
+            color.withValues(alpha: sprayOpacity * spray),
             color.withValues(alpha: 0),
           ]);
           canvas.drawRect(Rect.fromLTRB(x, top, x + step, line), _spray);
@@ -131,7 +140,11 @@ class RainVeil {
     final pixels = math.sqrt(
       transform[0] * transform[0] + transform[1] * transform[1],
     );
-    final alpha = color.a * 0.4 * math.sqrt(scale);
+    // A veil's streaks are drops of the same rain as the near ones, so they
+    // hide the same share of the light behind them (the fill of a 2 mm drop
+    // at its terminal speed, Garg & Nayar's `a = 2 r0 / (v T)`), and a veil
+    // shows [Rain.veilShare] of what a drop at the walker's line shows.
+    final alpha = Rain.visibility * Rain.veilShare * math.sqrt(scale);
     final f = _uniforms
       ..[0] = view.left
       ..[1] = view.top
