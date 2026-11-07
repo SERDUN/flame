@@ -33,12 +33,13 @@ const int kRings = kHeader;
 const int kLights = kRings + kMaxRings;
 const int kMaxHoles = 8;
 const int kHoles = kLights + kMaxLights * 6;
+const int kBody = kHoles + kMaxHoles;
 
 // One array of vectors, named below: a lone float before a vector is laid
 // out differently on Vulkan than the floats are set, and Metal binds each
 // uniform on its own, 31 at most. The Dart side (WaterShader) writes the
 // same layout.
-uniform vec4 u[kHoles + kMaxHoles];
+uniform vec4 u[kBody + 2];
 
 #define uSize        u[0].xy   // the water's rectangle, local units
 #define uCount       u[0].z    // rings in use
@@ -89,9 +90,19 @@ uniform vec4 u[kHoles + kMaxHoles];
 #define uHoleInfo    u[18]     // other water lying on it: how many, their
                                // rims' softness, how dark its ground is
                                // soaked under it
+#define uLampArea    u[kBody]     // the light buffer the depth glows by:
+                                  // its corner and size, local units
+#define uLampInfo    u[kBody + 1] // x the share of the lamps' light the
+                                  // depth takes (0: the sky's alone, the
+                                  // buffer not read), y its texels' scale
+                                  // (the exposure times the image's gain),
+                                  // z 1: alpha is coverage, its white
+                                  // already in the colour (the canvas
+                                  // path's image)
 
 uniform sampler2D uReflection;
 uniform sampler2D uHeights;
+uniform sampler2D uLamp;
 
 out vec4 fragColor;
 
@@ -200,6 +211,24 @@ vec3 through(float s) {
     float across = (1.0 - s * s) / (n * n);
     float cosT = sqrt(max(1.0 - across, 1e-4));
     return exp(-uAtten.rgb * (2.0 * uAtten.w / cosT));
+}
+
+// The light falling on the water at p, as the eye takes it: the sky's
+// (uAmbient), and the lamps' as the lighting's buffer has them there,
+// filled in over it by the one curve the compose shader draws the rest of
+// the light with (LightField.fill), uLampInfo.x of them. Never brighter than
+// white.
+vec3 fallingLight(vec2 p) {
+    vec3 base = uAmbient.rgb;
+    if (uLampInfo.x <= 0.0) {
+        return base;
+    }
+    vec2 uv = (p - uLampArea.xy) / max(uLampArea.zw, vec2(1e-6));
+    vec4 light = texture(uLamp, clamp(uv, vec2(0.0), vec2(1.0)));
+    vec3 lamps = (light.rgb + vec3(light.a) * (1.0 - uLampInfo.z)) * uLampInfo.y;
+    vec3 room = max(vec3(1.0) - base, vec3(1e-4));
+    vec3 seen = vec3(1.0) - room * exp(-lamps / room);
+    return base + (seen - base) * uLampInfo.x;
 }
 
 // How much of p other water lying on this one covers: there it is the
@@ -469,10 +498,10 @@ void main() {
     if (pass > 1.5) {
         // The light the water adds over what is under it: what it mirrors,
         // and the glow of its depth - what deep water sends back of the
-        // light falling on it, from as much of it as there is above the
-        // bottom, through its surface.
+        // light falling on it where it is (the sky's, and the lamps'), from
+        // as much of it as there is above the bottom, through its surface.
         float cover = uGain * (1.0 - uFade * below);
-        vec3 body = uDeep.rgb * (vec3(1.0) - through(s)) * uAmbient.rgb *
+        vec3 body = uDeep.rgb * (vec3(1.0) - through(s)) * fallingLight(p) *
             (1.0 - reflectance) * cover;
         vec3 added = mirror.rgb + body + uTint.rgb * cover;
         if (waves) {
