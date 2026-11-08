@@ -647,16 +647,68 @@ void _nightTests() {
   );
 
   testWithFlameGame(
+    'a drop far off the view moves on its turn and lands as it would have',
+    (game) async {
+      game.camera.viewfinder.anchor = Anchor.topLeft;
+      // A strong wind: the drops that land in the view leave the cloud far
+      // upwind of it, past where they are given a look.
+      final asked = [0, 0];
+      Rain rainOf(int k, int stride) =>
+          Rain(
+              seed: 9,
+              intensity: 2,
+              wind: Vector2(8, 0),
+              windAt: (at, out) {
+                // Far off the view: more than four metres past its edges.
+                if (at.x < -4 * 50 || at.x > 800 + 4 * 50) {
+                  asked[k]++;
+                }
+                out.setValues(8, 0);
+              },
+            )
+            ..drawsItself = false
+            ..offViewStride = stride;
+      final every = rainOf(0, 1);
+      final turns = rainOf(1, Rain(wind: Vector2.zero()).offViewStride);
+      game.world.addAll([_Ground(), every, turns]);
+      await game.ready();
+      await _rainFor(game, 4);
+      expect(
+        asked[1],
+        lessThan(asked[0] * 0.5),
+        reason: 'the far drops ask for the wind one move in three',
+      );
+      final all = every.landed[null]!;
+      expect(
+        turns.landed[null],
+        closeTo(all, all * 0.03),
+        reason: 'as many land, a few frames late',
+      );
+      final view = game.camera.visibleWorldRect;
+      expect(
+        turns.dropsIn(view),
+        closeTo(every.dropsIn(view), every.dropsIn(view) * 0.05 + 2),
+        reason: 'and as many are in the view',
+      );
+    },
+  );
+
+  testWithFlameGame(
     "rain born on the steps is the same rain whatever a frame's steps",
     (game) async {
       game.camera.viewfinder.anchor = Anchor.topLeft;
-      // Splashes off: they come as drops land, a frame's at once.
+      // Splashes off: they come as drops land, a frame's at once. Every drop
+      // moved on every move: the far drops' turns are counted in moves, and a
+      // frame of four steps has four times the turns of a frame of one (their
+      // own test is above).
       final fast = Rain(seed: 9, intensity: 2)
         ..drawsItself = false
-        ..movesWhereDrawn = true;
+        ..movesWhereDrawn = true
+        ..offViewStride = 1;
       final slow = Rain(seed: 9, intensity: 2)
         ..drawsItself = false
-        ..movesWhereDrawn = true;
+        ..movesWhereDrawn = true
+        ..offViewStride = 1;
       game.world.addAll([_Ground(), fast, slow]);
       await game.ready();
       for (var frame = 0; frame < 30; frame++) {

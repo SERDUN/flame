@@ -582,6 +582,19 @@ class Rain extends Component with OnStage, Reflectable, Weather {
   /// their look is stale.
   final FrameDue _owed = FrameDue();
 
+  /// One move in how many moves a drop farther off across the view than it
+  /// is given a look ([_seenMargin]) takes; the rest it is left where it is
+  /// and owed the time, which it moves by at once when its turn comes - and
+  /// never later than [moveSec] after it last moved. So it lands, splashes,
+  /// is heard and comes into the view as it would have, a few frames late
+  /// where nobody sees it: on the Redmi A5 40 % of the pool lay that far off
+  /// and moving it cost up to 1.6 ms a frame (`tasks/redmi-30fps`), while
+  /// leaving it unmoved for good let a fifth fewer drops reach the view.
+  int offViewStride = 3;
+
+  // The moves of the drops so far: whose turn it is off the view.
+  int _turn = 0;
+
   @override
   void update(double dt) {
     super.update(dt);
@@ -725,17 +738,40 @@ class Rain extends Component with OnStage, Reflectable, Weather {
     }
     final field = windAt;
     final pool = _drops;
+    final turn = _turn++;
+    final seenFrom = view.left - _seenMargin;
+    final seenTo = view.right + _seenMargin;
     var i = 0;
     while (i < pool.length) {
       // From its birth: a drop born late in the frame moves only as long.
-      final start = math.max(from, pool.born(i));
-      final step = from + dt - start;
+      var start = math.max(from, pool.born(i));
+      var step = from + dt - start;
       if (step <= 0) {
         i++;
         continue;
       }
       final x = pool.x(i);
       final y = pool.y(i);
+      if (x < seenFrom || x > seenTo) {
+        // Far off the view: moved on its turn, by all it is owed.
+        final owed = pool.owed(i) + step;
+        if (owed < moveSec && (turn + i) % math.max(offViewStride, 1) != 0) {
+          pool.setOwed(i, owed);
+          if (last) {
+            pool.setBorn(i, 0);
+          }
+          i++;
+          continue;
+        }
+        start = from + dt - owed;
+        step = owed;
+        pool.setOwed(i, 0);
+      } else if (pool.owed(i) > 0) {
+        // Come within its look: what it is owed first, then on with the rest.
+        step += pool.owed(i);
+        start -= pool.owed(i);
+        pool.setOwed(i, 0);
+      }
       if (field == null) {
         _air.setFrom(wind);
       } else {
