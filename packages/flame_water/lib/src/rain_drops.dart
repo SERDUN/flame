@@ -81,12 +81,15 @@ abstract final class RainDrops {
   /// The share of the light behind a streak's point that the drop itself
   /// hides: Garg & Nayar's `a = 2 r0 / (v T)`, with the drop's diameter
   /// [diameterMm] in mm, its speed [speed] in m/s and the shutter
-  /// [alphaExposureSec] in s.
+  /// [exposureSec] in s - [alphaExposureSec] unless given.
   ///
   /// A small slow drop and a heavy fast one come out alike; a fast small one
   /// is a faint line. Out of focus the streak is blurred over a wider strip
   /// and the light of the drop spreads with it, which is the focus share the
   /// caller applies on top.
-  static double streakFill(double diameterMm, double speed) =>
-      diameterMm / 1000 / speed / alphaExposureSec;
+  static double streakFill(
+    double diameterMm,
+    double speed, {
+    double exposureSec = alphaExposureSec,
+  }) => diameterMm / 1000 / speed / exposureSec;
 }

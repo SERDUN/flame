@@ -2,6 +2,7 @@ import 'dart:ui';
 
 import 'package:flame/components.dart';
 import 'package:flame/game.dart';
+import 'package:flame_lighting/flame_lighting.dart';
 import 'package:flame_stage/flame_stage.dart';
 import 'package:flame_test/flame_test.dart';
 import 'package:flame_water/flame_water.dart';
@@ -56,15 +57,33 @@ void main() {
 
     test('the fill rises as the shutter shortens', () {
       // The same drop at the same speed, at the length's own 1/20 s and at the
-      // alpha's 1/1375 s: the longer the exposure, the more of the light the
-      // drop hides.
-      const long = 0.002 / 6.547699616675644 / RainDrops.exposureSec;
-      const short = 0.002 / 6.547699616675644 / RainDrops.alphaExposureSec;
+      // alpha's 1/1375 s: the shorter the exposure, the longer each point of
+      // the streak sees the drop, and the more of the light it hides.
+      final long = RainDrops.streakFill(
+        2,
+        6.5,
+        exposureSec: RainDrops.exposureSec,
+      );
+      final short = RainDrops.streakFill(2, 6.5);
       expect(short, greaterThan(long));
       expect(
         long / short,
         closeTo(RainDrops.alphaExposureSec / RainDrops.exposureSec, 1e-12),
       );
+      // Half the shutter, twice the fill.
+      expect(
+        RainDrops.streakFill(1, 4, exposureSec: 0.001) /
+            RainDrops.streakFill(1, 4, exposureSec: 0.002),
+        closeTo(2, 1e-12),
+      );
+    });
+
+    test('a fine fast drop is a faint line, a heavy slow one fills', () {
+      // 0.5 mm at its terminal speed against 3 mm at 2 m/s.
+      final fine = RainDrops.streakFill(0.5, RainDrops.terminalSpeed(0.5));
+      final heavy = RainDrops.streakFill(3, 2);
+      expect(fine, lessThan(0.5));
+      expect(heavy, greaterThan(1));
     });
 
     test('the shutter the alpha is measured at is named and separate', () {
@@ -157,6 +176,97 @@ void main() {
       for (final a in alphas) {
         expect(a, inInclusiveRange(0.0, 1.0));
       }
+    });
+  });
+
+  group('the light on a drop', () {
+    // The same rain, seed for seed, under a sky as bright as [skyLight]
+    // (null: no lighting at all), its drops in focus.
+    Future<List<double>> alphasUnder(double? skyLight) async {
+      final game = await initializeGame(FlameGame.new);
+      game.camera.viewfinder.anchor = Anchor.topLeft;
+      final rain = Rain(seed: 3, intensity: 2)..aperture = 0;
+      game.world.addAll([
+        _Ground(),
+        rain,
+        if (skyLight != null) Lighting(skyLight: skyLight, haze: 0),
+      ]);
+      await game.ready();
+      await _rainFor(game, 1);
+      final alphas = [for (final look in rain.dropLooks) look.alpha];
+      game.onRemove();
+      return alphas;
+    }
+
+    // Each drop's alpha in [a] over its alpha in [b], for drops whose
+    // alpha in [b] is far enough over a byte's step and under one that the
+    // ratio is not rounding's or the clamp's.
+    List<double> ratios(List<double> a, List<double> b) {
+      expect(a.length, b.length);
+      return [
+        for (var i = 0; i < a.length; i++)
+          if (b[i] >= 40 / 255 && b[i] <= 0.99 && a[i] <= 0.99) a[i] / b[i],
+      ];
+    }
+
+    test('a drop shows as much as the light on it', () async {
+      // The same rain under a sky half as bright: each drop hides the same
+      // share of what is behind it and throws half the light to the eye -
+      // its alpha over the lighting is its fill times the light it scatters.
+      final bright = await alphasUnder(0.6);
+      final dim = await alphasUnder(0.3);
+      final r = ratios(dim, bright);
+      expect(r.length, greaterThan(20));
+      for (final x in r) {
+        expect(x, closeTo(0.5, 0.05));
+      }
+    });
+
+    test('lit, a drop hides its fill times the light it scatters', () async {
+      // Unlit, the alpha is the fill itself; under a sky of 0.6 the eye
+      // does not adapt past (its adaptation is 1), so a drop scatters 0.6
+      // of the light it would in full light.
+      final unlit = await alphasUnder(null);
+      final lit = await alphasUnder(0.6);
+      final r = ratios(lit, unlit);
+      expect(r.length, greaterThan(20));
+      for (final x in r) {
+        expect(x, closeTo(0.6, 0.05));
+      }
+    });
+  });
+
+  group('a splash keeps its own share', () {
+    testWithFlameGame('a droplet in focus hides the droplet share', (
+      game,
+    ) async {
+      game.camera.viewfinder.anchor = Anchor.topLeft;
+      final rain = Rain(seed: 3, intensity: 2)..aperture = 0;
+      game.world.addAll([_Ground(), rain]);
+      await game.ready();
+      await _rainFor(game, 2);
+      final alphas = rain.dropletAlphas.toList();
+      expect(alphas, isNotEmpty);
+      // In focus and unlit every droplet is drawn at the share, as it was
+      // drawn before the streaks had a model: 0.9 of a 0.6 colour.
+      for (final a in alphas) {
+        expect(a, closeTo(Rain.dropletShare, 0.5 / 255));
+      }
+      expect(Rain.dropletShare, closeTo(0.54, 1e-12));
+    });
+
+    testWithFlameGame('out of focus a droplet shows less', (game) async {
+      game.camera.viewfinder.anchor = Anchor.topLeft;
+      final rain = Rain(seed: 3, intensity: 2)..aperture = 0.12;
+      game.world.addAll([_Ground(), rain]);
+      await game.ready();
+      await _rainFor(game, 2);
+      final alphas = rain.dropletAlphas.toList();
+      expect(alphas, isNotEmpty);
+      for (final a in alphas) {
+        expect(a, lessThanOrEqualTo(Rain.dropletShare + 0.5 / 255));
+      }
+      expect(alphas.where((a) => a < Rain.dropletShare - 2 / 255), isNotEmpty);
     });
   });
 

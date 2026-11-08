@@ -280,6 +280,17 @@ class Rain extends Component with OnStage, Reflectable, Weather {
     ];
   }
 
+  /// How much of the light behind it every splash droplet hides this frame.
+  @visibleForTesting
+  Iterable<double> get dropletAlphas {
+    _moveIfDue();
+    _shadeIfDue();
+    return [
+      for (var i = 0; i < _droplets.length; i++)
+        ((_droplets.color[i] >>> 24) & 0xFF) / 255,
+    ];
+  }
+
   /// The look of every drop: where it is in the view's depth, how wide its
   /// streak is drawn, how much of the light behind it it hides (its alpha),
   /// and the drop's own size and speed the model works that out from.
@@ -303,13 +314,7 @@ class Rain extends Component with OnStage, Reflectable, Weather {
           width: _drops.width(i),
           alpha: ((_drops.color[i] >>> 24) & 0xFF) / 255,
           diameterMm: _drops.diameter(i),
-          speed: math.max(
-            math.sqrt(
-                  _drops.vx(i) * _drops.vx(i) + _drops.vy(i) * _drops.vy(i),
-                ) /
-                (metre * _drops.perspective(i)),
-            0.5,
-          ),
+          speed: _trueSpeed(_drops, i),
         ),
     ];
   }
@@ -908,14 +913,12 @@ class Rain extends Component with OnStage, Reflectable, Weather {
     }
   }
 
-  /// How bright a drop seen side-on in full light shows: the one scale the
-  /// streaks are drawn at; everything else about how bright a drop is
-  /// follows from the light on it and how it moves.
+  /// The share of the light a 2 mm drop at its terminal speed hides: the
+  /// reference a veil's streaks are drawn against ([veilShare]).
   ///
-  /// The scale is no longer a constant of its own: Garg & Nayar's
-  /// `a = 2 r0 / (v T)` gives the share of the light a drop hides, and the
-  /// shutter it is measured at is [RainDrops.alphaExposureSec]. A 2 mm drop
-  /// at its terminal speed is the reference the rain was drawn against.
+  /// Not a constant of its own: Garg & Nayar's `a = 2 r0 / (v T)` gives it
+  /// ([RainDrops.streakFill]), at the shutter [RainDrops.alphaExposureSec].
+  /// A near drop's share is worked out from its own size and speed.
   static double get visibility =>
       RainDrops.streakFill(2, RainDrops.terminalSpeed(2));
 
@@ -928,6 +931,26 @@ class Rain extends Component with OnStage, Reflectable, Weather {
   /// the same drops as the near ones, and only how much of each the veil
   /// shows is set here.
   static const double veilShare = 0.4 / 0.7;
+
+  /// How much of the light behind it a splash's droplet hides, in focus and
+  /// in full light.
+  ///
+  /// A matter of taste, not the streak's model: a droplet is a drop barely
+  /// moving, seen for a frame, and [RainDrops.streakFill] (made for a drop
+  /// crossing the eye in an exposure) would make every one of them opaque.
+  /// It is the share droplets have always been drawn at - 0.9 of the rain
+  /// colour's 0.6, when the colour's alpha was the streaks' transparency.
+  static const double dropletShare = 0.6 * 0.9;
+
+  /// The speed a drop crosses the street at, m/s: its speed on the screen
+  /// over the metres a pixel is at its depth, never under 0.5 (a drop
+  /// hanging still would hide everything behind it).
+  double _trueSpeed(DropPool drops, int i) {
+    final speed = math.sqrt(
+      drops.vx(i) * drops.vx(i) + drops.vy(i) * drops.vy(i),
+    );
+    return math.max(speed / (metre * drops.perspective(i)), 0.5);
+  }
 
   final LightSample _sample = LightSample();
 
@@ -968,17 +991,14 @@ class Rain extends Component with OnStage, Reflectable, Weather {
           sharp + aperture * (drops.perspective(i) - focus).abs() * metre;
       drops.setWidth(i, blurred);
       final focusShare = blurred <= 0 ? 1.0 : sharp / blurred;
-      final speed = math.sqrt(
-        drops.vx(i) * drops.vx(i) + drops.vy(i) * drops.vy(i),
-      );
       // A drop is seen by the light it throws to the eye - from the lamps
       // round it, far more from one it is in front of - and a streak is
       // that light spread over the way it falls in an exposure: each point
       // of it lit for its diameter over its speed. A fine slow drop and a
       // heavy fast one come out alike; a fast small one is a faint line.
-      final trueSpeed = math.max(speed / (metre * drops.perspective(i)), 0.5);
       final share =
-          RainDrops.streakFill(drops.diameter(i), trueSpeed) * focusShare;
+          RainDrops.streakFill(drops.diameter(i), _trueSpeed(drops, i)) *
+          focusShare;
       if (!lit) {
         drops.color[i] = drops.colorUnder[i] = _argb(water, share);
         continue;
@@ -1006,7 +1026,7 @@ class Rain extends Component with OnStage, Reflectable, Weather {
       if (!lit) {
         droplets.color[i] = droplets.colorUnder[i] = _argb(
           water,
-          0.9 * focusShare,
+          dropletShare * focusShare,
         );
         continue;
       }
@@ -1018,7 +1038,7 @@ class Rain extends Component with OnStage, Reflectable, Weather {
       );
       final light = _sample.shown;
       final tint = _sample.added * 0.8;
-      final over = _tinted(water, tint, 0.9 * light * focusShare);
+      final over = _tinted(water, tint, dropletShare * light * focusShare);
       droplets
         ..color[i] = over
         ..colorUnder[i] = _underLight(over);
