@@ -326,6 +326,8 @@ class Rain extends Component with OnStage, Reflectable, Weather {
   @visibleForTesting
   Iterable<
     ({
+      double x,
+      double y,
       double depth,
       double width,
       double alpha,
@@ -339,6 +341,8 @@ class Rain extends Component with OnStage, Reflectable, Weather {
     return [
       for (var i = 0; i < _drops.length; i++)
         (
+          x: _drops.x(i),
+          y: _drops.y(i),
           depth: _drops.depth(i),
           width: _drops.width(i),
           alpha: ((_drops.color[i] >>> 24) & 0xFF) / 255,
