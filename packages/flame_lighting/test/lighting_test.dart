@@ -738,6 +738,58 @@ void main() {
       );
     },
   );
+  testWithFlameGame(
+    "a mirror's picture lit past the view keeps what it shows",
+    (game) async {
+      await LightShader.load(directory: 'shaders');
+      game.onGameResize(Vector2(800, 600));
+      game.camera.viewfinder.anchor = Anchor.topLeft;
+      final block = RectangleComponent(
+        position: Vector2(350, 200),
+        size: Vector2(100, 100),
+        paint: Paint()..color = const Color(0xFFFF0000),
+      );
+      game.world.addAll([
+        block,
+        LightSource(position: Vector2(400, 150), radius: 200),
+        Lighting(glow: 0, lightsBackdrop: false),
+      ]);
+      await game.ready();
+      // A drawing of the world: the lighting adds its lights up into an
+      // image of the view.
+      await _render(game);
+      // A mirror's picture of it, flipped about y 300 as water flips it,
+      // lit over a part of the world reaching a view past the view each
+      // way: from the light's image inside the view, light by light in
+      // strips round it.
+      final lighting = game.world.children.whereType<Lighting>().single;
+      final lit = LitPicture.of(
+        lighting,
+        const Rect.fromLTRB(-800, -600, 1600, 1200),
+      )!;
+      final recorder = PictureRecorder();
+      final canvas = Canvas(recorder)
+        ..translate(0, 600)
+        ..scale(1, -1);
+      LitPicture.apart(lit, () {
+        for (final child in game.world.children) {
+          if (lit.step(canvas, child) || !identical(child, block)) {
+            continue;
+          }
+          lit.drew();
+          child.renderTree(canvas);
+        }
+        lit.finish(canvas);
+      });
+      final image = await recorder.endRecording().toImage(800, 600);
+      final bytes = (await image.toByteData())!;
+      // The block, 300..400 of the picture once flipped.
+      const i = (350 * 800 + 400) * 4;
+      expect(bytes.getUint8(i + 3), 255, reason: 'the block is still there');
+      expect(bytes.getUint8(i), greaterThan(100), reason: 'red, lit');
+      expect(bytes.getUint8(i + 2), lessThan(bytes.getUint8(i)));
+    },
+  );
 }
 
 /// The rendered game's colour at a pixel.

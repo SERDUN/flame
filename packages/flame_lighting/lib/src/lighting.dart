@@ -629,7 +629,14 @@ class Lighting extends Component with OnStage, Ambience, FrameStep {
   }) {
     final field = frame.light;
     final e = field.exposure;
+    // Held to [area] by a clip, not by the layer's bounds alone: those are
+    // only a hint, and a layer laid down by multiplying takes away whatever
+    // it does not cover. In a mirror's picture, flipped, a strip's layer
+    // covered the whole picture and took all of it - water mirrored nothing
+    // but the sky.
     canvas
+      ..save()
+      ..clipRect(area, doAntiAlias: false)
       ..saveLayer(area, _illumination)
       ..drawRect(
         area,
@@ -644,7 +651,9 @@ class Lighting extends Component with OnStage, Ambience, FrameStep {
     for (var i = 0; i < field.count; i++) {
       _cast(canvas, frame, i, _add, e, within: area, wallAhead: wallAhead);
     }
-    canvas.restore();
+    canvas
+      ..restore()
+      ..restore();
   }
 
   /// [_castOver] on the part of [area] outside [covered]: a mirror's
