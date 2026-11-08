@@ -216,23 +216,45 @@ class Rain extends Component with OnStage, Reflectable, Weather {
 
   /// How many drops this rain lets fall against the tuned rain: so many that
   /// the drops in the air, of the sizes its rate gives them, take as much of
-  /// the light as its haze does ([RainDrops.releaseShare]) - the haze and the
-  /// streaks of one rain.
-  double get dropShare {
-    final rate = rainMmPerHour;
-    if (rate != _dropShareOf) {
-      _dropShareOf = rate;
-      _dropShare = RainDrops.releaseShare(
-        rate,
-        tunedMmPerHour: WeatherState.tunedRainMmPerHour,
-        hazeShare: WeatherState.rainHazeShare(rate),
-      );
+  /// the light as its haze does ([dropShareOf]) - the haze and the streaks of
+  /// one rain.
+  double get dropShare => dropShareOf(rainMmPerHour);
+
+  /// How many drops a rain of [rainMmPerHour] lets fall against the tuned
+  /// rain ([RainDrops.releaseShare] with the haze of the rate,
+  /// [WeatherState.rainHazeShare]).
+  ///
+  /// Read off a table over the rates (a game asks it for every drop that
+  /// leaves the cloud, where the rain along the road is not the eye's), within
+  /// a thousandth of the law; outside the table's rates, the law itself.
+  static double dropShareOf(double rainMmPerHour) {
+    if (rainMmPerHour <= 0) {
+      return 0;
     }
-    return _dropShare;
+    final at = math.log(rainMmPerHour / _tableFromMm) / _tableStep;
+    if (at < 0 || at >= _tableSize - 1) {
+      return _dropShareLaw(rainMmPerHour);
+    }
+    final table = _dropShares ??= [
+      for (var k = 0; k < _tableSize; k++)
+        _dropShareLaw(_tableFromMm * math.exp(k * _tableStep)),
+    ];
+    final k = at.floor();
+    return table[k] + (table[k + 1] - table[k]) * (at - k);
   }
 
-  double _dropShareOf = double.nan;
-  double _dropShare = 0;
+  static double _dropShareLaw(double rainMmPerHour) => RainDrops.releaseShare(
+    rainMmPerHour,
+    tunedMmPerHour: WeatherState.tunedRainMmPerHour,
+    hazeShare: WeatherState.rainHazeShare(rainMmPerHour),
+  );
+
+  // The table's rates: 0.01 to 1000 mm an hour, 6 % apart.
+  static const double _tableFromMm = 0.01;
+  static const int _tableSize = 200;
+  static final double _tableStep =
+      math.log(1000 / _tableFromMm) / (_tableSize - 1);
+  static List<double>? _dropShares;
 
   @override
   double humidity;

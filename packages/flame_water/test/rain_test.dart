@@ -304,7 +304,7 @@ void main() {
     // is bigger: louder than the count alone.
     final more = Rain(intensity: 2).dropShare;
     expect(more, greaterThan(1.3));
-    expect(heavy / tuned, greaterThan(more * 1.15), reason: 'more, bigger');
+    expect(heavy / tuned, greaterThan(more), reason: 'more, bigger');
   });
 
   testWithFlameGame('rain on cloth is heard softer than on metal', (

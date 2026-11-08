@@ -85,6 +85,19 @@ void main() {
     },
   );
 
+  test('the drops a rain lets fall are read off the law at any rate', () {
+    for (final rate in [0.05, 0.6, 3.0, 6.0, 17.0, 60.0, 400.0, 2000.0]) {
+      final law = RainDrops.releaseShare(
+        rate,
+        tunedMmPerHour: WeatherState.tunedRainMmPerHour,
+        hazeShare: WeatherState.rainHazeShare(rate),
+      );
+      expect(Rain.dropShareOf(rate), closeTo(law, law * 1e-3), reason: '$rate');
+    }
+    expect(Rain.dropShareOf(0), 0);
+    expect(Rain(rainMmPerHour: 60).dropShare, Rain.dropShareOf(60));
+  });
+
   testWithFlameGame('the rate is the one number the rain is read at', (
     game,
   ) async {
