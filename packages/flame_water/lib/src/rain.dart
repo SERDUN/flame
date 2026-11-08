@@ -276,7 +276,8 @@ class Rain extends Component with OnStage, Reflectable, Weather {
   }
 
   /// Drops in the air now, and droplets of bursts.
-  @visibleForTesting
+  ///
+  /// How many the rain's rate has in the picture: a game reads it to say what its rain draws.
   int get dropsInAir {
     _moveIfDue();
     return _drops.length;
