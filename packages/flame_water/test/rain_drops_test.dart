@@ -47,7 +47,12 @@ void main() {
       final u = (i + 0.5) / n;
       final d =
           RainDrops.minMm -
-          log(1 - u * (1 - exp(-lambda * (RainDrops.maxMm - RainDrops.minMm)))) /
+          log(
+                1 -
+                    u *
+                        (1 -
+                            exp(-lambda * (RainDrops.maxMm - RainDrops.minMm))),
+              ) /
               lambda;
       sum += d.clamp(RainDrops.minMm, RainDrops.maxMm);
     }

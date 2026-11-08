@@ -79,10 +79,9 @@ class RainVeil {
     double depth, {
     required bool nearest,
   }) {
-    // The veil's streaks are the far rain's: as many as the rate says (its
-    // share of the tuned rain), so the far rain is as dense as the near
-    // rain's rate and the haze over it is of the same rain.
-    final intensity = rain.rainIntensity.clamp(0.0, 2.5);
+    // The veil's streaks are the far rain's, all of one size: as many as the
+    // haze of the rate says, so the far rain is as thick as the haze over it.
+    final intensity = rain.hazeShare.clamp(0.0, 2.5);
     if (intensity <= 0.01) {
       return;
     }

@@ -300,7 +300,11 @@ void main() {
     final tuned = energyOn(await heard(game), Substance.asphalt);
     final heavy = energyOn(await heard(game, intensity: 2), Substance.asphalt);
     expect(tuned, greaterThan(0));
-    expect(heavy / tuned, greaterThan(2), reason: 'twice the drops, bigger');
+    // Twice the rate lets fall as many more drops as its haze says, and each
+    // is bigger: louder than the count alone.
+    final more = Rain(intensity: 2).dropShare;
+    expect(more, greaterThan(1.3));
+    expect(heavy / tuned, greaterThan(more * 1.15), reason: 'more, bigger');
   });
 
   testWithFlameGame('rain on cloth is heard softer than on metal', (

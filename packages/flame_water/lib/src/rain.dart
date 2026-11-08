@@ -47,11 +47,12 @@ import 'package:flutter/foundation.dart' show visibleForTesting;
 ///
 /// **The rain rate is the one number this rain is read at.** The air, the
 /// cloud and the light follow it ([Weather.rainMmPerHour]), and so do the
-/// drops: how many of them fall ([Rain.density] with [rainIntensity]) and how
-/// big they are ([RainDrops.diameterMm]). A game whose rain is harder in
-/// one place than in another - a storm cell over the walker - says so with
-/// the rate there, and the whole picture of that place follows it: the haze
-/// of the air and the streaks of the drops read the same number.
+/// drops: how big they are ([RainDrops.diameterMm]) and how many of them fall
+/// ([Rain.density] with [dropShare]) - as many as take, at those sizes, as
+/// much of the light as the haze of the rate does. A game whose rain is
+/// harder in one place than in another - a storm cell over the walker - says
+/// so with the rate there, and the whole picture of that place follows it: the
+/// haze of the air and the streaks of the drops read the same number.
 class Rain extends Component with OnStage, Reflectable, Weather {
   Rain({
     double? intensity,
@@ -204,9 +205,34 @@ class Rain extends Component with OnStage, Reflectable, Weather {
   /// How hard it rains against the rain the scene was tuned for: the rate's
   /// share of the tuned rain (1 a steady rain, 2 a downpour).
   ///
-  /// The drops' count and the veils' streaks read it, so that the rain drawn
-  /// is as dense as the rate says and the haze over it is of the same rain.
+  /// What says how hard it rains in plain words; the drops are counted by
+  /// the haze of the rate ([dropShare], [hazeShare]), not by this.
   double get rainIntensity => rainMmPerHour / WeatherState.tunedRainMmPerHour;
+
+  /// How much more of the light the drops of this rain take than the tuned
+  /// rain's ([WeatherState.rainHazeShare]): as much as the haze of its rate.
+  /// The veils' streaks, of one size, are as many as this says.
+  double get hazeShare => WeatherState.rainHazeShare(rainMmPerHour);
+
+  /// How many drops this rain lets fall against the tuned rain: so many that
+  /// the drops in the air, of the sizes its rate gives them, take as much of
+  /// the light as its haze does ([RainDrops.releaseShare]) - the haze and the
+  /// streaks of one rain.
+  double get dropShare {
+    final rate = rainMmPerHour;
+    if (rate != _dropShareOf) {
+      _dropShareOf = rate;
+      _dropShare = RainDrops.releaseShare(
+        rate,
+        tunedMmPerHour: WeatherState.tunedRainMmPerHour,
+        hazeShare: WeatherState.rainHazeShare(rate),
+      );
+    }
+    return _dropShare;
+  }
+
+  double _dropShareOf = double.nan;
+  double _dropShare = 0;
 
   @override
   double humidity;
@@ -277,7 +303,8 @@ class Rain extends Component with OnStage, Reflectable, Weather {
 
   /// Drops in the air now, and droplets of bursts.
   ///
-  /// How many the rain's rate has in the picture: a game reads it to say what its rain draws.
+  /// How many the rain's rate has in the picture: a game reads it to say
+  /// what its rain draws.
   int get dropsInAir {
     _moveIfDue();
     return _drops.length;
@@ -479,9 +506,8 @@ class Rain extends Component with OnStage, Reflectable, Weather {
         metre *
         math.min(scale(behind), scale(nearest));
     final longest = math.max(math.min(lowest, to) - from, 0) / slowest;
-    // As many drops as the rate says: the rate's share of the tuned rain is
-    // how much denser the rain is than the tuned one.
-    final released = (density * view.width / metre * rainIntensity * longest)
+    // As many drops as the haze of the rate says.
+    final released = (density * view.width / metre * dropShare * longest)
         .round();
     for (var k = 0; k < released; k++) {
       final i = _newDrop(view, land, scale, 0);
@@ -721,13 +747,13 @@ class Rain extends Component with OnStage, Reflectable, Weather {
     }
     _startY = start;
     // As many per metre over the ground the view will cross, not only the
-    // view: as many as the rate says (its share of the tuned rain).
+    // view: as many as the haze of the rate says.
     _due +=
         dt *
         density *
         (view.width + _viewReach(view, land)) /
         metre *
-        rainIntensity;
+        dropShare;
     while (_due >= 1) {
       _due -= 1;
       final i = _newDrop(view, land, scale, dt);

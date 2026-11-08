@@ -59,6 +59,49 @@ abstract final class RainDrops {
     return d.clamp(minMm, maxMm);
   }
 
+  /// The cross-section a drop let fall in a rain of [rainMmPerHour] holds in
+  /// the air on its way down, on the average over the sizes ([diameterMm]):
+  /// its diameter squared, mm^2, times the time it takes over a metre of its
+  /// fall, s - a big drop is a bigger one, and it is in the air the shorter
+  /// for the faster it falls.
+  ///
+  /// The drops in the air hide as much of what is behind them as this times
+  /// how many fall a second.
+  static double airborneAreaPerDrop(double rainMmPerHour) {
+    // The sizes are drawn evenly over u: the mean of what one size holds is
+    // the mean over the u's (midpoints, plenty for a smooth function).
+    const n = 64;
+    var sum = 0.0;
+    for (var k = 0; k < n; k++) {
+      final d = diameterMm((k + 0.5) / n, rainMmPerHour);
+      sum += d * d / terminalSpeed(d);
+    }
+    return sum / n;
+  }
+
+  /// How many drops a rain of [rainMmPerHour] lets fall a second against the
+  /// tuned rain of [tunedMmPerHour], given the share of the haze its drops
+  /// take against the tuned rain's ([hazeShare]).
+  ///
+  /// The drops in the air are then as thick as the haze of their rain: their
+  /// cross-section ([airborneAreaPerDrop] times how many fall) grows as the
+  /// haze does. A harder rain has bigger drops, each holding more of it, so
+  /// it lets fewer fall than its rate's share of the tuned rain - ten times
+  /// the tuned rain lets some 3.2 times the drops fall, not ten, and they
+  /// fall faster: some 2.5 times as many are in the air.
+  static double releaseShare(
+    double rainMmPerHour, {
+    required double tunedMmPerHour,
+    required double hazeShare,
+  }) {
+    if (rainMmPerHour <= 0 || hazeShare <= 0) {
+      return 0;
+    }
+    return hazeShare *
+        airborneAreaPerDrop(tunedMmPerHour) /
+        airborneAreaPerDrop(rainMmPerHour);
+  }
+
   /// Speed a drop of [diameterMm] falls at in still air, m/s.
   static double terminalSpeed(double diameterMm) =>
       math.max(0.5, 9.65 - 10.3 * math.exp(-0.6 * diameterMm));

@@ -126,10 +126,33 @@ class WeatherState {
   /// [humidity]: clear air's extinction, the rain's (growing as the rain to
   /// the 0.63), a mist's near saturation.
   static double visibilityMOf(double rainMmPerHour, {double humidity = 0.8}) {
-    final rain = 3.5e-4 * math.pow(math.max(rainMmPerHour, 0), 0.63);
+    final rain = rainExtinctionPerM(rainMmPerHour);
     final mist = 2e-3 * math.pow(((humidity - 0.9) / 0.1).clamp(0.0, 1.0), 2);
     return 1 / (1 / 20000 + rain + mist);
   }
+
+  /// How much light the drops of a rain of [rainMmPerHour] take from a metre
+  /// of the way it crosses, per metre: their cross-section in a cubic metre
+  /// of air. Marshall and Palmer's drops (`N0 exp(-lambda D)`, `lambda`
+  /// going as `R^-0.21`) hold a cross-section going as `lambda^-3`, the rain
+  /// to the 0.63.
+  ///
+  /// It is the rain's own share of the haze, and the drops a rain draws hold
+  /// as much of it ([rainHazeShare]): the haze and the streaks are of one
+  /// rain.
+  static double rainExtinctionPerM(double rainMmPerHour) =>
+      3.5e-4 * math.pow(math.max(rainMmPerHour, 0), rainExtinctionExponent);
+
+  /// The power of the rain's rate its extinction goes as
+  /// ([rainExtinctionPerM]).
+  static const double rainExtinctionExponent = 0.63;
+
+  /// How much more light the drops of a rain of [rainMmPerHour] take from the
+  /// way than the drops of the tuned rain ([tunedRainMmPerHour]): 1 at the
+  /// tuned rain, 0 dry, some 4.3 at ten times the tuned rain.
+  static double rainHazeShare(double rainMmPerHour) =>
+      rainExtinctionPerM(rainMmPerHour) /
+      rainExtinctionPerM(tunedRainMmPerHour);
 
   /// The share of the light that crosses [metres] of air one sees
   /// [visibilityM] through (Koschmieder: exp(-3.912 d / V)); the rest is the

@@ -13,12 +13,12 @@ class _Ground extends Component with OnStage, Ground {
   Rect groundBand() => const Rect.fromLTWH(0, 400, 800, 120);
 }
 
-/// How many drops the rain holds in the air after [seconds] of rain of
-/// [rainMmPerHour] mm an hour.
-Future<int> _dropsInAir(
+/// The drops the rain holds in the air after [seconds] of rain of
+/// [rainMmPerHour] mm an hour, by their diameters, mm.
+Future<List<double>> _dropsInAir(
   FlameGame game,
   double rainMmPerHour, {
-  double seconds = 3,
+  double seconds = 6,
 }) async {
   final rain = Rain(rainMmPerHour: rainMmPerHour, density: 100);
   game.world.addAll([_Ground(), rain]);
@@ -26,22 +26,64 @@ Future<int> _dropsInAir(
   for (var t = 0.0; t < seconds; t += 1 / 60) {
     game.update(1 / 60);
   }
-  return rain.dropsInAir;
+  final drops = [for (final d in rain.dropLooks) d.diameterMm];
+  rain.removeFromParent();
+  game.world.children.whereType<_Ground>().forEach((g) => g.removeFromParent());
+  await game.ready();
+  return drops;
 }
 
+/// The cross-section [drops] hold, mm^2.
+double _area(List<double> drops) => drops.fold(0, (sum, d) => sum + d * d);
+
 void main() {
-  testWithFlameGame('the drops a rain holds are as many as its rate says', (
+  testWithFlameGame('the drops a rain holds hide as much as its haze', (
     game,
   ) async {
     game.camera.viewfinder.anchor = Anchor.topLeft;
-    final tuned = await _dropsInAir(game, 6);
-    final twice = await _dropsInAir(game, 12);
-    final heavy = await _dropsInAir(game, 60);
-
-    // The rate's share of the tuned rain is how much denser the rain is.
-    expect(twice, greaterThan(1.7 * tuned), reason: 'twice the rate');
-    expect(heavy, greaterThan(8 * tuned), reason: 'ten times the rate');
+    // Each held once the rain has filled the air: settled against settled.
+    final tuned = _area(await _dropsInAir(game, 6));
+    for (final rate in [3.0, 12.0, 60.0]) {
+      final drops = await _dropsInAir(game, rate);
+      // The haze of the rain is its drops' cross-section in the air; the
+      // drops drawn hold as much more of it as the haze of their rate
+      // takes more of the light - neither the rate's share of the tuned rain
+      // (ten times at 60 mm an hour, against a haze of 4.3) nor less.
+      final share = WeatherState.rainHazeShare(rate);
+      expect(
+        _area(drops) / tuned,
+        closeTo(share, 0.12 * share),
+        reason: '$rate mm an hour: the haze takes $share times the tuned',
+      );
+    }
   });
+
+  test(
+    'a harder rain lets fewer drops fall than its rate says, bigger ones',
+    () {
+      // Ten times the tuned rain: the haze some 4.3 times, its drops bigger
+      // and in the air the shorter for falling faster, so some 3.2 times as
+      // many fall - and some 2.5 times as many are in the air - not ten.
+      final share = RainDrops.releaseShare(
+        60,
+        tunedMmPerHour: WeatherState.tunedRainMmPerHour,
+        hazeShare: WeatherState.rainHazeShare(60),
+      );
+      expect(share, inInclusiveRange(2.8, 3.6));
+      expect(
+        RainDrops.releaseShare(
+          6,
+          tunedMmPerHour: 6,
+          hazeShare: WeatherState.rainHazeShare(6),
+        ),
+        closeTo(1, 1e-9),
+      );
+      expect(
+        RainDrops.releaseShare(0, tunedMmPerHour: 6, hazeShare: 0),
+        0,
+      );
+    },
+  );
 
   testWithFlameGame('the rate is the one number the rain is read at', (
     game,
