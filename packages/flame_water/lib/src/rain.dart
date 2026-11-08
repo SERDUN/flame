@@ -40,13 +40,22 @@ import 'package:flutter/foundation.dart' show visibleForTesting;
 /// rain over a world, for what depends on it (water astir, things getting
 /// wet and drying).
 ///
-/// It is the stage's [Weather] too: it rains [rainMmPerHour] (its
-/// [intensity] of a steady 6 mm an hour), in its [wind], in air of its
-/// [humidity] and [temperature], under its [cloudCover], the world's time
-/// running at its [pace] - what every `Wettable` fills and dries by.
+/// It is the stage's [Weather] too: it rains [rainMmPerHour], in its [wind],
+/// in air of its [humidity] and [temperature], under its [cloudCover], the
+/// world's time running at its [pace] - what every `Wettable` fills and dries
+/// by.
+///
+/// **The rain rate is the one number this rain is read at.** The air, the
+/// cloud and the light follow it ([Weather.rainMmPerHour]), and so do the
+/// drops: how many of them fall ([Rain.density] with [rainIntensity]) and how
+/// big they are ([RainDrops.diameterMm]). A game whose rain is harder in
+/// one place than in another - a storm cell over the walker - says so with
+/// the rate there, and the whole picture of that place follows it: the haze
+/// of the air and the streaks of the drops read the same number.
 class Rain extends Component with OnStage, Reflectable, Weather {
   Rain({
-    this.intensity = 1,
+    double? intensity,
+    double? rainMmPerHour,
     Vector2? wind,
     this.windAt,
     this.cloudTop,
@@ -60,7 +69,9 @@ class Rain extends Component with OnStage, Reflectable, Weather {
     this.color = const Color(0xFFD6E0EE),
     int seed = 7,
     super.priority = 1100,
-  }) : wind = wind ?? Vector2(1.6, 0),
+  }) : rainMmPerHour =
+           rainMmPerHour ?? (intensity ?? 1) * WeatherState.tunedRainMmPerHour,
+       wind = wind ?? Vector2(1.6, 0),
        _random = math.Random(seed),
        // Splashes draw from a stream of their own: they come as drops land,
        // which a frame moved at once does in another order than its steps
@@ -68,7 +79,16 @@ class Rain extends Component with OnStage, Reflectable, Weather {
        _splashes = math.Random(seed ^ 0x5bd1e995);
 
   /// How hard it rains: 1 a steady rain, 2 a downpour, 0.3 a drizzle, 0 dry.
-  double intensity;
+  ///
+  /// The **rate** the rain falls at, in mm an hour, is the number everything
+  /// is read at; this is that rate against the rain the scene was tuned for
+  /// (6 mm an hour). Setting it sets the rate - a game that has a storm cell
+  /// over the walker sets the rate there and the picture of that place
+  /// follows.
+  double get intensity => rainMmPerHour / WeatherState.tunedRainMmPerHour;
+
+  set intensity(double value) =>
+      rainMmPerHour = value * WeatherState.tunedRainMmPerHour;
 
   /// The wind, metres per second (y down), the same everywhere - unless
   /// [windAt] says how it blows where each drop is.
@@ -176,8 +196,17 @@ class Rain extends Component with OnStage, Reflectable, Weather {
 
   // As the weather of its stage: the rain it is, and the air it falls in.
 
+  /// The rain it falls at, mm an hour: the one number the whole rain is read
+  /// at - the air, the cloud, the drops' count and the drops' sizes.
   @override
-  double get rainMmPerHour => intensity * WeatherState.tunedRainMmPerHour;
+  double rainMmPerHour;
+
+  /// How hard it rains against the rain the scene was tuned for: the rate's
+  /// share of the tuned rain (1 a steady rain, 2 a downpour).
+  ///
+  /// The drops' count and the veils' streaks read it, so that the rain drawn
+  /// is as dense as the rate says and the haze over it is of the same rain.
+  double get rainIntensity => rainMmPerHour / WeatherState.tunedRainMmPerHour;
 
   @override
   double humidity;
@@ -445,7 +474,9 @@ class Rain extends Component with OnStage, Reflectable, Weather {
         metre *
         math.min(scale(behind), scale(nearest));
     final longest = math.max(math.min(lowest, to) - from, 0) / slowest;
-    final released = (density * view.width / metre * intensity * longest)
+    // As many drops as the rate says: the rate's share of the tuned rain is
+    // how much denser the rain is than the tuned one.
+    final released = (density * view.width / metre * rainIntensity * longest)
         .round();
     for (var k = 0; k < released; k++) {
       final i = _newDrop(view, land, scale, 0);
@@ -501,7 +532,9 @@ class Rain extends Component with OnStage, Reflectable, Weather {
     // A share of the rain falls behind the street line (negative depth):
     // onto roofs and behind the houses, never onto the road.
     final depth = behind + (nearest - behind) * _random.nextDouble();
-    final diameter = RainDrops.diameterMm(_random.nextDouble(), intensity);
+    // The drop's size follows the rate: a harder rain has the bigger drops
+    // its rate gives it.
+    final diameter = RainDrops.diameterMm(_random.nextDouble(), rainMmPerHour);
     final terminal = RainDrops.terminalSpeed(diameter);
     // Seen nearer, a drop crosses the view faster: its speed on the screen
     // goes as one over its distance - half as far, twice as fast.
@@ -683,13 +716,13 @@ class Rain extends Component with OnStage, Reflectable, Weather {
     }
     _startY = start;
     // As many per metre over the ground the view will cross, not only the
-    // view.
+    // view: as many as the rate says (its share of the tuned rain).
     _due +=
         dt *
         density *
         (view.width + _viewReach(view, land)) /
         metre *
-        intensity;
+        rainIntensity;
     while (_due >= 1) {
       _due -= 1;
       final i = _newDrop(view, land, scale, dt);

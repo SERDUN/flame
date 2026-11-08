@@ -16,9 +16,6 @@ abstract final class RainDrops {
   /// Largest drop, mm: bigger ones break up as they fall.
   static const double maxMm = 5;
 
-  /// Rain rate at the tuned rain (intensity 1), mm/h: a moderate rain.
-  static const double tunedRateMmH = 6;
-
   /// How long a frame "exposes" a drop, s: a streak is the path the drop covers
   /// meanwhile, as in a photograph at 1/30 s.
   static const double exposureSec = 1 / 20;
@@ -43,17 +40,18 @@ abstract final class RainDrops {
 
   static const double _g = 9.81;
 
-  /// Rain rate for a game intensity (1 = the tuned rain, 2 a downpour, 0.3 a
-  /// drizzle), mm/h: heavier rain grows faster than the intensity, as a
-  /// downpour is several times a rain.
-  static double rateMmH(double intensity) =>
-      tunedRateMmH * math.pow(math.max(intensity, 0.05), 1.8);
-
-  /// A drop diameter, mm, for `u` in `0..1` drawn at [intensity]: many small
-  /// drops and a few large ones, the large ones more common the harder it
-  /// rains.
-  static double diameterMm(double u, double intensity) {
-    final lambda = 4.1 * math.pow(rateMmH(intensity), -0.21);
+  /// A drop diameter, mm, for `u` in `0..1` in a rain of [rainMmPerHour] mm an
+  /// hour: many small drops and a few large ones, the large ones more common
+  /// the harder it rains.
+  ///
+  /// The sizes follow the rain's **rate** (Marshall and Palmer 1948: the
+  /// number of drops of a diameter `D` in a rain of a rate `R` goes as
+  /// `exp(-lambda D)`, with `lambda = 4.1 R^-0.21` per mm), so a rain that
+  /// falls harder - a storm cell over the walker, say - has the bigger drops
+  /// its rate gives it. The rate is the one number the whole rain is read at:
+  /// the air, the cloud and the drops' count follow it too.
+  static double diameterMm(double u, double rainMmPerHour) {
+    final lambda = 4.1 * math.pow(math.max(rainMmPerHour, 0.05), -0.21);
     // The exponential above minMm, cut at maxMm.
     final d =
         minMm -
