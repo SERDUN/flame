@@ -36,6 +36,9 @@ Future<Uint8List> _scene(
   FlameGame game, {
   required bool Function() splits,
   bool fog = true,
+  double Function()? resolution,
+  Color horizon = const Color(0xFF00FF00),
+  double skyLight = 0,
 }) async {
   await LightShader.load(directory: 'shaders');
   game.onGameResize(Vector2(800, 600));
@@ -49,10 +52,14 @@ Future<Uint8List> _scene(
     _Air([
       if (fog) AirBank(extinction: AirField.ofVisibility(50), topM: 1e6),
     ]),
-    AirVeil(depth: () => -0.5, splitsLayer: splits),
-    GroundAir(veils: () => const [], splitsLayer: splits),
+    AirVeil(depth: () => -0.5, splitsLayer: splits, resolution: resolution),
+    GroundAir(
+      veils: () => const [],
+      splitsLayer: splits,
+      resolution: resolution,
+    ),
     LightSource(position: Vector2(400, 300), radius: 300),
-    Lighting(metre: 50, skyLight: 0, glow: 0, lightsBackdrop: false),
+    Lighting(metre: 50, skyLight: skyLight, glow: 0, lightsBackdrop: false),
   ]);
   await game.ready();
   game.update(1 / 60);
@@ -60,8 +67,8 @@ Future<Uint8List> _scene(
   Stage.maybeOf(game.world)!.frame.sky.set(
     topY: 0,
     horizonY: 400,
-    top: const Color(0xFF00FF00),
-    horizon: const Color(0xFF00FF00),
+    top: horizon,
+    horizon: horizon,
   );
   final recorder = PictureRecorder();
   game.render(Canvas(recorder));
@@ -100,6 +107,49 @@ void main() {
         }
       }
       expect(differ, greaterThan(10000), reason: 'the fog is in the picture');
+    },
+  );
+
+  testWithFlameGame(
+    'on a grid, drawn into the lit layer the air comes out as the light it was '
+    'laid as, by the lamp too',
+    (game) async {
+      // A night's air: dimmer than the light that falls on it, as in a game.
+      const night = Color(0xFF203820);
+      final laid = await _scene(
+        game,
+        splits: () => true,
+        resolution: () => 0.5,
+        horizon: night,
+        skyLight: 0.3,
+      );
+      LitLayer.turns = 0;
+      LitLayer.emptyTurns = 0;
+      final spared = await _scene(
+        await initializeFlameGame(),
+        splits: () => false,
+        resolution: () => 0.5,
+        horizon: night,
+        skyLight: 0.3,
+      );
+      expect(LitLayer.turns + LitLayer.emptyTurns, 0);
+      // By the lamp, away from it, in the sky and on the ground.
+      for (final (x, y) in [
+        (400, 300),
+        (420, 380),
+        (100, 100),
+        (700, 200),
+        (300, 500),
+      ]) {
+        final i = (y * 800 + x) * 4;
+        for (var c = 0; c < 3; c++) {
+          expect(
+            (spared[i + c] - laid[i + c]).abs(),
+            lessThanOrEqualTo(6),
+            reason: 'at $x, $y, channel $c',
+          );
+        }
+      }
     },
   );
 }

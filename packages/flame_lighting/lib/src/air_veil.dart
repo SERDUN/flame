@@ -115,9 +115,12 @@ mixin _LaysAir on OnStage {
   /// Whether it is laid out of the lighting's multiply ([Lighting.unlit]),
   /// as light; `null` or true: it is. False: it is drawn into the world's lit
   /// layer with what stands there, and the lighting multiplies it as it does
-  /// the world - the air darker where less light falls on it, a turn of the
-  /// layer before and after it saved. A turn is a pass over the whole view:
-  /// the layer lit and laid down, the next one opened.
+  /// the world, a turn of the layer before and after it saved. A turn is a
+  /// pass over the whole view: the layer lit and laid down, the next one
+  /// opened. Worked out on a grid ([resolution] below 1), it goes in divided
+  /// by that light ([Lighting.sparedIn]) and comes out of the multiply as its
+  /// own light, as laid out of it; worked out at every pixel it goes in as it
+  /// is, darker where less light falls on it.
   bool Function()? get splitsLayer;
 
   /// The cells across and down of this air's grid in the last drawing;
@@ -165,7 +168,13 @@ mixin _LaysAir on OnStage {
     if (region == null || image == null) {
       return;
     }
-    _layAir(this, canvas, splits: splitsLayer?.call() ?? true, () {
+    final splits = splitsLayer?.call() ?? true;
+    if (!splits &&
+        (Lighting.of(this)?.sparedIn(canvas, image, region.src, region.area) ??
+            false)) {
+      return;
+    }
+    _layAir(this, canvas, splits: splits, () {
       canvas.drawImageRect(image, region.src, region.area, _stretch);
     });
   }

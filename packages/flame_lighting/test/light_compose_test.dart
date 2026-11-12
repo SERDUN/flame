@@ -41,7 +41,9 @@ void main() {
       ..setFloat(9, 0)
       ..setFloat(10, 0)
       ..setFloat(11, 0)
-      ..setImageSampler(0, ramp);
+      ..setImageSampler(0, ramp)
+      // The air's picture, read only when the air is divided (mode 2).
+      ..setImageSampler(1, ramp);
     final recorder = PictureRecorder();
     Canvas(recorder).drawRect(
       const Rect.fromLTWH(0, 0, 256, 1),

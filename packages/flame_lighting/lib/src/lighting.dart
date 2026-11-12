@@ -431,10 +431,83 @@ class Lighting extends Component with OnStage, Ambience, FrameStep {
       ..setFloat(9, amount * g)
       ..setFloat(10, white ? 0 : 1)
       ..setFloat(11, 0)
-      ..setImageSampler(0, image, filterQuality: FilterQuality.low);
+      ..setImageSampler(0, image, filterQuality: FilterQuality.low)
+      // The air's picture is read only by mode 2 ([sparedIn]); bound anyway.
+      ..setImageSampler(1, image);
     canvas.drawRect(area, paint..shader = shader);
     paint.shader = null;
   }
+
+  /// Draws [src] of [air] - a picture of the air's light - over [area] into
+  /// the lit layer, divided by the light the layer will be multiplied with
+  /// there: the cut's ahead, else the lighting's own. Once multiplied it is
+  /// the air's own light, as [unlit] would lay it, without the turn of the
+  /// layer that costs. Where the light is too faint to divide by - past what
+  /// a layer holds - the air comes out that much darker.
+  ///
+  /// Returns false when it cannot - no open layer, no light to multiply by,
+  /// a picture of the world drawn apart, no light image (the lights drawn one
+  /// by one) - and draws nothing then.
+  bool sparedIn(Canvas canvas, Image air, Rect src, Rect area) {
+    final layer = _litLayer;
+    final frame = stage?.frame;
+    final shader = LightShader.compose;
+    if (LitPicture._drawing ||
+        layer == null ||
+        layer._openAt == null ||
+        frame == null ||
+        !frame.light.isLit ||
+        shader == null) {
+      return false;
+    }
+    final cut = _cutAhead();
+    final Image image;
+    final double gain;
+    final bool white;
+    final cutImage = cut?._image;
+    final own = _lightImage;
+    if (cut != null && cutImage != null) {
+      image = cutImage;
+      gain = cut._gain;
+      white = cut._alphaIsWhite;
+    } else if (own != null) {
+      image = own;
+      gain = _lightGain;
+      white = _alphaIsWhite;
+    } else {
+      return false;
+    }
+    final field = frame.light;
+    final a = _lightArea;
+    shader
+      ..setFloat(0, a.left)
+      ..setFloat(1, a.top)
+      ..setFloat(2, a.width)
+      ..setFloat(3, a.height)
+      ..setFloat(4, field.skyRed / gain)
+      ..setFloat(5, field.skyGreen / gain)
+      ..setFloat(6, field.skyBlue / gain)
+      ..setFloat(7, field.exposure * gain)
+      ..setFloat(8, 2)
+      ..setFloat(9, 0)
+      ..setFloat(10, white ? 0 : 1)
+      ..setFloat(11, 0)
+      ..setFloat(12, area.left)
+      ..setFloat(13, area.top)
+      ..setFloat(14, area.width)
+      ..setFloat(15, area.height)
+      ..setFloat(16, src.left / air.width)
+      ..setFloat(17, src.top / air.height)
+      ..setFloat(18, src.width / air.width)
+      ..setFloat(19, src.height / air.height)
+      ..setImageSampler(0, image, filterQuality: FilterQuality.low)
+      ..setImageSampler(1, air, filterQuality: FilterQuality.low);
+    canvas.drawRect(area, _spared..shader = shader);
+    _spared.shader = null;
+    return true;
+  }
+
+  final Paint _spared = Paint()..isAntiAlias = false;
 
   /// The lighting of the world [component] is in, if it has one.
   static Lighting? of(Component component) =>
