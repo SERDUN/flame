@@ -28,6 +28,7 @@ class AirVeil extends Component with OnStage, AtDepth, _LaysAir {
     this.nearer,
     this.resolution,
     this.pixelRatio,
+    this.splitsLayer,
   });
 
   /// The depth it stands at.
@@ -41,6 +42,9 @@ class AirVeil extends Component with OnStage, AtDepth, _LaysAir {
 
   @override
   final double Function()? pixelRatio;
+
+  @override
+  final bool Function()? splitsLayer;
 
   @override
   double depthIn(StreetProjection? projection) => depth();
@@ -59,7 +63,12 @@ class AirVeil extends Component with OnStage, AtDepth, _LaysAir {
 /// lies flat on it, under what stands on it ([DepthOrder.air] at the street
 /// line, after the flat things there), and water does not mirror it.
 class GroundAir extends Component with OnStage, AtDepth, LiesFlat, _LaysAir {
-  GroundAir({required this.veils, this.resolution, this.pixelRatio});
+  GroundAir({
+    required this.veils,
+    this.resolution,
+    this.pixelRatio,
+    this.splitsLayer,
+  });
 
   /// The depths of the veils in front of the street line, where each takes
   /// over the air nearer than it.
@@ -70,6 +79,9 @@ class GroundAir extends Component with OnStage, AtDepth, LiesFlat, _LaysAir {
 
   @override
   final double Function()? pixelRatio;
+
+  @override
+  final bool Function()? splitsLayer;
 
   @override
   double depthIn(StreetProjection? projection) => 0;
@@ -100,6 +112,14 @@ mixin _LaysAir on OnStage {
   /// worked out against logical ones would be that ratio coarser again.
   double Function()? get pixelRatio;
 
+  /// Whether it is laid out of the lighting's multiply ([Lighting.unlit]),
+  /// as light; `null` or true: it is. False: it is drawn into the world's lit
+  /// layer with what stands there, and the lighting multiplies it as it does
+  /// the world - the air darker where less light falls on it, a turn of the
+  /// layer before and after it saved. A turn is a pass over the whole view:
+  /// the layer lit and laid down, the next one opened.
+  bool Function()? get splitsLayer;
+
   /// The cells across and down of this air's grid in the last drawing;
   /// `null`: none ([resolution] 1, or it laid no air).
   @visibleForTesting
@@ -129,7 +149,7 @@ mixin _LaysAir on OnStage {
     if (share >= 1) {
       final area = _setUp(shader);
       if (area != null) {
-        _layAir(this, canvas, () {
+        _layAir(this, canvas, splits: splitsLayer?.call() ?? true, () {
           canvas.drawRect(area, _paint..shader = shader);
         });
       }
@@ -145,7 +165,7 @@ mixin _LaysAir on OnStage {
     if (region == null || image == null) {
       return;
     }
-    _layAir(this, canvas, () {
+    _layAir(this, canvas, splits: splitsLayer?.call() ?? true, () {
       canvas.drawImageRect(image, region.src, region.area, _stretch);
     });
   }
@@ -157,10 +177,16 @@ final Paint _paint = Paint();
 final Paint _stretch = Paint()..filterQuality = FilterQuality.low;
 
 /// Lays [draw] - the air - over what is drawn, out of the lighting's
-/// multiply.
-void _layAir(OnStage owner, Canvas canvas, void Function() draw) {
+/// multiply; unless it [splits] no layer, when it goes into the lit layer as
+/// it is.
+void _layAir(
+  OnStage owner,
+  Canvas canvas,
+  void Function() draw, {
+  required bool splits,
+}) {
   final lighting = Lighting.of(owner);
-  if (lighting == null) {
+  if (lighting == null || !splits) {
     draw();
   } else {
     lighting.unlit(canvas, draw, by: owner);
