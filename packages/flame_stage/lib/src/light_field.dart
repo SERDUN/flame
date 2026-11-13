@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'dart:ui';
 
 import 'package:flame/components.dart';
+import 'package:flame_stage/src/night_vision.dart';
 import 'package:flame_stage/src/shadow.dart';
 import 'package:flame_stage/src/stage.dart';
 import 'package:flame_stage/src/street_projection.dart';
@@ -362,6 +363,10 @@ mixin Ambience on OnStage {
   /// World units a metre: how [glow] puts the street's distance against the
   /// weather's visibility, in metres. 1 for a world in metres.
   double get metre => 1;
+
+  /// How the eye sees colour in the light it has adapted to (the Purkinje
+  /// shift, [LightField.scotopic]); `null`: as in daylight, always.
+  NightVision? get nightVision => null;
 }
 
 /// How much light reaches a point, and in what colour: what [LightField]
@@ -465,6 +470,15 @@ class LightField {
   /// ambience.
   double exposure = 1;
 
+  /// How far the eye adapted to [exposure] has gone from its cones to its
+  /// rods, `0..1` ([NightVision.amountAt]): 0 in daylight or with no
+  /// [Ambience.nightVision], 1 dark-adapted - what the lighting fades and
+  /// cools the colours it lays down by.
+  double scotopic = 0;
+
+  /// The ambience's [NightVision]; `null`: none.
+  NightVision? nightVision;
+
   /// The haze, `0..1`.
   double haze = 0;
 
@@ -505,6 +519,8 @@ class LightField {
       skyRed = skyGreen = skyBlue = 1;
       _sensed = 1;
       exposure = 1;
+      scotopic = 0;
+      nightVision = null;
       haze = 0;
       glow = 0;
       return;
@@ -515,6 +531,7 @@ class LightField {
       adaptation: ambience.adaptation,
       adaptsIn: ambience.adaptsIn,
       darkAdaptsIn: ambience.darkAdaptsIn,
+      nightVision: ambience.nightVision,
       haze:
           ambience.haze ?? _hazeOf(weather, projection, viewX, ambience.metre),
       glow:
@@ -581,9 +598,11 @@ class LightField {
     double adaptation = 1,
     double adaptsIn = 0,
     double? darkAdaptsIn,
+    NightVision? nightVision,
     double haze = 0,
     double glow = 0,
   }) {
+    this.nightVision = nightVision;
     _adaptsIn = math.max(adaptsIn, 0);
     _darkAdaptsIn = math.max(darkAdaptsIn ?? 4 * adaptsIn, 0);
     count = 0;
@@ -615,12 +634,14 @@ class LightField {
   void finish([double dt = 0, Rect? view, StreetProjection? projection]) {
     if (!lit) {
       _adapted = false;
+      scotopic = 0;
       return;
     }
     final target = 1 / math.max(seenLevel(view, projection), _adaptation);
     if (!_adapted || _adaptsIn <= 0 || dt <= 0) {
       exposure = target;
       _adapted = true;
+      _seeColour();
       return;
     }
     // In steps of brightness, not of the number.
@@ -630,6 +651,14 @@ class LightField {
     exposure = math.exp(
       math.log(exposure) + (math.log(target) - math.log(exposure)) * k,
     );
+    _seeColour();
+  }
+
+  /// [scotopic] for the eye as [exposure] has it now: adapted to one over
+  /// it, so it follows the eye's own pace - slow into the dark (the rods
+  /// take their time), quick back into the light.
+  void _seeColour() {
+    scotopic = nightVision?.amountAt(1 / math.max(exposure, 1e-9)) ?? 0;
   }
 
   /// Adds [light] at world [x], [y] (its anchor on its carrier), turned by

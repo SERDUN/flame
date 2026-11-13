@@ -790,6 +790,73 @@ void main() {
       expect(bytes.getUint8(i + 2), lessThan(bytes.getUint8(i)));
     },
   );
+  group('night vision', () {
+    const vision = NightVision(fullBelow: 0.1, noneAbove: 3);
+    const orange = Color(0xFFC87828);
+
+    /// An orange wall under a sky of [skyLight], the eye adapting down to
+    /// it, seen with [nightVision]: its colour mid-view.
+    Future<({int r, int g, int b})> wall(
+      FlameGame game, {
+      required double skyLight,
+      NightVision? nightVision,
+    }) async {
+      await LightShader.load(directory: 'shaders');
+      game.onGameResize(Vector2(800, 600));
+      game.camera.viewfinder.anchor = Anchor.topLeft;
+      game.world.addAll([
+        _Wall(orange),
+        Lighting(
+          skyLight: skyLight,
+          adaptation: 0.05,
+          glow: 0,
+          lightsBackdrop: false,
+          nightVision: nightVision,
+        ),
+      ]);
+      await game.ready();
+      final at = await _renderRgb(game);
+      return at(400, 300);
+    }
+
+    double saturation(({int r, int g, int b}) c) {
+      final high = math.max(c.r, math.max(c.g, c.b));
+      final low = math.min(c.r, math.min(c.g, c.b));
+      return high == 0 ? 0 : (high - low) / high;
+    }
+
+    testWithFlameGame(
+      'at night far from lamps a colour fades and turns bluer',
+      (
+        game,
+      ) async {
+        final seen = await wall(game, skyLight: 0.05, nightVision: vision);
+        final lighting = game.world.children.whereType<Lighting>().single;
+        expect(lighting.stage!.frame.light.scotopic, 1, reason: 'dark-adapted');
+        // The eye adapted to the night sees the wall at the sky's full white:
+        // without the shift it is the orange it was drawn in.
+        expect(
+          saturation(seen),
+          lessThan(saturation((r: 200, g: 120, b: 40)) - 0.3),
+        );
+        expect(seen.b / seen.r, greaterThan(40 / 200 + 0.2));
+      },
+    );
+
+    testWithFlameGame('without it the night keeps the colour', (game) async {
+      final seen = await wall(game, skyLight: 0.05);
+      expect(seen.r, closeTo(200, 2));
+      expect(seen.g, closeTo(120, 2));
+      expect(seen.b, closeTo(40, 2));
+    });
+
+    testWithFlameGame('in daylight the colour is untouched', (game) async {
+      final seen = await wall(game, skyLight: 40, nightVision: vision);
+      final lighting = game.world.children.whereType<Lighting>().single;
+      expect(lighting.stage!.frame.light.scotopic, 0);
+      expect(seen, (r: 200, g: 120, b: 40));
+    });
+  });
 }
 
 /// The rendered game's colour at a pixel.

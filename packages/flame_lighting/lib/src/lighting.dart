@@ -49,6 +49,7 @@ class Lighting extends Component with OnStage, Ambience, FrameStep {
     this.glow,
     this.metre = 1,
     this.haze,
+    this.nightVision,
     this.useBuffer = true,
     this.bufferScale = 0.5,
     this.lightsBackdrop = true,
@@ -88,6 +89,48 @@ class Lighting extends Component with OnStage, Ambience, FrameStep {
   /// How thick the air is, `0..1`; `null`: as the stage's weather makes it.
   @override
   double? haze;
+
+  /// How the eye sees colour in the light it has adapted to; `null`: as in
+  /// daylight. Where the world is lit in a layer of its own
+  /// ([lightsBackdrop] off) the layer is laid down through its colour
+  /// matrix at the frame's [LightField.scotopic] - the paint it is laid down
+  /// with anyway, so no pass of its own. It is one shift for the whole
+  /// view, from the light the eye has adapted to: a lamp's pool at night
+  /// fades as the street round it does (less, as the lamps in view keep the
+  /// eye from adapting as far).
+  @override
+  NightVision? nightVision;
+
+  /// The shift under [scotopic] as a paint's colour filter: `null` at none,
+  /// so by day the layer is laid down as it always was. Made again only
+  /// when the shift moves by a step a channel could show (1/512).
+  ColorFilter? _nightFilterAt(double scotopic) {
+    final vision = nightVision;
+    if (vision == null || scotopic <= 0) {
+      _nightFilter = null;
+      _nightFilterOf = 0;
+      return null;
+    }
+    final at = (scotopic * 512).round() / 512;
+    if (_nightFilter == null || at != _nightFilterOf) {
+      _nightFilterOf = at;
+      _nightFilter = ColorFilter.matrix(vision.matrix(at));
+    }
+    return _nightFilter;
+  }
+
+  ColorFilter? _nightFilter;
+  double _nightFilterOf = 0;
+
+  /// The colour filter the world's lit layer is laid down through this
+  /// frame ([nightVision]); `null`: none.
+  ColorFilter? get layerFilter {
+    final frame = stage?.frame;
+    if (frame == null || !frame.light.lit) {
+      return _nightFilterAt(0);
+    }
+    return _nightFilterAt(frame.light.scotopic);
+  }
 
   /// Whether to add the lights up on the GPU where it can ([LightBuffer]).
   /// Off, every light is drawn on the canvas.
@@ -1102,7 +1145,7 @@ class LitLayer extends Component {
   final Lighting lighting;
 
   int? _openAt;
-  static final Paint _paint = Paint();
+  final Paint _paint = Paint();
 
   /// How many times a layer has been lit and laid down, and how many times
   /// that was left out because the layer held nothing yet: for tests, and
@@ -1219,7 +1262,7 @@ class LitLayer extends Component {
   void _open(Canvas canvas) {
     _openAt = canvas.getSaveCount();
     _openTransform = canvas.getTransform();
-    canvas.saveLayer(null, _paint);
+    canvas.saveLayer(null, _paint..colorFilter = lighting.layerFilter);
   }
 
   /// Lays what is in the layer over what is below it and opens the next.
@@ -1231,7 +1274,7 @@ class LitLayer extends Component {
     turns++;
     canvas
       ..restoreToCount(at)
-      ..saveLayer(null, _paint);
+      ..saveLayer(null, _paint..colorFilter = lighting.layerFilter);
   }
 }
 
@@ -1510,7 +1553,7 @@ class LitPicture {
     canvas.transform(toInner);
   }
 
-  static final Paint _paint = Paint();
+  final Paint _paint = Paint();
 
   /// For a picture of the world [lighting] lights, over [area] of the world
   /// (before any mirroring); `null` when there is nothing to light it by -
@@ -1594,7 +1637,9 @@ class LitPicture {
     _holds = false;
     _openAt = canvas.getSaveCount();
     _openTransform = canvas.getTransform();
-    canvas.saveLayer(null, _paint);
+    // Through the same colour shift as the world's layer: a mirror shows the
+    // world as the eye sees it.
+    canvas.saveLayer(null, _paint..colorFilter = _lighting.layerFilter);
   }
 
   void _close(Canvas canvas) {
