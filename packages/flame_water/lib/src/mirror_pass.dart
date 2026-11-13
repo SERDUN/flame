@@ -124,25 +124,48 @@ class MirrorPass implements Mirror {
   /// The part of the world [view] needs mirrored: where the waters are,
   /// as much as is in it and as far round it as they bend what they show.
   Rect _needed(Rect view) {
-    final (:area, :reach) = _reach();
-    return area.intersect(view.inflate(reach));
+    final (:area, :reach, :slack) = _reach();
+    return area.intersect(_around(view, reach, slack));
   }
 
-  ({Rect area, double reach}) _reach() {
+  /// [view] widened by [reach] each way, and by [slack] more up and down.
+  static Rect _around(Rect view, double reach, double slack) => slack <= 0
+      ? view.inflate(reach)
+      : Rect.fromLTRB(
+          view.left - reach,
+          view.top - reach - slack,
+          view.right + reach,
+          view.bottom + reach + slack,
+        );
+
+  ({Rect area, double reach, double slack}) _reach() {
     var area = Rect.zero;
     var reach = 0.0;
+    var most = 0.0;
     for (final water in _members) {
-      final rect = water.toAbsoluteRect();
+      var rect = water.toAbsoluteRect();
+      // Where the street line rises and falls across it, a column is read
+      // as far up or down the picture as its line is off the middle's.
+      final slack = water.mirrorSlack;
+      most = math.max(most, slack);
+      if (slack > 0) {
+        rect = Rect.fromLTRB(
+          rect.left,
+          rect.top - slack,
+          rect.right,
+          rect.bottom + slack,
+        );
+      }
       area = area.isEmpty ? rect : area.expandToInclude(rect);
       reach = math.max(reach, rect.left - water.reflectedArea.left);
     }
-    return (area: area, reach: reach);
+    return (area: area, reach: reach, slack: most);
   }
 
   /// Draws the picture of what [view] needs, and [margin] past it each way:
   /// what a view moving on needs of a picture kept for the drawings after.
   void _record(Stage stage, Rect? view, {double margin = 0}) {
-    final (:area, :reach) = _reach();
+    final (:area, :reach, :slack) = _reach();
     var left = double.infinity;
     var right = double.negativeInfinity;
     var pixels = 0.0;
@@ -161,7 +184,9 @@ class MirrorPass implements Mirror {
     // Only what is in view needs mirroring, and as far round it as the
     // waters bend what they show.
     final shown = view?.inflate(margin);
-    bounds = shown == null ? area : area.intersect(shown.inflate(reach));
+    bounds = shown == null
+        ? area
+        : area.intersect(_around(shown, reach, slack));
     scale = pixels;
     final width = (bounds.width * scale).ceil();
     final height = (bounds.height * scale).ceil();
@@ -190,6 +215,7 @@ class MirrorPass implements Mirror {
           right: right,
           projection: stage.projection,
           shift: mirrorShift,
+          line: line,
           lit: lit,
         );
         lit?.finish(canvas);
@@ -237,6 +263,11 @@ class MirrorPass implements Mirror {
   ///
   /// [lit] lights the picture as the world is lit, at the lighting's own
   /// steps as they come; without it they are left out.
+  ///
+  /// [line] is the line the world is mirrored about, world y: over ground
+  /// that is not level, a depth's ground is taken as far below it as on
+  /// level ground below the street line, and the water moves each column's
+  /// mirror to the street line there (the water shader).
   static void drawWorld(
     Canvas canvas,
     Component parent, {
@@ -244,6 +275,7 @@ class MirrorPass implements Mirror {
     required double right,
     required StreetProjection? projection,
     required double Function(double base) shift,
+    double? line,
     LitPicture? lit,
   }) {
     for (final child in parent.children) {
@@ -254,7 +286,9 @@ class MirrorPass implements Mirror {
         continue;
       }
       lit?.drew();
-      final base = child is Reflectable ? _baseOf(child, projection) : null;
+      final base = child is Reflectable
+          ? _baseOf(child, projection, line)
+          : null;
       if (base != null) {
         canvas
           ..save()
@@ -272,6 +306,7 @@ class MirrorPass implements Mirror {
             right: right,
             projection: projection,
             shift: shift,
+            line: line,
             lit: lit,
           );
         }
@@ -314,16 +349,26 @@ class MirrorPass implements Mirror {
 
   /// Where [thing] stands, world y, if not on the line the water mirrors
   /// about: as it says, or where its depth puts it on the street's ground -
-  /// round the view's middle, as water lies only on level ground.
-  static double? _baseOf(Reflectable thing, StreetProjection? projection) {
+  /// round the view's middle on level ground; over hills and round a bend,
+  /// as far below [line] as the depth's ground is below the street line,
+  /// which the water then moves to the street line at each column.
+  static double? _baseOf(
+    Reflectable thing,
+    StreetProjection? projection,
+    double? line,
+  ) {
     final base = thing.reflectionBase;
     if (base != null) {
       return base;
     }
     final depth = thing.groundDepth;
-    return depth == null
-        ? null
-        : projection?.groundYAt(projection.band.center.dx, depth);
+    if (depth == null || projection == null) {
+      return null;
+    }
+    if (line != null && !projection.lift.isLevel) {
+      return line + (projection.yAt(depth) - projection.line);
+    }
+    return projection.groundYAt(projection.band.center.dx, depth);
   }
 }
 

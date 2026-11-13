@@ -96,6 +96,7 @@ void main() {
       'uLampArea': WaterShader.lampArea,
       'uLampInfo': WaterShader.lampInfo,
       'uSilt': WaterShader.silt,
+      'uLineSpan': WaterShader.lineSpan,
     };
     expect(defines, dart);
   });
@@ -107,19 +108,23 @@ void main() {
     // Six vectors a light.
     expect(WaterShader.lightFloats, 6 * 4);
     // Three vectors after the holes: the light the depth glows by and the
-    // layer on the water.
+    // layer on the water; then the street line's samples and their span.
     expect(
       WaterShader.floats,
       (WaterShader.header +
               WaterShader.maxRings +
               WaterShader.maxLights * 6 +
               WaterShader.maxHoles +
-              3) *
+              3 +
+              WaterShader.lineSamples ~/ 4 +
+              1) *
           4,
     );
     expect(_constant(source, 'kMaxHoles'), WaterShader.maxHoles);
     expect(_constant(source, 'kHoles') * 4, WaterShader.holes);
     expect(_constant(source, 'kBody') * 4, WaterShader.body);
-    expect(source, contains('uniform vec4 u[kBody + 3];'));
+    expect(_constant(source, 'kLine') * 4, WaterShader.lineAt);
+    expect(_constant(source, 'kLineVecs') * 4, WaterShader.lineSamples);
+    expect(source, contains('uniform vec4 u[kLineSpan + 1];'));
   });
 }
