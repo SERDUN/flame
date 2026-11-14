@@ -34,12 +34,18 @@ const int kLights = kRings + kMaxRings;
 const int kMaxHoles = 8;
 const int kHoles = kLights + kMaxLights * 6;
 const int kBody = kHoles + kMaxHoles;
+// The street line across the water, local y at evenly spaced local x (four
+// a vec4), and their span after them: on hills and round a bend the line
+// rises and falls, and each column is mirrored about the line where it is.
+const int kLineVecs = 8;
+const int kLine = kBody + 3;
+const int kLineSpan = kLine + kLineVecs;
 
 // One array of vectors, named below: a lone float before a vector is laid
 // out differently on Vulkan than the floats are set, and Metal binds each
 // uniform on its own, 31 at most. The Dart side (WaterShader) writes the
 // same layout.
-uniform vec4 u[kBody + 3];
+uniform vec4 u[kLineSpan + 1];
 
 #define uSize        u[0].xy   // the water's rectangle, local units
 #define uCount       u[0].z    // rings in use
@@ -103,6 +109,8 @@ uniform vec4 u[kBody + 3];
                                  // the algae on the water, and what they
                                  // send back of the light a beam puts
                                  // into them (rgb)
+#define uLineSpan   u[kLineSpan] // the street line's samples: left, right,
+                                 // how many (below 2: one line, uLine)
 
 uniform sampler2D uReflection;
 uniform sampler2D uHeights;
@@ -387,17 +395,48 @@ vec3 lights(vec2 p, float s) {
     return sum;
 }
 
+// The line the world is mirrored about in the column at local x: the street
+// line there, from its samples, straight between them and as at its ends
+// past them; uLine itself where there are none (level ground).
+float lineAt(float x) {
+    float n = uLineSpan.z;
+    if (n < 1.5) {
+        return uLine;
+    }
+    float s = clamp((x - uLineSpan.x) / max(uLineSpan.y - uLineSpan.x, 1e-6),
+                    0.0, 1.0) * (n - 1.0);
+    float i0 = min(floor(s), n - 2.0);
+    float t = s - i0;
+    float a = 0.0;
+    float b = 0.0;
+    // A uniform array is read by a loop's own index only.
+    for (int k = 0; k < kLineVecs * 4; k++) {
+        float fk = float(k);
+        if (fk == i0 || fk == i0 + 1.0) {
+            vec4 q = u[kLine + k / 4];
+            int c = k - (k / 4) * 4;
+            float v = c == 0 ? q.x : (c == 1 ? q.y : (c == 2 ? q.z : q.w));
+            if (fk == i0) {
+                a = v;
+            } else {
+                b = v;
+            }
+        }
+    }
+    return mix(a, b, t);
+}
+
 // The light in the air the lighting laid above the street, seen in the
 // mirror at p: read from its buffer - a soft copy, half a metre across: light
 // in the air has no edges, and a thin post throws no shadow in it - where the
 // mirror puts p back, and smeared down by the surface's roughness as the
 // street's reflection is (a sigma of uSpread, five taps).
-vec3 airMirrored(vec2 p) {
+vec3 airMirrored(vec2 p, float line) {
     vec3 sum = vec3(0.0);
     for (int k = -2; k <= 2; k++) {
         float weight = k == 0 ? 6.0 : (k == 1 || k == -1 ? 4.0 : 1.0);
         float y = p.y + float(k) * uSpread;
-        vec2 w = vec2(p.x, uLine - (y - uLine) / uSquash);
+        vec2 w = vec2(p.x, line - (y - line) / uSquash);
         sum += mirrored(w).rgb * weight;
     }
     return sum / 16.0;
@@ -414,7 +453,10 @@ void main() {
     }
     float s = mix(uElevTop, uElevBottom, clamp(p.y / uSize.y, 0.0, 1.0));
     float reflectance = uFresnel > 0.5 ? fresnel(s) : 1.0;
-    float below = clamp((p.y - uLine) / max(uSize.y - uLine, 1.0), 0.0, 1.0);
+    // The street line over this column: the mirror hangs from it, and the
+    // water fades from it down.
+    float line = lineAt(p.x);
+    float below = clamp((p.y - line) / max(uSize.y - line, 1.0), 0.0, 1.0);
     float shown = uGain * reflectance * (1.0 - uFade * below);
     if (pass > 0.5 && pass < 1.5) {
         // What is under the water - the ground, lit - as much as comes back
@@ -451,7 +493,7 @@ void main() {
     if (uLightMode > 0.5) {
         vec3 light = lights(at, s);
         if (uAirMap > 0.5) {
-            light += airMirrored(at) * uAir;
+            light += airMirrored(at, line) * uAir;
         }
         light *= shown * water;
         float most = max(light.r, max(light.g, light.b));
@@ -465,10 +507,16 @@ void main() {
     // finer than that, read smooth: a blur, not copies.
     float down = uSpread;
     float across = uSpread * s;
+    // The picture is the world mirrored about uLine; this column's mirror
+    // hangs from its own line. A point the line's height above it is the
+    // point (1 + squash) times that height higher in the picture.
+    vec2 read = uLineSpan.z < 1.5
+        ? at
+        : vec2(at.x, at.y - (1.0 + uSquash) * (line - uLine));
     vec4 color;
     // Under half a pixel of smear is none.
     if (down * uPixels < 0.5) {
-        color = mirrored(at);
+        color = mirrored(read);
     } else {
         int side = across * uPixels < 0.75 ? 0 : 2;
         // The picture smeared down once for every pixel that reads it: the
@@ -488,7 +536,7 @@ void main() {
                 }
                 float x = float(k) * 0.8;
                 float w = wy * exp(-0.5 * x * x);
-                sum += mirrored(at + vec2(x * across, y * down)) * w;
+                sum += mirrored(read + vec2(x * across, y * down)) * w;
                 total += w;
             }
         }
@@ -497,7 +545,7 @@ void main() {
     if (uSkyY.z > 0.5) {
         // Where nothing of the world stands across, the sky drawn behind
         // it, mirrored about the line and squeezed as the world is.
-        float y = uLine - (at.y - uLine) / max(uSquash, 1e-3);
+        float y = line - (at.y - line) / max(uSquash, 1e-3);
         float span = uSkyY.y - uSkyY.x;
         float t = abs(span) < 1e-6 ? 1.0 : clamp((y - uSkyY.x) / span, 0.0, 1.0);
         vec4 sky = mix(uSkyTop, uSkyHorizon, t);

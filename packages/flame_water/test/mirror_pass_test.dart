@@ -75,6 +75,65 @@ Future<List<int>> _walk(
   return reds;
 }
 
+/// The same road as [_walk], the camera at [xs] drawing by drawing; what
+/// the road mirrors at [x], and how many pictures each drawing drew.
+Future<({List<int> reds, List<int> recorded})> _walkAt(
+  FlameGame game, {
+  required int mirrorEvery,
+  required List<double> xs,
+  required int x,
+}) async {
+  await WaterShader.load(asset: 'shaders/water.frag');
+  game.onGameResize(Vector2(800, 600));
+  game.camera.viewfinder.anchor = Anchor.topLeft;
+  game.world.addAll([
+    _Wall(),
+    _water(-2000, 400, 8000, 200)
+      ..shape = WaterShape.rect
+      ..mirrorEvery = mirrorEvery,
+  ]);
+  await game.ready();
+  final reds = <int>[];
+  final recorded = <int>[];
+  for (final at in xs) {
+    game.camera.viewfinder.position = Vector2(at, 0);
+    final before = MirrorPass.recordings;
+    reds.add(_red(await _pixels(game), x, 410));
+    recorded.add(MirrorPass.recordings - before);
+  }
+  return (reds: reds, recorded: recorded);
+}
+
+/// A post over a road of water whose line moves [drift] down a drawing,
+/// for [drawings] drawings: what the road mirrors down the column through
+/// the mirror of the post's top, and how many pictures each drawing drew.
+Future<({List<List<int>> columns, List<int> recorded})> _drifting(
+  FlameGame game, {
+  required int mirrorEvery,
+  required double drift,
+  required int drawings,
+}) async {
+  await WaterShader.load(asset: 'shaders/water.frag');
+  game.onGameResize(Vector2(800, 600));
+  game.camera.viewfinder.anchor = Anchor.topLeft;
+  final road = _water(0, 400, 800, 200)
+    ..shape = WaterShape.rect
+    ..mirrorEvery = mirrorEvery;
+  game.world.addAll([_Post(), road]);
+  await game.ready();
+  final columns = <List<int>>[];
+  final recorded = <int>[];
+  for (var i = 0; i < drawings; i++) {
+    road.waterLine = 400 + i * drift;
+    final before = MirrorPass.recordings;
+    final bytes = await _pixels(game);
+    recorded.add(MirrorPass.recordings - before);
+    // The post's top, 100 above the line, mirrors 100 below it.
+    columns.add([for (var y = 490; y < 512; y++) _red(bytes, 400, y)]);
+  }
+  return (columns: columns, recorded: recorded);
+}
+
 class _Wall extends RectangleComponent with Reflectable {
   _Wall()
     : super(
@@ -161,6 +220,86 @@ void main() {
       // Drawn wider by the way the view goes, the picture is still kept:
       // the first, the one the view first moved off, and every second after.
       expect(MirrorPass.recordings - before, 4);
+    },
+  );
+
+  testWithFlameGame(
+    'a line drifting by a hair keeps the mirror for its drawings, moved '
+    'with the line',
+    (game) async {
+      // A road on a hill under a moving view: the line it mirrors about
+      // moves a little every drawing. A picture kept for two drawings was
+      // drawn anew every drawing all the same.
+      final kept = await _drifting(
+        game,
+        mirrorEvery: 2,
+        drift: 0.004,
+        drawings: 20,
+      );
+      expect(
+        kept.recorded.reduce((a, b) => a + b),
+        10,
+        reason: 'one picture every second drawing',
+      );
+    },
+  );
+
+  testWithFlameGame(
+    'a mirror kept while the line drifts shows what a fresh one does',
+    (game) async {
+      // A fifth of a unit a drawing moves the mirror of the post's top by
+      // two fifths of a pixel: kept where it was drawn, the edge would
+      // stand that far off in every second drawing.
+      final fresh = await _drifting(
+        game,
+        mirrorEvery: 1,
+        drift: 0.2,
+        drawings: 8,
+      );
+      final kept = await _drifting(
+        await initializeFlameGame(),
+        mirrorEvery: 2,
+        drift: 0.2,
+        drawings: 8,
+      );
+      expect(kept.recorded.reduce((a, b) => a + b), 4);
+      // Where the post's top stands down the column: how much of it is
+      // lit. A kept picture moved by a fraction of a pixel reads its edge
+      // a little softer, but in the same place; left where it was drawn,
+      // it stood two fifths of a pixel - some sixty levels - short.
+      int lit(List<int> column) => column.reduce((a, b) => a + b);
+      for (var i = 0; i < fresh.columns.length; i++) {
+        expect(
+          (lit(kept.columns[i]) - lit(fresh.columns[i])).abs(),
+          lessThanOrEqualTo(12),
+          reason: 'drawing $i',
+        );
+      }
+    },
+  );
+
+  testWithFlameGame(
+    'a view moving by whole steps keeps the mirror every other drawing, '
+    'its leading edge mirrored',
+    (game) async {
+      // The walker goes at a steady pace, the world steps at a fixed rate
+      // and the screen draws a little slower: the view moves a step, a
+      // step, then two. A picture made a step and a half wider each way
+      // after a drawing of one step ran short in the next of two, and was
+      // drawn anew in two drawings of three.
+      const step = 24.0;
+      final xs = [for (var i = 0; i < 24; i++) (i * 4 / 3).floor() * step];
+      final fresh = await _walkAt(game, mirrorEvery: 1, xs: xs, x: 795);
+      expect(fresh.reds.toSet(), hasLength(1), reason: 'the wall all along');
+      final kept = await _walkAt(
+        await initializeFlameGame(),
+        mirrorEvery: 2,
+        xs: xs,
+        x: 795,
+      );
+      expect(kept.reds, fresh.reds);
+      // Once the view has made a long step, every second drawing.
+      expect(kept.recorded.skip(8).reduce((a, b) => a + b), 8);
     },
   );
 

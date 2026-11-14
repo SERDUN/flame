@@ -120,12 +120,55 @@ class WaterSurface extends PositionComponent
   /// (`Reflectable.reflectionBase`).
   double? waterLine;
 
-  /// The line the world is mirrored about now, world y: the street line where
-  /// the water lies (water stands level, so only on level ground).
+  /// The line the world is mirrored about now, world y: the street line at
+  /// the water's middle. On hills and round a bend the street line rises and
+  /// falls across the water, and through the shader each column is mirrored
+  /// about the line where it is ([_lineAt]); drawn plainly
+  /// ([WaterQuality.mirror]) the whole water is mirrored about this one.
   double get _line =>
       waterLine ??
       _projection?.lineAt(absoluteTopLeftPosition.x + size.x / 2) ??
       absoluteTopLeftPosition.y;
+
+  /// The line the world is mirrored about at world [x], world y: the street
+  /// line there, or [waterLine] for all of it.
+  double _lineAt(double x) =>
+      waterLine ?? _projection?.lineAt(x) ?? absoluteTopLeftPosition.y;
+
+  /// Whether the street line rises and falls across it (hills, a bend) and
+  /// it mirrors each column about the line where it is: no [waterLine] of
+  /// its own, over ground that is not level.
+  bool get _followsLine {
+    final projection = _projection;
+    return followsStreetLine &&
+        waterLine == null &&
+        projection != null &&
+        !projection.lift.isLevel;
+  }
+
+  /// Whether it follows the street line where the ground is not level: its
+  /// mirror per column about the line there and its top on the ground at
+  /// one depth. False (the default): one line at its middle and its top
+  /// levelled by the highest ground under it, as a thin film on the road
+  /// over hills always was - a column's line is a cost a road-wide film
+  /// pays over its whole width (on a weak phone some 2 ms of a frame).
+  /// True for water that lies where the road may bend (a pond, an
+  /// embankment).
+  bool get followsStreetLine => false;
+
+  /// How far up or down its picture of the mirrored world is read, world
+  /// units, for a column whose street line is off the line at its middle:
+  /// (1 + [squash]) times the most it is off. 0 on level ground.
+  double get mirrorSlack {
+    if (!_followsLine) {
+      return 0;
+    }
+    final projection = _projection!;
+    final left = absoluteTopLeftPosition.x;
+    final (low, high) = projection.lift.rangeIn(left, left + size.x);
+    final middle = projection.liftAt(left + size.x / 2);
+    return (1 + squash) * math.max(high - middle, middle - low);
+  }
 
   /// The street's projection now, if the stage has a ground.
   StreetProjection? get _projection => stage?.projection;
@@ -505,7 +548,6 @@ class WaterSurface extends PositionComponent
   /// how many.
   int _gatherLights(LightField field, Vector2 origin) {
     _candidates.clear();
-    final line = _line;
     for (var i = 0; i < field.count; i++) {
       if (field.shapeOf(i) == LightShape.directional) {
         continue;
@@ -517,7 +559,7 @@ class WaterSurface extends PositionComponent
       if (x < -out || x > size.x + out) {
         continue;
       }
-      final base = field.standsAtOf(i) ?? line;
+      final base = field.standsAtOf(i) ?? _lineAt(field.xOf(i));
       final y = base + (base - field.yOf(i)) * squash - origin.y;
       if (y < -out * squash || y > size.y + out * squash) {
         continue;
@@ -534,7 +576,7 @@ class WaterSurface extends PositionComponent
       final i = _candidates[k];
       final o = k * WaterShader.lightFloats;
       final shape = field.shapeOf(i);
-      final base = field.standsAtOf(i) ?? line;
+      final base = field.standsAtOf(i) ?? _lineAt(field.xOf(i));
       final color = field.colorOf(i);
       final angle = field.directionOf(i);
       var halfX = 0.0;
@@ -819,6 +861,7 @@ class WaterSurface extends PositionComponent
     final projection = _projection;
     if (shape == WaterShape.rect &&
         liesOnGround &&
+        !followsStreetLine &&
         projection != null &&
         !projection.lift.isLevel) {
       // On the ground over hills: its top no higher than the street line
@@ -829,6 +872,32 @@ class WaterSurface extends PositionComponent
       for (var x = rect.left; x <= rect.right + step; x += step) {
         final line = projection.lineAt(origin.x + x) - origin.y;
         path.lineTo(x, math.max(rect.top, line));
+      }
+      return path
+        ..lineTo(rect.right + step, rect.bottom)
+        ..close();
+    }
+    if (shape == WaterShape.rect &&
+        liesOnGround &&
+        followsStreetLine &&
+        projection != null &&
+        !projection.lift.isLevel) {
+      // On the ground over hills and round a bend: its top lies on the
+      // ground at one depth - the depth its rectangle's top is at where the
+      // ground stands highest - so it rises and falls with the street line
+      // (a shore in front of the line too), and never above that line, a
+      // step at a time.
+      final origin = absoluteTopLeftPosition;
+      final (_, high) = projection.lift.rangeIn(
+        origin.x + rect.left,
+        origin.x + rect.right,
+      );
+      final path = Path()..moveTo(rect.left, rect.bottom);
+      const step = 0.25;
+      for (var x = rect.left; x <= rect.right + step; x += step) {
+        final lift = projection.liftAt(origin.x + x);
+        final line = projection.lineAt(origin.x + x) - origin.y;
+        path.lineTo(x, math.max(rect.top + high - lift, line));
       }
       return path
         ..lineTo(rect.right + step, rect.bottom)
@@ -1175,6 +1244,7 @@ class WaterSurface extends PositionComponent
                   right: area.right,
                   projection: _projection,
                   shift: mirrorShift,
+                  line: _line,
                   lit: lit,
                 );
                 lit?.finish(canvas);
@@ -1493,6 +1563,22 @@ class WaterSurface extends PositionComponent
       ..[WaterShader.wave + 2] = waves == null ? 0 : 1 / waves.rows
       ..[WaterShader.wave + 3] = waveAmplitude * waveGain
       ..[WaterShader.squash] = squash;
+    // The street line across it, where it rises and falls: each column is
+    // mirrored about the line where it is.
+    if (_followsLine) {
+      final projection = _projection!;
+      final origin = absoluteTopLeftPosition;
+      const n = WaterShader.lineSamples;
+      final step = size.x / (n - 1);
+      for (var i = 0; i < n; i++) {
+        f[WaterShader.lineAt + i] =
+            projection.lineAt(origin.x + step * i) - origin.y;
+      }
+      f
+        ..[WaterShader.lineSpan] = 0
+        ..[WaterShader.lineSpan + 1] = size.x
+        ..[WaterShader.lineSpan + 2] = n.toDouble();
+    }
     // The medium: how its depth takes the bottom's light and gives its own.
     final atten = medium.attenuation;
     final deep = medium.deepReflectance;

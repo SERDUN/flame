@@ -41,8 +41,20 @@ abstract final class WaterShader {
   /// layer ([surface]).
   static const int body = holes + maxHoles * 4;
 
+  /// Samples of the street line across the water: on hills and round a
+  /// bend each column is mirrored about the line where it is.
+  static const int lineSamples = 32;
+
+  /// Where the street line's samples start, in floats: local y at
+  /// [lineSamples] evenly spaced local x, after the medium's top layer.
+  static const int lineAt = body + 3 * 4;
+
+  /// Where their span is, in floats: the local x of the first and the
+  /// last, and how many (0: one line, [line], level ground).
+  static const int lineSpan = lineAt + lineSamples;
+
   /// Floats in the array.
-  static const int floats = body + 3 * 4;
+  static const int floats = lineSpan + 4;
 
   // Header offsets, in floats: the shader's names.
   static const int size = 0;
