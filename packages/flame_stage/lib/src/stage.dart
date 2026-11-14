@@ -324,6 +324,12 @@ class Stage extends Component {
       return;
     }
     _preparedAt = frame.index;
+    // The view again, as drawn: a game moves its camera after the world's
+    // update, the stage's with it, so the view the update read is the last
+    // frame's. Prepared on it, the light lagged the camera by a frame - and
+    // by a whole jump when the game was paused right after the camera
+    // jumped: a strip at the frame's edge stayed unlit.
+    frame.view = _view() ?? frame.view;
     for (final step in members<FrameStep>()) {
       step.prepareFrame(canvas, frame);
     }

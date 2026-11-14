@@ -62,6 +62,16 @@ class _Step extends Component with OnStage, FrameStep {
       log.add('prepared ${frame.index}');
 }
 
+/// Keeps the view each frame is prepared on.
+class _ViewStep extends Component with OnStage, FrameStep {
+  _ViewStep(this.views);
+
+  final List<Rect> views;
+
+  @override
+  void prepareFrame(Canvas canvas, StageFrame frame) => views.add(frame.view);
+}
+
 /// Writes into [log] when it draws.
 class _Drawer extends Component {
   _Drawer(this.log) : super(priority: -100);
@@ -104,6 +114,22 @@ void main() {
     game.update(1 / 60);
     game.render(Canvas(PictureRecorder()));
     expect(log, ['prepared 1', 'drawn', 'prepared 2', 'drawn']);
+  });
+
+  testWithFlameGame('a frame is prepared on the view the camera draws', (
+    game,
+  ) async {
+    final views = <Rect>[];
+    game.world.add(_ViewStep(views));
+    await game.ready();
+    game.update(1 / 60);
+    // The game moves its camera after the world's update, then is paused:
+    // no update reads the view again before the frame is drawn.
+    game.camera.viewfinder.position = Vector2(500, 0);
+    final drawn = game.camera.visibleWorldRect;
+    game.render(Canvas(PictureRecorder()));
+    expect(views, [drawn]);
+    expect(game.world.children.whereType<Stage>().single.frame.view, drawn);
   });
 
   testWithFlameGame('one stage a world, made when first asked for', (
