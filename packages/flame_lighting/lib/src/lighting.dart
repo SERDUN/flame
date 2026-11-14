@@ -49,6 +49,7 @@ class Lighting extends Component with OnStage, Ambience, FrameStep {
     this.glow,
     this.metre = 1,
     this.haze,
+    this.nightVision,
     this.useBuffer = true,
     this.bufferScale = 0.5,
     this.lightsBackdrop = true,
@@ -88,6 +89,13 @@ class Lighting extends Component with OnStage, Ambience, FrameStep {
   /// How thick the air is, `0..1`; `null`: as the stage's weather makes it.
   @override
   double? haze;
+
+  /// How the eye sees colour in the light it has adapted to; `null`: as in
+  /// daylight. The stage's [LightField.scotopic] follows it, and the game
+  /// lays the shift over the whole drawn world once a frame - not on the
+  /// lit layer's turns, which cost a pass each on a weak phone.
+  @override
+  NightVision? nightVision;
 
   /// Whether to add the lights up on the GPU where it can ([LightBuffer]).
   /// Off, every light is drawn on the canvas.

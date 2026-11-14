@@ -21,6 +21,7 @@ export 'src/light_field.dart'
         LightField,
         LightSample,
         LightShape;
+export 'src/night_vision.dart';
 export 'src/shadow.dart' show ShadowCaster, ShadowSet, UprightShadow;
 export 'src/sky_view.dart';
 export 'src/stage.dart' show FrameStep, Ground, OnStage, Stage, StageFrame;
