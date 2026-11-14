@@ -26,7 +26,7 @@ import 'package:flame_water/src/water_surface.dart';
 class MirrorPass implements Mirror {
   MirrorPass._(this.line, this.squash);
 
-  /// World y of the line the world is mirrored about.
+  /// World y of the line the world was mirrored about in the picture.
   final double line;
 
   /// How tall the mirror is against what it mirrors.
@@ -36,7 +36,29 @@ class MirrorPass implements Mirror {
 
   /// The part of the world the picture covers, world coordinates: the
   /// mirror of it, that is - where the waters are, as much as is in view.
+  /// A picture kept while the line drifts ([lineHold]) is laid here moved
+  /// with it.
   Rect bounds = Rect.zero;
+
+  /// [bounds] as the picture was drawn, about [line].
+  Rect _drawn = Rect.zero;
+
+  /// How far the mirror of what stands on the line may have moved, in
+  /// pixels of the picture, before a kept picture is drawn anew: what the
+  /// water's line drifts by while it is kept - a road on a hill moving
+  /// under the view - moves the picture with it ([shiftFor]), which is
+  /// exact for what stands on the line and leaves what stands off it
+  /// ([Reflectable.reflectionBase], a drop where it lands) at most this
+  /// far from where it is, under what the picture's filtering shows.
+  static const double lineHold = 0.5;
+
+  /// How far the mirror of what stands on the line moves, world y, when
+  /// the line moves from [line] to [now]: the mirror of a point `y` is
+  /// `line - squash * (y - line)`.
+  double shiftFor(double now) => (now - line) * (1 + squash);
+
+  /// The farthest [shiftFor] may go for this picture, world units.
+  double get _shiftHold => lineHold / scale;
 
   /// Pixels of the picture per world unit: as fine as its finest water
   /// needs.
@@ -140,8 +162,15 @@ class MirrorPass implements Mirror {
   }
 
   /// Draws the picture of what [view] needs, and [margin] past it each way:
-  /// what a view moving on needs of a picture kept for the drawings after.
-  void _record(Stage stage, Rect? view, {double margin = 0}) {
+  /// what a view moving on needs of a picture kept for the drawings after
+  /// ([kept]), which is drawn taller too, by as far as it may be moved
+  /// with the line.
+  void _record(
+    Stage stage,
+    Rect? view, {
+    double margin = 0,
+    bool kept = false,
+  }) {
     final (:area, :reach) = _reach();
     var left = double.infinity;
     var right = double.negativeInfinity;
@@ -158,11 +187,20 @@ class MirrorPass implements Mirror {
       right,
       double.infinity,
     );
-    // Only what is in view needs mirroring, and as far round it as the
-    // waters bend what they show.
-    final shown = view?.inflate(margin);
-    bounds = shown == null ? area : area.intersect(shown.inflate(reach));
     scale = pixels;
+    // Only what is in view needs mirroring, and as far round it as the
+    // waters bend what they show; a kept picture up and down past them as
+    // far as it may be moved with the line, in whole pixels - the picture
+    // still meets the screen's own.
+    final shown = view?.inflate(margin);
+    final needed = shown == null ? area : area.intersect(shown.inflate(reach));
+    final hold = kept ? lineHold.ceil() / scale : 0.0;
+    bounds = _drawn = Rect.fromLTRB(
+      needed.left,
+      needed.top - hold,
+      needed.right,
+      needed.bottom + hold,
+    );
     final width = (bounds.width * scale).ceil();
     final height = (bounds.height * scale).ceil();
     if (width <= 0 || height <= 0) {
@@ -337,17 +375,24 @@ class _Passes {
   /// The drawing of the world their pictures were last drawn in.
   int _drawnIn = -1;
 
-  /// The view of the last drawing, and how far it moved from the one
-  /// before: a picture kept for the drawings after is drawn that much
-  /// wider for each of them, so a view following the walker does not run
-  /// past its edge.
+  /// The view of the last drawing, and how far it moved in each of the
+  /// last [_driftsKept] drawings: a picture kept for the drawings after is
+  /// drawn wider by the most of those for each of them, so a view
+  /// following the walker does not run past its edge. Not the last move
+  /// alone: a view moved by whole steps of the world moves unevenly from
+  /// drawing to drawing - a step in one, two in the next - and a picture
+  /// drawn after the short one would fall short of the long one.
   Rect? _lastView;
-  double _drift = 0;
+  final List<double> _drifts = [];
+  static const int _driftsKept = 8;
 
   /// Whether this drawing reads the pictures there are
   /// ([WaterSurface.mirrorEvery]): the pictures are younger than the least
   /// any water in view keeps one for, and the waters in view are the ones
   /// they were drawn for, mirroring alike.
+  ///
+  /// A water's line may have drifted since, by no more than moves the
+  /// picture [MirrorPass.lineHold]: the picture is then laid moved with it.
   bool _keeps(Stage stage) {
     if (_list.isEmpty || stage.frame.index <= 0 || _drawnIn < 0) {
       return false;
@@ -355,6 +400,8 @@ class _Passes {
     final view = stage.frame.view;
     var every = 1 << 30;
     var members = 0;
+    // Where each pass's waters mirror about now: alike, as they were.
+    final lines = <MirrorPass, double>{};
     for (final water in stage.members<WaterSurface>()) {
       if (!water.mirrorsThroughShader ||
           !view.overlaps(water.toAbsoluteRect())) {
@@ -362,9 +409,13 @@ class _Passes {
       }
       every = math.min(every, water.mirrorEvery);
       final pass = find(water);
-      if (pass == null ||
-          pass.line != water.mirrorLine ||
-          pass.squash != water.squash) {
+      if (pass == null || pass.squash != water.squash) {
+        return false;
+      }
+      final now = water.mirrorLine;
+      final other = lines[pass] ??= now;
+      if ((now - other).abs() > _hair ||
+          pass.shiftFor(now).abs() > pass._shiftHold) {
         return false;
       }
       members++;
@@ -376,24 +427,32 @@ class _Passes {
     if (members != had || stage.drawing - _drawnIn >= every) {
       return false;
     }
-    // And they still hold all this view needs - else a strip at its
-    // leading edge would mirror nothing.
+    // And, laid where the lines moved them, they still hold all this view
+    // needs - else a strip at its leading edge would mirror nothing.
+    final laid = <MirrorPass, Rect>{
+      for (final pass in _list)
+        pass: pass._drawn.translate(0, pass.shiftFor(lines[pass] ?? pass.line)),
+    };
     for (final pass in _list) {
-      if (!_holds(pass.bounds, pass._needed(view))) {
+      if (!_holds(laid[pass]!, pass._needed(view))) {
         return false;
       }
+    }
+    for (final pass in _list) {
+      pass.bounds = laid[pass]!;
     }
     return true;
   }
 
+  static const double _hair = 1e-6;
+
   /// Whether [outer] holds [inner], to a hair.
   static bool _holds(Rect outer, Rect inner) {
-    const hair = 1e-6;
     return inner.isEmpty ||
-        (inner.left >= outer.left - hair &&
-            inner.top >= outer.top - hair &&
-            inner.right <= outer.right + hair &&
-            inner.bottom <= outer.bottom + hair);
+        (inner.left >= outer.left - _hair &&
+            inner.top >= outer.top - _hair &&
+            inner.right <= outer.right + _hair &&
+            inner.bottom <= outer.bottom + _hair);
   }
 
   /// The least drawings any water in [view] keeps a picture for.
@@ -423,7 +482,12 @@ class _Passes {
     if (stage.frame.index > 0) {
       final view = stage.frame.view;
       final last = _lastView;
-      _drift = last == null ? 0 : (view.center - last.center).distance;
+      if (last != null) {
+        _drifts.add((view.center - last.center).distance);
+        if (_drifts.length > _driftsKept) {
+          _drifts.removeAt(0);
+        }
+      }
       _lastView = view;
     }
     if (_keeps(stage)) {
@@ -455,12 +519,19 @@ class _Passes {
       }
       pass._members.add(water);
     }
-    // As far as the view goes while the pictures are kept, at the pace it
-    // went the last drawing - and half again, for a view that speeds up.
+    // As far as the view goes while the pictures are kept, at the most it
+    // went a drawing of late - and half again, for a view that speeds up.
+    // A view that moves that much each drawing comes to the edge of the
+    // picture no sooner than the drawing after the last one it is kept
+    // for. No wider than the view is: a view jumping further has left
+    // the picture whatever its margin.
     final every = _every(stage, view);
-    final margin = every > 1 ? _drift * (every - 1) * 1.5 : 0.0;
+    final drift = _drifts.fold<double>(0, math.max);
+    final margin = every > 1 && view != null
+        ? math.min(drift * (every - 1) * 1.5, view.width)
+        : 0.0;
     for (final pass in _list) {
-      pass._record(stage, view, margin: margin);
+      pass._record(stage, view, margin: margin, kept: every > 1);
     }
   }
 }
