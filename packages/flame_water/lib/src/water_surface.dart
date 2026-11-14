@@ -140,8 +140,21 @@ class WaterSurface extends PositionComponent
   /// its own, over ground that is not level.
   bool get _followsLine {
     final projection = _projection;
-    return waterLine == null && projection != null && !projection.lift.isLevel;
+    return followsStreetLine &&
+        waterLine == null &&
+        projection != null &&
+        !projection.lift.isLevel;
   }
+
+  /// Whether it follows the street line where the ground is not level: its
+  /// mirror per column about the line there and its top on the ground at
+  /// one depth. False (the default): one line at its middle and its top
+  /// levelled by the highest ground under it, as a thin film on the road
+  /// over hills always was - a column's line is a cost a road-wide film
+  /// pays over its whole width (on a weak phone some 2 ms of a frame).
+  /// True for water that lies where the road may bend (a pond, an
+  /// embankment).
+  bool get followsStreetLine => false;
 
   /// How far up or down its picture of the mirrored world is read, world
   /// units, for a column whose street line is off the line at its middle:
@@ -848,6 +861,25 @@ class WaterSurface extends PositionComponent
     final projection = _projection;
     if (shape == WaterShape.rect &&
         liesOnGround &&
+        !followsStreetLine &&
+        projection != null &&
+        !projection.lift.isLevel) {
+      // On the ground over hills: its top no higher than the street line
+      // under it, a step at a time.
+      final origin = absoluteTopLeftPosition;
+      final path = Path()..moveTo(rect.left, rect.bottom);
+      const step = 0.25;
+      for (var x = rect.left; x <= rect.right + step; x += step) {
+        final line = projection.lineAt(origin.x + x) - origin.y;
+        path.lineTo(x, math.max(rect.top, line));
+      }
+      return path
+        ..lineTo(rect.right + step, rect.bottom)
+        ..close();
+    }
+    if (shape == WaterShape.rect &&
+        liesOnGround &&
+        followsStreetLine &&
         projection != null &&
         !projection.lift.isLevel) {
       // On the ground over hills and round a bend: its top lies on the

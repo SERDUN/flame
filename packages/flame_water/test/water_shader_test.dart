@@ -40,6 +40,21 @@ double _lineAt(double x) => 100 - _lift(x);
 
 /// The ground from y 100 down, 40 deep, rising and falling across the view
 /// as a bend in the road makes it.
+/// Water that follows the street line where the ground bends: a pond's, not
+/// a film on the road.
+class _LineWater extends WaterSurface {
+  _LineWater({
+    super.position,
+    super.size,
+    super.shape,
+    super.fade,
+    super.color,
+  });
+
+  @override
+  bool get followsStreetLine => true;
+}
+
 class _BentRoad extends Component with OnStage, Ground {
   @override
   Rect groundBand() => const Rect.fromLTWH(0, 100, 100, 40);
@@ -125,7 +140,7 @@ void main() {
     'on a bent road each column mirrors about the street line where it is',
     (game) async {
       await WaterShader.load(asset: 'shaders/water.frag');
-      final surface = WaterSurface(
+      final surface = _LineWater(
         position: Vector2(0, 90),
         size: Vector2(100, 50),
         shape: WaterShape.rect,
@@ -169,7 +184,7 @@ void main() {
       await WaterShader.load(asset: 'shaders/water.frag');
       // A shore 12 below the street line where the road stands level: the
       // rectangle's top where the ground stands highest (x 100, 10 up).
-      final surface = WaterSurface(
+      final surface = _LineWater(
         position: Vector2(0, 102),
         size: Vector2(100, 38),
         shape: WaterShape.rect,
