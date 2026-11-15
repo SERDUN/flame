@@ -36,6 +36,7 @@ Future<({int r, int g}) Function(int x, int y)> _render(
   List<AirBank> banks, {
   double Function()? resolution,
   double Function()? pixelRatio,
+  bool Function()? shown,
 }) async {
   await LightShader.load(directory: 'shaders');
   game.onGameResize(Vector2(800, 600));
@@ -51,6 +52,7 @@ Future<({int r, int g}) Function(int x, int y)> _render(
       depth: () => -0.5,
       resolution: resolution,
       pixelRatio: pixelRatio,
+      shown: shown,
     ),
     // Fifty units a metre: the eye 2.6 m up, the street line 24 m off, the
     // veil's depth some 480 m. Under the noon sky nothing is lit.
@@ -103,6 +105,32 @@ void main() {
       game.update(1 / 60);
       await _picture(game);
       expect(veil.gridCells!.width - 1, closeTo(2 * half, 1));
+    },
+  );
+
+  testWithFlameGame(
+    'a veil not shown lays no air, on the grid or at every pixel',
+    (game) async {
+      final banks = [AirBank(extinction: AirField.ofVisibility(50), topM: 1e6)];
+      var shown = false;
+      var share = 0.5;
+      var at = await _render(
+        game,
+        banks,
+        resolution: () => share,
+        shown: () => shown,
+      );
+      final veil = game.world.children.whereType<AirVeil>().single;
+      expect(veil.gridCells, isNull);
+      expect(at(100, 200).r, 255, reason: 'white, no air over it');
+      share = 1;
+      game.update(1 / 60);
+      at = await _picture(game);
+      expect(at(100, 200).r, 255, reason: 'white, no air over it');
+      shown = true;
+      game.update(1 / 60);
+      at = await _picture(game);
+      expect(at(100, 200).r, lessThan(30), reason: 'white gone into the air');
     },
   );
 

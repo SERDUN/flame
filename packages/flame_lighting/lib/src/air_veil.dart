@@ -29,6 +29,7 @@ class AirVeil extends Component with OnStage, AtDepth, _LaysAir {
     this.resolution,
     this.pixelRatio,
     this.splitsLayer,
+    this.shown,
   });
 
   /// The depth it stands at.
@@ -36,6 +37,11 @@ class AirVeil extends Component with OnStage, AtDepth, _LaysAir {
 
   /// The depth of the next veil toward the eye; `null`: the eye.
   final double? Function()? nearer;
+
+  /// Whether it lays its air this frame; `null`: always. A veil at a depth
+  /// where nothing stands for now costs a pass over the view and covers
+  /// nothing the veil behind it, reaching on to the eye, would not.
+  final bool Function()? shown;
 
   @override
   final double Function()? resolution;
@@ -53,8 +59,9 @@ class AirVeil extends Component with OnStage, AtDepth, _LaysAir {
   DepthOrder get depthOrder => DepthOrder.air;
 
   @override
-  Rect? _setUp(FragmentShader shader) =>
-      _setUpAir(this, shader, depth: depth(), nearer: nearer?.call());
+  Rect? _setUp(FragmentShader shader) => (shown?.call() ?? true)
+      ? _setUpAir(this, shader, depth: depth(), nearer: nearer?.call())
+      : null;
 }
 
 /// The air over the ground band: each row of it the air between the ground
