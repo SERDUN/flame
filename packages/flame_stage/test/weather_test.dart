@@ -17,6 +17,9 @@ class _Storm extends Component with OnStage, Weather {
 
   @override
   double get pace => 60;
+
+  @override
+  double get mistPerM => 3e-3;
 }
 
 WeatherState _state({
@@ -49,6 +52,17 @@ void main() {
     expect(storm.rainIntensity, 2.5);
   });
 
+  test("a mist past the rain's own brings the view in further", () {
+    final rain = _state(rain: 10, humidity: 0.97);
+    final misty = _state(rain: 10, humidity: 0.97)..mistPerM = 3e-3;
+    expect(
+      1 / misty.visibilityM,
+      closeTo(1 / rain.visibilityM + 3e-3, 1e-12),
+    );
+    const lamp = (x: 0.0, ahead: 0.0, height: 3.0);
+    expect(misty.hazeAt(lamp), greaterThan(rain.hazeAt(lamp)));
+  });
+
   testWithFlameGame('the stage reads the weather into the frame', (
     game,
   ) async {
@@ -61,6 +75,7 @@ void main() {
     expect(weather.rainMmPerHour, 12);
     expect(weather.wind.x, 4);
     expect(weather.pace, 60);
+    expect(weather.mistPerM, 3e-3);
   });
 
   test('the colour of a lamp follows its temperature', () {

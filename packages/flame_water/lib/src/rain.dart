@@ -64,6 +64,7 @@ class Rain extends Component with OnStage, Reflectable, Weather {
     this.density = 15,
     this.metre = 50,
     this.humidity = 0.95,
+    this.mistPerM = 0,
     this.temperature = 12,
     this.cloudCover = 1,
     this.pace = 1,
@@ -258,6 +259,9 @@ class Rain extends Component with OnStage, Reflectable, Weather {
 
   @override
   double humidity;
+
+  @override
+  double mistPerM;
 
   @override
   double temperature;

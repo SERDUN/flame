@@ -23,6 +23,12 @@ mixin Weather on OnStage {
   /// The air's relative humidity, `0..1`.
   double get humidity => 0.8;
 
+  /// Mist the rain's own drops do not account for, its extinction per metre:
+  /// the spray and the fine water a downpour fills the air with, which make it
+  /// a wall of water more than its drops do. Over all the scene, with the
+  /// rain's ([WeatherState.visibilityM]). 0: the rain's haze alone.
+  double get mistPerM => 0;
+
   /// The air's temperature, degrees Celsius.
   double get temperature => 12;
 
@@ -69,6 +75,10 @@ class WeatherState {
 
   /// Relative humidity, `0..1`.
   double humidity = 0.6;
+
+  /// Mist over all the scene beyond the rain's, extinction per metre
+  /// ([Weather.mistPerM]).
+  double mistPerM = 0;
 
   /// Degrees Celsius.
   double temperature = 15;
@@ -120,7 +130,8 @@ class WeatherState {
   /// How far one sees through the rain and the mist over all of it, m
   /// (Koschmieder): clear air some 20 km, rain and mist scatter the light
   /// and bring it in. A bank is thicker where it lies ([AirField]).
-  double get visibilityM => visibilityMOf(rainMmPerHour, humidity: humidity);
+  double get visibilityM =>
+      1 / (1 / visibilityMOf(rainMmPerHour, humidity: humidity) + mistPerM);
 
   /// How far one sees, m, in rain of [rainMmPerHour] through air of
   /// [humidity]: clear air's extinction, the rain's (growing as the rain to
@@ -167,6 +178,7 @@ class WeatherState {
       rainMmPerHour = 0;
       wind.setZero();
       humidity = 0.6;
+      mistPerM = 0;
       temperature = 15;
       cloudCover = 0;
       cloudOpticalDepth = 0;
@@ -178,6 +190,7 @@ class WeatherState {
     cloudOpticalDepth = math.max(weather.cloudOpticalDepth, 0);
     wind.setFrom(weather.wind);
     humidity = weather.humidity.clamp(0.0, 1.0);
+    mistPerM = math.max(weather.mistPerM, 0);
     temperature = weather.temperature;
     cloudCover = weather.cloudCover.clamp(0.0, 1.0);
     pace = math.max(weather.pace, 0);
