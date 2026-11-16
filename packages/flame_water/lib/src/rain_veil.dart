@@ -97,7 +97,16 @@ class RainVeil {
       load().ignore();
     }
     if (program != null) {
-      _drawStreaks(canvas, program, rain, view, scale, depth, intensity);
+      _drawStreaks(
+        canvas,
+        program,
+        rain,
+        view,
+        projection,
+        scale,
+        depth,
+        intensity,
+      );
     }
 
     // Heavy rain bursting on the ground throws up a low mist along it.
@@ -128,6 +137,7 @@ class RainVeil {
     FragmentProgram program,
     Rain rain,
     Rect view,
+    StreetProjection projection,
     double scale,
     double depth,
     double intensity,
@@ -176,6 +186,28 @@ class RainVeil {
     for (var i = 0; i < _floats; i++) {
       shader.setFloat(i, f[i]);
     }
-    canvas.drawRect(view, _streaks..shader = shader);
+    canvas.drawRect(
+      shownOf(view, projection, pixels),
+      _streaks..shader = shader,
+    );
+  }
+
+  /// The part of [view] a veil's streaks are seen in: down to the lowest
+  /// the street line stands across it, and a pixel more ([pixels] a world
+  /// unit) for the edge. A veil stands behind the line, where the rain ends
+  /// on it ([StreetProjection.yAt]); below it the street is drawn over the
+  /// veil, and the shader's work there was a third of a veil's - on the
+  /// Redmi A5 the city's frame ran 18.9 ms with it and 17.9 without. The
+  /// streaks keep their places: the shader is still handed the whole view.
+  static Rect shownOf(Rect view, StreetProjection projection, double pixels) {
+    final (low, _) = projection.lift.rangeIn(view.left, view.right);
+    final edge = pixels > 0 ? 1 / pixels : 0.0;
+    final bottom = projection.line - low + edge;
+    return Rect.fromLTRB(
+      view.left,
+      view.top,
+      view.right,
+      bottom.clamp(view.top, view.bottom),
+    );
   }
 }

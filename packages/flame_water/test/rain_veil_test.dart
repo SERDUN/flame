@@ -84,4 +84,68 @@ void main() {
     expect(hard.pixels, greaterThan(2000));
     expect(soft.pixels, lessThan(hard.pixels / 2));
   });
+
+  group('a veil is drawn down to the street line', () {
+    const view = Rect.fromLTWH(0, 100, 800, 500);
+
+    test('on level ground, to the line and a pixel more', () {
+      final projection = StreetProjection(
+        const Rect.fromLTWH(0, 400, 800, 120),
+      );
+      expect(
+        RainVeil.shownOf(view, projection, 2),
+        const Rect.fromLTRB(0, 100, 800, 400.5),
+      );
+    });
+
+    test('over hills, to the lowest the line stands in the view', () {
+      // The line 30 up at the left, 20 down at x 500, 10 up at the right.
+      final projection = StreetProjection(
+        const Rect.fromLTWH(0, 400, 800, 120),
+        lift: GroundLift.sampled(
+          -100,
+          900,
+          11,
+          (x) => x == 500 ? -20 : (x < 500 ? 30 : 10),
+        ),
+      );
+      expect(RainVeil.shownOf(view, projection, 1).bottom, 421);
+    });
+
+    test('never past the view', () {
+      final high = StreetProjection(const Rect.fromLTWH(0, 50, 800, 120));
+      final low = StreetProjection(const Rect.fromLTWH(0, 700, 800, 120));
+      expect(RainVeil.shownOf(view, high, 1).height, 0);
+      expect(RainVeil.shownOf(view, low, 1), view);
+    });
+
+    testWithFlameGame('nothing of its streaks falls below it', (game) async {
+      await RainVeil.load(asset: 'shaders/veil.frag');
+      game.camera.viewfinder.anchor = Anchor.topLeft;
+      final rain = Rain(intensity: 2)
+        ..veils = [-0.35]
+        ..drawsItself = false;
+      game.world.addAll([_Ground(), rain]);
+      await game.ready();
+      for (var i = 0; i < 30; i++) {
+        game.update(1 / 30);
+      }
+      final recorder = PictureRecorder();
+      final canvas = Canvas(recorder)
+        ..drawColor(const Color(0xFF000000), BlendMode.src);
+      RainSlice(rain, to: -0.3).render(canvas);
+      final image = await recorder.endRecording().toImage(800, 600);
+      final bytes = (await image.toByteData())!;
+      int lightIn(int from, int to) {
+        var light = 0;
+        for (var i = from * 800; i < to * 800; i++) {
+          light += bytes.getUint8(i * 4);
+        }
+        return light;
+      }
+
+      expect(lightIn(300, 400), greaterThan(0), reason: 'streaks above it');
+      expect(lightIn(401, 600), 0, reason: 'the street is drawn over below');
+    });
+  });
 }
